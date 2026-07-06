@@ -80,6 +80,23 @@ export type EmployeeStatus = "draft" | "training" | "active" | "paused" | "archi
 
 export type EmployeeVisibility = "private" | "organization" | "network_ready";
 
+// Working style (Prompt 004: Hiring Studio). Plain, non-technical dimensions a
+// business user chooses when hiring — never model or prompt settings.
+export type EmployeeTone = "friendly" | "professional" | "warm" | "direct" | "luxury" | "playful";
+
+export type EmployeeFormality = "casual" | "balanced" | "formal";
+
+export type EmployeeRiskLevel = "conservative" | "balanced" | "proactive";
+
+export type EmployeeEscalation = "ask_when_unsure" | "ask_before_important" | "only_critical";
+
+export interface WorkingStyle {
+  tone: EmployeeTone;
+  formality: EmployeeFormality;
+  riskLevel: EmployeeRiskLevel;
+  escalation: EmployeeEscalation;
+}
+
 /**
  * An AI Employee: a persistent AI worker owned by an organization. Every
  * employee is tenant-scoped via `organizationId`; there is no way to read an
@@ -94,6 +111,10 @@ export interface AiEmployee {
   description: string | null;
   status: EmployeeStatus;
   visibility: EmployeeVisibility;
+  /** Main responsibilities chosen during hiring (plain-language bullet points). */
+  responsibilities: string[];
+  /** Working style chosen during hiring; null for employees created before it existed. */
+  workingStyle: WorkingStyle | null;
   avatarUrl: string | null;
   createdBy: string | null;
   createdAt: string;
@@ -108,6 +129,8 @@ export interface CreateEmployeeInput {
   description?: string | null;
   status?: EmployeeStatus;
   visibility?: EmployeeVisibility;
+  responsibilities?: string[];
+  workingStyle?: WorkingStyle | null;
   createdBy?: string | null;
 }
 
