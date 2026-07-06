@@ -7,21 +7,45 @@ import { z } from "zod";
  * malformed configuration fails fast with a clear message instead of causing
  * confusing runtime errors deep in the app.
  *
- * In Prompt 001 the app runs without a database or provider keys, so most
- * variables are optional. Later prompts will tighten these rules (e.g. require
- * DATABASE_URL once the DB layer is wired up).
+ * DATABASE_URL is optional: when unset, the app uses an in-memory data store for
+ * local dev/tests; when set, it uses PostgreSQL. AUTH_SECRET is required for
+ * sessions and must be strong; it is mandatory in production.
  *
  * SECURITY: Only variables prefixed with `NEXT_PUBLIC_` are exposed to the
  * browser. Server secrets (AI_PROVIDER_API_KEY, AUTH_SECRET, DATABASE_URL) are
  * validated here but must never be imported into client components.
  */
 
-const serverSchema = z.object({
-  NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
-  DATABASE_URL: z.string().url().optional().or(z.literal("")),
-  AUTH_SECRET: z.string().optional().or(z.literal("")),
-  AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
-});
+const MIN_SECRET_LENGTH = 16;
+
+const serverSchema = z
+  .object({
+    NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
+    DATABASE_URL: z.string().url().optional().or(z.literal("")),
+    // Session signing secret. Optional in dev/test, required in production, and
+    // must be at least MIN_SECRET_LENGTH characters whenever it is provided.
+    AUTH_SECRET: z.string().optional().or(z.literal("")),
+    // Explicit opt-in required to use the passwordless dev auth in production.
+    TAURUS_ALLOW_DEV_AUTH: z.enum(["true", "false"]).optional().or(z.literal("")),
+    AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
+  })
+  .superRefine((env, ctx) => {
+    const secret = env.AUTH_SECRET;
+    if (secret && secret.length < MIN_SECRET_LENGTH) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["AUTH_SECRET"],
+        message: `AUTH_SECRET must be at least ${MIN_SECRET_LENGTH} characters.`,
+      });
+    }
+    if (env.NODE_ENV === "production" && (!secret || secret.length < MIN_SECRET_LENGTH)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["AUTH_SECRET"],
+        message: "AUTH_SECRET is required in production and must be a strong secret.",
+      });
+    }
+  });
 
 const clientSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
@@ -61,6 +85,7 @@ export function getServerEnv(): ServerEnv {
       NODE_ENV: process.env.NODE_ENV,
       DATABASE_URL: process.env.DATABASE_URL,
       AUTH_SECRET: process.env.AUTH_SECRET,
+      TAURUS_ALLOW_DEV_AUTH: process.env.TAURUS_ALLOW_DEV_AUTH,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
     });
   }

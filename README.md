@@ -181,3 +181,88 @@ DNA, Knowledge Vault) and never the words *agent*, *prompt*, or *knowledge base*
 - No database connection — the DB layer is a stub for Prompt 002.
 - Pages are placeholders with no real data or forms.
 - The organization context uses a placeholder organization.
+
+---
+
+# Authentication, Database, and Tenancy (Prompt 002)
+
+Prompt 002 adds the real database schema, an authentication foundation, and
+organization multi-tenancy. You can now sign up, create an organization (you
+become its **owner**), and reach an organization-scoped dashboard. Users can
+belong to multiple organizations and switch between them.
+
+## Configure your local environment
+
+```bash
+# 1. Install dependencies
+npm install
+
+# 2. Create your local environment file
+cp .env.example .env.local     # PowerShell: Copy-Item .env.example .env.local
+
+# 3. Set a session secret (REQUIRED for sign-in). Generate a strong value:
+#    openssl rand -base64 32
+#    ...and paste it into AUTH_SECRET in .env.local
+
+# 4. Start the dev server
+npm run dev
+```
+
+Open http://localhost:3000 and use **Create an account** → name your organization
+→ you land in the dashboard as the owner.
+
+### Environment variables
+
+| Variable                | Required | Purpose                                                              |
+| ----------------------- | -------- | -------------------------------------------------------------------- |
+| `AUTH_SECRET`           | Yes\*    | Signs session cookies. Min 16 chars. **Mandatory in production.**    |
+| `DATABASE_URL`          | No       | PostgreSQL connection. **If empty, an in-memory store is used.**     |
+| `TAURUS_ALLOW_DEV_AUTH` | No       | Set `true` to allow the passwordless dev auth in production.         |
+| `NEXT_PUBLIC_APP_URL`   | No       | Public base URL (defaults to `http://localhost:3000`).               |
+| `AI_PROVIDER_API_KEY`   | No       | Reserved for later prompts. Server-only; never sent to the browser.  |
+
+\* `AUTH_SECRET` is required for authentication to work; it is only *enforced* at
+validation time in production, but sign-in will fail without it in any mode.
+
+Environment is validated in `src/lib/env/env.ts` (Zod). Validation is never
+skipped — invalid config fails fast with a readable error.
+
+## Database
+
+The schema lives in [`db/migrations`](db/migrations) and is the source of truth.
+
+- **With PostgreSQL:** set `DATABASE_URL`, then run `npm run db:migrate`
+  (optionally `npm run db:migrate:seed`). See [`db/README.md`](db/README.md).
+- **Without PostgreSQL:** leave `DATABASE_URL` empty and the app uses an
+  in-memory store — ideal for local dev and tests. Data is process-local and
+  resets on restart (dev/test only).
+
+## Authentication & tenancy model
+
+- **Sessions:** signed cookies (HMAC via `AUTH_SECRET`), verified in edge
+  middleware and re-checked on the server.
+- **Provider abstraction:** `src/modules/auth/provider.ts`. The default dev
+  provider is passwordless (email only) and is blocked in production unless
+  `TAURUS_ALLOW_DEV_AUTH=true`. Swap in Supabase/Clerk here later.
+- **Centralized tenant checks** (`src/lib/security/`): `requireUser`,
+  `requireOrganizationMember`, `requireRole`, `assertEmployeeInOrganization`.
+  A user can only access an organization where they have an **active** membership.
+- **Roles:** owner, admin, builder, viewer (least privilege by default) —
+  `src/modules/organizations/roles.ts`.
+- **Protected routes:** `/dashboard/*` and `/onboarding` require a session
+  (enforced by `src/middleware.ts` and the server guards).
+
+## Additional scripts (Prompt 002)
+
+| Command                   | Description                                    |
+| ------------------------- | ---------------------------------------------- |
+| `npm run db:migrate`      | Apply SQL migrations (requires `DATABASE_URL`) |
+| `npm run db:migrate:seed` | Apply migrations, then seed demo data          |
+
+## Known limitations (Prompt 002)
+
+- The dev auth provider is passwordless (a stand-in for Supabase/Clerk).
+- The in-memory store is per-process and non-durable; production requires
+  `DATABASE_URL`.
+- Member invitations and role management UIs are not built yet (later prompts).
+- The dashboard pages remain placeholders — no employee/knowledge features yet.
