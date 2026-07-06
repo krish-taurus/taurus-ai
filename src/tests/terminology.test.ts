@@ -16,6 +16,8 @@ const UI_DIRS = [join(uiRoot, "app"), join(uiRoot, "components")];
 
 const FORBIDDEN: { label: string; pattern: RegExp }[] = [
   { label: "agent", pattern: /\bagents?\b/i },
+  // Prompt 008: public channels must never call an AI Employee a "bot".
+  { label: "bot", pattern: /\bbots?\b/i },
   { label: "prompt", pattern: /\bprompts?\b/i },
   { label: "knowledge base", pattern: /knowledge\s+base/i },
   // Prompt 006: Knowledge Vault must not leak technical retrieval terms.
@@ -33,6 +35,10 @@ function collectFiles(dir: string): string[] {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
+      // Public API route handlers return JSON, not rendered UI text, and may use
+      // standard technical tokens (e.g. the "user-agent" HTTP header). They are
+      // not user-facing copy, so they are outside the scope of this scan.
+      if (entry.name === "api") continue;
       out.push(...collectFiles(full));
     } else if ([".ts", ".tsx"].includes(extname(entry.name))) {
       out.push(full);

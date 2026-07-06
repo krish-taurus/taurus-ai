@@ -748,3 +748,94 @@ No voice, phone/WebRTC, marketplace, cross-company or internal collaboration,
 billing, public profiles, tool/integration execution, autonomous actions, website
 crawling, advanced PDF/DOCX parsing, embeddings, vector database, human-approval
 workflows, or memory beyond the current chat thread.
+
+# Channels + Website Widget (Prompt 008)
+
+Deploy an AI Employee outside the Taurus dashboard. This sprint fully ships the
+**Web** channels (one channel, one public key, four install methods) and reserves
+foundation for Messaging / Voice / Workplace channels.
+
+## Channel architecture
+
+Every channel is normalized behind a small abstraction so new channels are a
+catalog + provider change, not a rewrite:
+
+- `ChannelProvider` / `ChannelRuntime` interfaces + `NormalizedInboundMessage` /
+  `NormalizedOutboundMessage` / `NormalizedChannelSession` / `NormalizedDeliveryEvent`.
+- `WebChannelProvider` (runnable) reuses the **Employee Chat Runtime** (Model
+  Gateway only). Placeholder providers (Twilio, Meta WhatsApp Cloud, Telnyx,
+  SendGrid, Slack, Microsoft Graph, Telegram, …) report unavailable until a
+  future sprint adds their transport + authentication.
+- Categories: **Website**, **Messaging**, **Phone calls**, **Workplace apps**.
+
+## Create a website channel
+
+1. Open an AI Employee → **Channels** (or **Add to Website** from its profile).
+2. Click **Add to Website** to create the web channel (starts as a draft).
+3. **Activate** it, then copy an install method below. Edit allowed domains,
+   appearance, welcome message, and rate limits in **Channel settings**.
+
+Requires the Employee to be active with published Employee DNA; the runtime also
+enforces this on every request.
+
+## Install methods (all use the one public key)
+
+- **Website Widget** — paste before `</body>`:
+  ```html
+  <script>
+    window.TaurusAI = { channelId: "PUBLIC_KEY", theme: "dark", position: "bottom-right" };
+  </script>
+  <script async src="APP_URL/widget/taurus-widget.js"></script>
+  ```
+- **Iframe Embed** — `<iframe src="APP_URL/embed/PUBLIC_KEY" width="100%" height="700" …>`.
+- **Hosted Chat Link** — `APP_URL/public/chat/PUBLIC_KEY` (no website required).
+- **Public API** — `POST APP_URL/api/public/channels/PUBLIC_KEY/messages` with
+  `{ "sessionId": "optional", "message": "…" }`.
+
+The widget script is served at `/widget/taurus-widget.js`, is dependency-free,
+reads `window.TaurusAI`, and opens the `/embed/PUBLIC_KEY` surface. Set
+`NEXT_PUBLIC_APP_URL` so the generated snippets and iframe URLs are correct.
+
+## Local development
+
+- The demo brain answers when no model provider is configured (dev/test only —
+  never in production; see the Employee Chat section).
+- With an empty domain allowlist, requests are allowed in development; in
+  production the widget/API require the request origin to be in the allowlist
+  (the hosted page and iframe are same-origin to Taurus and always allowed).
+
+## Security
+
+- Public flows resolve the organization from the **channel public key** — the
+  client can never pass `organizationId` or `employeeId`.
+- Enforced on every public request: channel is `active`, employee is not
+  archived, Employee DNA is published, and only that employee's assigned
+  Knowledge Vault sources are used.
+- No dashboard auth for public chat; no dashboard data, internal ids, storage
+  paths, model provider keys, hidden instructions, or raw Model Gateway errors
+  are ever exposed. Only source name/type/preview cross the public boundary.
+- Full IP addresses are never stored — only salted hashes (IP + user-agent).
+- Audit + channel events are **metadata-only** (never message contents).
+- The public API sends CORS headers and handles preflight (`OPTIONS`).
+- Channels can be **paused** or **revoked** (archived) at any time.
+
+## Domain allowlist
+
+Add allowed domains (one per line) in Channel settings. Subdomains of a listed
+domain are allowed. Cross-origin widget/API calls must match the allowlist in
+production; localhost is always allowed in development. Origin checks are always
+server-side (never client-only).
+
+## Rate limiting
+
+Requests are limited per channel key, per session, and per IP hash (per-minute
+and per-day, configurable per channel). The bundled limiter is in-memory and
+per-process. **Production should back the `RateLimiter` interface with Redis** so
+limits are shared across instances.
+
+## Not in this prompt
+
+Voice, WhatsApp/SMS/Telegram/Instagram/Messenger, email sending, Slack/Microsoft
+Teams, CRM integrations, marketplace, cross-company collaboration, billing, human
+handoff, lead routing, calendar booking, and advanced analytics are not built —
+only reserved as channel foundation.

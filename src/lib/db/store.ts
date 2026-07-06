@@ -17,9 +17,18 @@ import type {
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  ChannelOverview,
+  CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
   CreateEmployeeChatThreadInput,
+  CreatePublicChannelEventInput,
+  CreatePublicChatSessionInput,
+  EmployeeChannel,
+  GetOrCreatePublicChatSessionInput,
+  PublicChannelEvent,
+  PublicChatSession,
+  UpdateEmployeeChannelInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
@@ -254,6 +263,47 @@ export interface DataStore {
   createEmployeeChatRetrievalEvent(
     input: CreateEmployeeChatRetrievalEventInput,
   ): Promise<EmployeeChatRetrievalEvent>;
+
+  // Channels (Prompt 008). Dashboard reads/writes are organization-scoped; public
+  // reads resolve the organization from the channel public key (never the client).
+  createEmployeeChannel(input: CreateEmployeeChannelInput): Promise<EmployeeChannel>;
+  listEmployeeChannelsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChannel[]>;
+  getEmployeeChannel(organizationId: string, channelId: string): Promise<EmployeeChannel | null>;
+  /** Public resolver — not organization-scoped; returns the owning organization. */
+  getEmployeeChannelByPublicKey(publicKey: string): Promise<EmployeeChannel | null>;
+  updateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+    patch: UpdateEmployeeChannelInput,
+  ): Promise<EmployeeChannel | null>;
+  activateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null>;
+  pauseEmployeeChannel(organizationId: string, channelId: string): Promise<EmployeeChannel | null>;
+  archiveEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null>;
+
+  createPublicChatSession(input: CreatePublicChatSessionInput): Promise<PublicChatSession>;
+  /** Public: resolve a session within a channel (no organization from client). */
+  getPublicChatSession(channelId: string, sessionId: string): Promise<PublicChatSession | null>;
+  getOrCreatePublicChatSession(
+    input: GetOrCreatePublicChatSessionInput,
+  ): Promise<PublicChatSession>;
+
+  createPublicChannelEvent(input: CreatePublicChannelEventInput): Promise<PublicChannelEvent>;
+  listPublicChannelEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit?: number,
+  ): Promise<PublicChannelEvent[]>;
+
+  getChannelOverview(organizationId: string, employeeId: string): Promise<ChannelOverview>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

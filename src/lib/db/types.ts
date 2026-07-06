@@ -640,3 +640,188 @@ export interface RankedRetrievalSegment {
   score: number;
   matchedTerms: string[];
 }
+
+// ===========================================================================
+// Channels + Website Widget (Prompt 008)
+//
+// External deployment surfaces for an AI Employee. Web channels are runnable;
+// messaging/voice/workplace channel types are reserved foundation. Public flows
+// resolve the organization from the channel public key — never from the client.
+// ===========================================================================
+
+export type ChannelType =
+  | "hosted_chat"
+  | "website_widget"
+  | "iframe_embed"
+  | "public_api"
+  | "whatsapp"
+  | "sms"
+  | "email"
+  | "phone_call"
+  | "slack"
+  | "microsoft_teams"
+  | "instagram_dm"
+  | "facebook_messenger"
+  | "telegram";
+
+export type ChannelCategory = "web" | "messaging" | "voice" | "workplace";
+
+export type ChannelProviderType =
+  | "taurus_web"
+  | "twilio"
+  | "meta_whatsapp_cloud"
+  | "telnyx"
+  | "vonage"
+  | "sendgrid"
+  | "mailgun"
+  | "slack"
+  | "microsoft_graph"
+  | "telegram"
+  | "custom_webhook";
+
+export type ChannelStatus = "draft" | "active" | "paused" | "archived";
+export type PublicChatSessionStatus = "active" | "archived" | "blocked";
+
+export type PublicChannelEventType =
+  | "channel.created"
+  | "channel.updated"
+  | "channel.activated"
+  | "channel.paused"
+  | "channel.archived"
+  | "public_chat.session_started"
+  | "public_chat.message_sent"
+  | "public_chat.response_generated"
+  | "public_chat.response_failed"
+  | "widget.loaded";
+
+/** Non-technical appearance settings for a web channel. */
+export interface ChannelAppearance {
+  theme: "dark" | "light";
+  position: "bottom-right" | "bottom-left";
+  launcherLabel: string;
+  employeeDisplayName: string;
+  accentStyle: "mono" | "solid";
+  showSources: boolean;
+  /** Placeholder only this sprint — not wired to any collection flow. */
+  collectVisitorEmail: boolean;
+  brandName: string | null;
+}
+
+export interface EmployeeChannel {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  channelType: ChannelType;
+  channelProvider: ChannelProviderType;
+  publicKey: string;
+  /** Present only as a hash; never the raw secret. */
+  hasSecret: boolean;
+  name: string;
+  status: ChannelStatus;
+  allowedDomains: string[];
+  appearance: ChannelAppearance;
+  /** Non-secret provider configuration (foundation for future channels). */
+  providerConfig: Record<string, unknown>;
+  welcomeMessage: string | null;
+  rateLimitPerMinute: number;
+  rateLimitPerDay: number;
+  createdByUserId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateEmployeeChannelInput {
+  organizationId: string;
+  employeeId: string;
+  channelType: ChannelType;
+  channelProvider?: ChannelProviderType;
+  publicKey: string;
+  secretHash?: string | null;
+  name: string;
+  status?: ChannelStatus;
+  allowedDomains?: string[];
+  appearance: ChannelAppearance;
+  providerConfig?: Record<string, unknown>;
+  welcomeMessage?: string | null;
+  rateLimitPerMinute?: number;
+  rateLimitPerDay?: number;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateEmployeeChannelInput {
+  name?: string;
+  allowedDomains?: string[];
+  appearance?: ChannelAppearance;
+  providerConfig?: Record<string, unknown>;
+  welcomeMessage?: string | null;
+  rateLimitPerMinute?: number;
+  rateLimitPerDay?: number;
+}
+
+export interface PublicChatSession {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  threadId: string | null;
+  visitorId: string;
+  visitorLabel: string | null;
+  originDomain: string | null;
+  userAgentHash: string | null;
+  ipHash: string | null;
+  status: PublicChatSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+
+export interface CreatePublicChatSessionInput {
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  threadId?: string | null;
+  visitorId: string;
+  visitorLabel?: string | null;
+  originDomain?: string | null;
+  userAgentHash?: string | null;
+  ipHash?: string | null;
+}
+
+export interface PublicChannelEvent {
+  id: string;
+  organizationId: string;
+  employeeId: string | null;
+  channelId: string | null;
+  eventType: PublicChannelEventType;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreatePublicChannelEventInput {
+  organizationId: string;
+  employeeId?: string | null;
+  channelId?: string | null;
+  eventType: PublicChannelEventType;
+  metadata?: Record<string, unknown>;
+}
+
+/** Aggregate data for the Channels dashboard cards. */
+export interface ChannelOverview {
+  totalChannels: number;
+  activeChannels: number;
+  webChannel: EmployeeChannel | null;
+  sessionCount: number;
+  recentEvents: PublicChannelEvent[];
+}
+
+export interface GetOrCreatePublicChatSessionInput {
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  visitorId: string;
+  visitorLabel?: string | null;
+  originDomain?: string | null;
+  userAgentHash?: string | null;
+  ipHash?: string | null;
+}
