@@ -44,6 +44,19 @@ const serverSchema = z
     // Master key for encrypting bring-your-own-key provider credentials at rest.
     // If unset, BYOK is disabled in the UI (Taurus-managed keys still work).
     TAURUS_MODEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
+    // Messaging Channels (Prompt 009). All optional and server-only. Their
+    // absence must never break local dev or tests — messaging falls back to a
+    // simulated provider. Master key gates bring-your-own-key credential storage.
+    TWILIO_ACCOUNT_SID: z.string().optional().or(z.literal("")),
+    TWILIO_AUTH_TOKEN: z.string().optional().or(z.literal("")),
+    TWILIO_MESSAGING_SERVICE_SID: z.string().optional().or(z.literal("")),
+    META_WHATSAPP_ACCESS_TOKEN: z.string().optional().or(z.literal("")),
+    META_WHATSAPP_PHONE_NUMBER_ID: z.string().optional().or(z.literal("")),
+    META_WHATSAPP_VERIFY_TOKEN: z.string().optional().or(z.literal("")),
+    SENDGRID_API_KEY: z.string().optional().or(z.literal("")),
+    MAILGUN_API_KEY: z.string().optional().or(z.literal("")),
+    MAILGUN_DOMAIN: z.string().optional().or(z.literal("")),
+    TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
     const secret = env.AUTH_SECRET;
@@ -112,6 +125,16 @@ export function getServerEnv(): ServerEnv {
       GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
       FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
       TAURUS_MODEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_MODEL_CREDENTIALS_MASTER_KEY,
+      TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
+      TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
+      TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
+      META_WHATSAPP_ACCESS_TOKEN: process.env.META_WHATSAPP_ACCESS_TOKEN,
+      META_WHATSAPP_PHONE_NUMBER_ID: process.env.META_WHATSAPP_PHONE_NUMBER_ID,
+      META_WHATSAPP_VERIFY_TOKEN: process.env.META_WHATSAPP_VERIFY_TOKEN,
+      SENDGRID_API_KEY: process.env.SENDGRID_API_KEY,
+      MAILGUN_API_KEY: process.env.MAILGUN_API_KEY,
+      MAILGUN_DOMAIN: process.env.MAILGUN_DOMAIN,
+      TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY,
     });
   }
   return cachedServerEnv;

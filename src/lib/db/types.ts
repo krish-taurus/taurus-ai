@@ -825,3 +825,157 @@ export interface GetOrCreatePublicChatSessionInput {
   userAgentHash?: string | null;
   ipHash?: string | null;
 }
+
+// ===========================================================================
+// Messaging Channels (Prompt 009)
+//
+// Foundation for WhatsApp / SMS / Email on top of the Prompt 008 channel model.
+// Credentials are stored encrypted only; webhook events + audit are metadata
+// only; contacts are keyed by a salted hash.
+// ===========================================================================
+
+export type ChannelCredentialMode = "bring_your_own_key" | "taurus_managed" | "disabled";
+export type ChannelCredentialStatus = "active" | "disabled" | "error";
+
+export type ChannelWebhookEventType =
+  | "inbound"
+  | "delivery_status"
+  | "verification"
+  | "ignored"
+  | "error";
+export type ChannelWebhookEventStatus = "received" | "processed" | "failed" | "ignored";
+
+export type MessagingTemplateStatus = "draft" | "active" | "disabled";
+
+export type MessageOptInStatus = "unknown" | "opted_in" | "opted_out" | "blocked";
+
+/** Client-safe credential metadata — the encrypted value is NEVER included. */
+export interface ChannelProviderCredentialMetadata {
+  id: string;
+  organizationId: string;
+  providerType: ChannelProviderType;
+  credentialMode: ChannelCredentialMode;
+  credentialLabel: string | null;
+  keyLastFour: string | null;
+  hasSecret: boolean;
+  status: ChannelCredentialStatus;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateChannelProviderCredentialInput {
+  organizationId: string;
+  providerType: ChannelProviderType;
+  credentialMode: ChannelCredentialMode;
+  /** Already-encrypted blob (never plaintext). Null when disabling. */
+  encryptedCredentials?: string | null;
+  credentialLabel?: string | null;
+  keyLastFour?: string | null;
+  status?: ChannelCredentialStatus;
+  userId?: string | null;
+}
+
+export interface ChannelWebhookEvent {
+  id: string;
+  organizationId: string | null;
+  channelId: string | null;
+  providerType: ChannelProviderType;
+  eventType: ChannelWebhookEventType;
+  externalEventId: string | null;
+  status: ChannelWebhookEventStatus;
+  metadata: Record<string, unknown>;
+  receivedAt: string;
+  processedAt: string | null;
+  errorCode: string | null;
+  createdAt: string;
+}
+
+export interface CreateChannelWebhookEventInput {
+  organizationId?: string | null;
+  channelId?: string | null;
+  providerType: ChannelProviderType;
+  eventType: ChannelWebhookEventType;
+  externalEventId?: string | null;
+  status?: ChannelWebhookEventStatus;
+  metadata?: Record<string, unknown>;
+  processedAt?: string | null;
+  errorCode?: string | null;
+}
+
+export interface UpdateChannelWebhookEventStatusInput {
+  status: ChannelWebhookEventStatus;
+  processedAt?: string | null;
+  errorCode?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface MessagingTemplate {
+  id: string;
+  organizationId: string;
+  channelId: string | null;
+  providerType: ChannelProviderType;
+  templateName: string;
+  templateCategory: string;
+  language: string;
+  status: MessagingTemplateStatus;
+  externalTemplateId: string | null;
+  bodyPreview: string | null;
+  metadata: Record<string, unknown>;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMessagingTemplateInput {
+  organizationId: string;
+  channelId?: string | null;
+  providerType: ChannelProviderType;
+  templateName: string;
+  templateCategory?: string;
+  language?: string;
+  status?: MessagingTemplateStatus;
+  externalTemplateId?: string | null;
+  bodyPreview?: string | null;
+  metadata?: Record<string, unknown>;
+  createdByUserId?: string | null;
+}
+
+export interface MessagingContactPreference {
+  id: string;
+  organizationId: string;
+  channelId: string;
+  externalContactId: string | null;
+  normalizedContactHash: string;
+  channelType: ChannelType;
+  optInStatus: MessageOptInStatus;
+  blockedAt: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertMessagingContactPreferenceInput {
+  organizationId: string;
+  channelId: string;
+  externalContactId?: string | null;
+  normalizedContactHash: string;
+  channelType: ChannelType;
+  optInStatus?: MessageOptInStatus;
+  metadata?: Record<string, unknown>;
+}
+
+/** Aggregate for the messaging section of the Channels dashboard. */
+export interface MessagingChannelSummary {
+  channelType: ChannelType;
+  channel: EmployeeChannel | null;
+  providerType: ChannelProviderType | null;
+  credentialStatus: ChannelCredentialStatus | "not_configured";
+  lastMessageAt: string | null;
+}
+
+export interface MessagingChannelOverview {
+  summaries: MessagingChannelSummary[];
+  recentWebhookEvents: ChannelWebhookEvent[];
+}

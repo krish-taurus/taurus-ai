@@ -14,6 +14,19 @@ import type {
   AuditEventInput,
   CreateEmployeeInput,
   ChannelOverview,
+  ChannelProviderCredentialMetadata,
+  ChannelProviderType,
+  ChannelWebhookEvent,
+  CreateChannelProviderCredentialInput,
+  CreateChannelWebhookEventInput,
+  CreateMessagingTemplateInput,
+  MessagingChannelOverview,
+  MessagingChannelSummary,
+  MessagingContactPreference,
+  MessagingTemplate,
+  MessagingTemplateStatus,
+  UpdateChannelWebhookEventStatusInput,
+  UpsertMessagingContactPreferenceInput,
   CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
@@ -106,6 +119,15 @@ export class InMemoryStore implements DataStore {
   private channels = new Map<string, EmployeeChannel>();
   private publicSessions = new Map<string, PublicChatSession>();
   private publicChannelEvents: PublicChannelEvent[] = [];
+  // Messaging Channels (Prompt 009). Credentials keep the encrypted blob
+  // internally; the metadata getter strips it so it never leaves the store.
+  private providerCredentials2 = new Map<
+    string,
+    ChannelProviderCredentialMetadata & { encryptedCredentials: string | null }
+  >();
+  private webhookEvents = new Map<string, ChannelWebhookEvent>();
+  private messagingTemplates = new Map<string, MessagingTemplate>();
+  private contactPreferences = new Map<string, MessagingContactPreference>();
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -1297,6 +1319,305 @@ export class InMemoryStore implements DataStore {
       sessionCount,
       recentEvents,
     };
+  }
+
+  // --- Messaging Channels (Prompt 009) --------------------------------------
+
+  private credKey(organizationId: string, providerType: ChannelProviderType): string {
+    return `${organizationId}:${providerType}`;
+  }
+
+  private toCredMetadata(
+    row: ChannelProviderCredentialMetadata & { encryptedCredentials: string | null },
+  ): ChannelProviderCredentialMetadata {
+    const { encryptedCredentials: _omit, ...metadata } = row;
+    void _omit;
+    return metadata;
+  }
+
+  async createChannelProviderCredential(
+    input: CreateChannelProviderCredentialInput,
+  ): Promise<ChannelProviderCredentialMetadata> {
+    const key = this.credKey(input.organizationId, input.providerType);
+    const existing = this.providerCredentials2.get(key);
+    const timestamp = now();
+    const row: ChannelProviderCredentialMetadata & { encryptedCredentials: string | null } = {
+      id: existing?.id ?? uuid(),
+      organizationId: input.organizationId,
+      providerType: input.providerType,
+      credentialMode: input.credentialMode,
+      credentialLabel:
+        input.credentialLabel !== undefined
+          ? input.credentialLabel
+          : (existing?.credentialLabel ?? null),
+      keyLastFour:
+        input.keyLastFour !== undefined ? input.keyLastFour : (existing?.keyLastFour ?? null),
+      hasSecret:
+        input.encryptedCredentials !== undefined
+          ? !!input.encryptedCredentials
+          : (existing?.hasSecret ?? false),
+      status: input.status ?? "active",
+      encryptedCredentials:
+        input.encryptedCredentials !== undefined
+          ? input.encryptedCredentials
+          : (existing?.encryptedCredentials ?? null),
+      createdByUserId: existing?.createdByUserId ?? input.userId ?? null,
+      updatedByUserId: input.userId ?? null,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.providerCredentials2.set(key, row);
+    return this.toCredMetadata(row);
+  }
+
+  async getChannelProviderCredentialMetadata(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<ChannelProviderCredentialMetadata | null> {
+    const row = this.providerCredentials2.get(this.credKey(organizationId, providerType));
+    return row ? this.toCredMetadata(row) : null;
+  }
+
+  async listChannelProviderCredentials(
+    organizationId: string,
+  ): Promise<ChannelProviderCredentialMetadata[]> {
+    return [...this.providerCredentials2.values()]
+      .filter((r) => r.organizationId === organizationId)
+      .map((r) => this.toCredMetadata(r));
+  }
+
+  async getChannelProviderEncryptedCredentials(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<string | null> {
+    const row = this.providerCredentials2.get(this.credKey(organizationId, providerType));
+    return row?.encryptedCredentials ?? null;
+  }
+
+  async disableChannelProviderCredential(
+    organizationId: string,
+    providerType: ChannelProviderType,
+    userId?: string | null,
+  ): Promise<ChannelProviderCredentialMetadata | null> {
+    const key = this.credKey(organizationId, providerType);
+    const existing = this.providerCredentials2.get(key);
+    if (!existing) return null;
+    const row = {
+      ...existing,
+      credentialMode: "disabled" as const,
+      status: "disabled" as const,
+      encryptedCredentials: null,
+      keyLastFour: null,
+      hasSecret: false,
+      updatedByUserId: userId ?? null,
+      updatedAt: now(),
+    };
+    this.providerCredentials2.set(key, row);
+    return this.toCredMetadata(row);
+  }
+
+  async createChannelWebhookEvent(
+    input: CreateChannelWebhookEventInput,
+  ): Promise<ChannelWebhookEvent> {
+    const timestamp = now();
+    const event: ChannelWebhookEvent = {
+      id: uuid(),
+      organizationId: input.organizationId ?? null,
+      channelId: input.channelId ?? null,
+      providerType: input.providerType,
+      eventType: input.eventType,
+      externalEventId: input.externalEventId ?? null,
+      status: input.status ?? "received",
+      metadata: input.metadata ?? {},
+      receivedAt: timestamp,
+      processedAt: input.processedAt ?? null,
+      errorCode: input.errorCode ?? null,
+      createdAt: timestamp,
+    };
+    this.webhookEvents.set(event.id, event);
+    return event;
+  }
+
+  async updateChannelWebhookEventStatus(
+    id: string,
+    input: UpdateChannelWebhookEventStatusInput,
+  ): Promise<ChannelWebhookEvent | null> {
+    const existing = this.webhookEvents.get(id);
+    if (!existing) return null;
+    const updated: ChannelWebhookEvent = {
+      ...existing,
+      status: input.status,
+      processedAt: input.processedAt !== undefined ? input.processedAt : existing.processedAt,
+      errorCode: input.errorCode !== undefined ? input.errorCode : existing.errorCode,
+      metadata: input.metadata ? { ...existing.metadata, ...input.metadata } : existing.metadata,
+    };
+    this.webhookEvents.set(id, updated);
+    return updated;
+  }
+
+  async listChannelWebhookEventsForChannel(
+    organizationId: string,
+    channelId: string,
+    limit = 50,
+  ): Promise<ChannelWebhookEvent[]> {
+    return [...this.webhookEvents.values()]
+      .filter((e) => e.organizationId === organizationId && e.channelId === channelId)
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
+      .slice(0, limit);
+  }
+
+  async createMessagingTemplate(input: CreateMessagingTemplateInput): Promise<MessagingTemplate> {
+    const timestamp = now();
+    const template: MessagingTemplate = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      channelId: input.channelId ?? null,
+      providerType: input.providerType,
+      templateName: input.templateName,
+      templateCategory: input.templateCategory ?? "utility",
+      language: input.language ?? "en",
+      status: input.status ?? "draft",
+      externalTemplateId: input.externalTemplateId ?? null,
+      bodyPreview: input.bodyPreview ?? null,
+      metadata: input.metadata ?? {},
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.messagingTemplates.set(template.id, template);
+    return template;
+  }
+
+  async listMessagingTemplates(
+    organizationId: string,
+    channelId?: string | null,
+  ): Promise<MessagingTemplate[]> {
+    return [...this.messagingTemplates.values()]
+      .filter(
+        (t) =>
+          t.organizationId === organizationId &&
+          (channelId === undefined || channelId === null || t.channelId === channelId),
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async updateMessagingTemplateStatus(
+    organizationId: string,
+    templateId: string,
+    status: MessagingTemplateStatus,
+  ): Promise<MessagingTemplate | null> {
+    const t = this.messagingTemplates.get(templateId);
+    if (!t || t.organizationId !== organizationId) return null;
+    const updated = { ...t, status, updatedAt: now() };
+    this.messagingTemplates.set(templateId, updated);
+    return updated;
+  }
+
+  private contactKey(channelId: string, hash: string): string {
+    return `${channelId}:${hash}`;
+  }
+
+  async getMessagingContactPreference(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+  ): Promise<MessagingContactPreference | null> {
+    const pref = this.contactPreferences.get(this.contactKey(channelId, normalizedContactHash));
+    if (!pref || pref.organizationId !== organizationId) return null;
+    return pref;
+  }
+
+  async upsertMessagingContactPreference(
+    input: UpsertMessagingContactPreferenceInput,
+  ): Promise<MessagingContactPreference> {
+    const key = this.contactKey(input.channelId, input.normalizedContactHash);
+    const existing = this.contactPreferences.get(key);
+    const timestamp = now();
+    const pref: MessagingContactPreference = {
+      id: existing?.id ?? uuid(),
+      organizationId: input.organizationId,
+      channelId: input.channelId,
+      externalContactId:
+        input.externalContactId !== undefined
+          ? input.externalContactId
+          : (existing?.externalContactId ?? null),
+      normalizedContactHash: input.normalizedContactHash,
+      channelType: input.channelType,
+      optInStatus: input.optInStatus ?? existing?.optInStatus ?? "unknown",
+      blockedAt: existing?.blockedAt ?? null,
+      metadata: input.metadata ?? existing?.metadata ?? {},
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.contactPreferences.set(key, pref);
+    return pref;
+  }
+
+  async blockMessagingContact(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+    _userId?: string | null,
+  ): Promise<MessagingContactPreference | null> {
+    void _userId;
+    const key = this.contactKey(channelId, normalizedContactHash);
+    const existing = this.contactPreferences.get(key);
+    const timestamp = now();
+    const pref: MessagingContactPreference = existing
+      ? { ...existing, optInStatus: "blocked", blockedAt: timestamp, updatedAt: timestamp }
+      : {
+          id: uuid(),
+          organizationId,
+          channelId,
+          externalContactId: null,
+          normalizedContactHash,
+          channelType: "sms",
+          optInStatus: "blocked",
+          blockedAt: timestamp,
+          metadata: {},
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+    if (pref.organizationId !== organizationId) return null;
+    this.contactPreferences.set(key, pref);
+    return pref;
+  }
+
+  async getMessagingChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MessagingChannelOverview> {
+    const channels = (
+      await this.listEmployeeChannelsForEmployee(organizationId, employeeId)
+    ).filter((c) => c.status !== "archived");
+    const messagingTypes: MessagingChannelSummary["channelType"][] = ["whatsapp", "sms", "email"];
+    const summaries: MessagingChannelSummary[] = [];
+    for (const channelType of messagingTypes) {
+      const channel = channels.find((c) => c.channelType === channelType) ?? null;
+      let lastMessageAt: string | null = null;
+      let credentialStatus: MessagingChannelSummary["credentialStatus"] = "not_configured";
+      if (channel) {
+        const events = await this.listChannelWebhookEventsForChannel(organizationId, channel.id, 1);
+        lastMessageAt = events[0]?.receivedAt ?? null;
+        const cred = await this.getChannelProviderCredentialMetadata(
+          organizationId,
+          channel.channelProvider,
+        );
+        credentialStatus = cred ? cred.status : "not_configured";
+      }
+      summaries.push({
+        channelType,
+        channel,
+        providerType: channel?.channelProvider ?? null,
+        credentialStatus,
+        lastMessageAt,
+      });
+    }
+    const recentWebhookEvents = [...this.webhookEvents.values()]
+      .filter((e) => e.organizationId === organizationId)
+      .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
+      .slice(0, 10);
+    return { summaries, recentWebhookEvents };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

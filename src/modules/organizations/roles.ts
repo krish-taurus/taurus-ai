@@ -48,6 +48,10 @@ export const PERMISSIONS = [
   // create/activate/pause/archive a channel and edit domains/appearance.
   "channel.view",
   "channel.manage",
+  // Messaging Channels (Prompt 009). Configuring WhatsApp/SMS/Email channels and
+  // saving provider credentials is owner/admin only (deployment + secrets).
+  // Simulated testing reuses channel.manage (owner/admin/builder).
+  "messaging_channel.manage",
   "employee.test",
   "employee.view",
   "dashboard.view",
@@ -75,6 +79,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee_chat.use",
     "channel.view",
     "channel.manage",
+    "messaging_channel.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
