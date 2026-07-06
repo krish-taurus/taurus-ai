@@ -1,43 +1,41 @@
 "use client";
 
 /**
- * Placeholder Organization context provider (Prompt 001).
+ * Organization context provider (Prompt 002).
  *
- * Organization isolation is mandatory in Taurus AI. Every tenant-scoped view
- * runs inside an organization. This client provider gives the UI a single place
- * to read "which organization am I acting as", so components never hard-code or
- * guess tenant identity. Real organization loading (from session + DB) is wired
- * up in Prompt 002.
+ * Organization isolation is mandatory. Every protected view runs inside exactly
+ * one organization. The dashboard layout (a server component) resolves the
+ * current organization + the user's role from the authenticated session and
+ * feeds it here, so client components can read tenant identity without guessing.
  */
 
 import { createContext, useContext, type ReactNode } from "react";
+import type { Role } from "@/modules/organizations/roles";
 
-export interface Organization {
+export interface OrganizationSummary {
   id: string;
   name: string;
+  slug: string;
 }
 
-interface OrganizationContextValue {
-  organization: Organization | null;
-  /** True while an organization is being resolved (always false in Prompt 001). */
-  isLoading: boolean;
+export interface OrganizationContextValue {
+  /** The currently selected organization, or null outside an organization. */
+  organization: OrganizationSummary | null;
+  /** The current user's role in the selected organization. */
+  role: Role | null;
+  /** All organizations the user belongs to (for switching). */
+  organizations: OrganizationSummary[];
 }
 
 const OrganizationContext = createContext<OrganizationContextValue | undefined>(undefined);
 
 export function OrganizationProvider({
   children,
-  organization = null,
+  value,
 }: {
   children: ReactNode;
-  organization?: Organization | null;
+  value: OrganizationContextValue;
 }) {
-  // Placeholder value. Prompt 002 resolves this from the authenticated session.
-  const value: OrganizationContextValue = {
-    organization,
-    isLoading: false,
-  };
-
   return <OrganizationContext.Provider value={value}>{children}</OrganizationContext.Provider>;
 }
 
