@@ -13,9 +13,18 @@ import type {
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  ChannelOverview,
+  CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
   CreateEmployeeChatThreadInput,
+  CreatePublicChannelEventInput,
+  CreatePublicChatSessionInput,
+  EmployeeChannel,
+  GetOrCreatePublicChatSessionInput,
+  PublicChannelEvent,
+  PublicChatSession,
+  UpdateEmployeeChannelInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
@@ -93,6 +102,10 @@ export class InMemoryStore implements DataStore {
   private chatMessages = new Map<string, EmployeeChatMessage>();
   private retrievalSegments = new Map<string, KnowledgeRetrievalSegment>();
   private chatRetrievalEvents: EmployeeChatRetrievalEvent[] = [];
+  // Channels (Prompt 008).
+  private channels = new Map<string, EmployeeChannel>();
+  private publicSessions = new Map<string, PublicChatSession>();
+  private publicChannelEvents: PublicChannelEvent[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -1065,6 +1078,225 @@ export class InMemoryStore implements DataStore {
     };
     this.chatRetrievalEvents.push(event);
     return event;
+  }
+
+  // --- Channels (Prompt 008) ------------------------------------------------
+
+  async createEmployeeChannel(input: CreateEmployeeChannelInput): Promise<EmployeeChannel> {
+    for (const existing of this.channels.values()) {
+      if (existing.publicKey === input.publicKey) {
+        throw new Error("A channel with this public key already exists.");
+      }
+    }
+    const timestamp = now();
+    const channel: EmployeeChannel = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      channelType: input.channelType,
+      channelProvider: input.channelProvider ?? "taurus_web",
+      publicKey: input.publicKey,
+      hasSecret: !!input.secretHash,
+      name: input.name,
+      status: input.status ?? "draft",
+      allowedDomains: input.allowedDomains ?? [],
+      appearance: input.appearance,
+      providerConfig: input.providerConfig ?? {},
+      welcomeMessage: input.welcomeMessage ?? null,
+      rateLimitPerMinute: input.rateLimitPerMinute ?? 20,
+      rateLimitPerDay: input.rateLimitPerDay ?? 500,
+      createdByUserId: input.createdByUserId ?? null,
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.channels.set(channel.id, channel);
+    return channel;
+  }
+
+  async listEmployeeChannelsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChannel[]> {
+    return [...this.channels.values()]
+      .filter((c) => c.organizationId === organizationId && c.employeeId === employeeId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    const channel = this.channels.get(channelId);
+    if (!channel || channel.organizationId !== organizationId) return null;
+    return channel;
+  }
+
+  async getEmployeeChannelByPublicKey(publicKey: string): Promise<EmployeeChannel | null> {
+    for (const channel of this.channels.values()) {
+      if (channel.publicKey === publicKey) return channel;
+    }
+    return null;
+  }
+
+  async updateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+    patch: UpdateEmployeeChannelInput,
+  ): Promise<EmployeeChannel | null> {
+    const channel = await this.getEmployeeChannel(organizationId, channelId);
+    if (!channel) return null;
+    const updated: EmployeeChannel = {
+      ...channel,
+      name: patch.name ?? channel.name,
+      allowedDomains: patch.allowedDomains ?? channel.allowedDomains,
+      appearance: patch.appearance ?? channel.appearance,
+      providerConfig: patch.providerConfig ?? channel.providerConfig,
+      welcomeMessage:
+        patch.welcomeMessage !== undefined ? patch.welcomeMessage : channel.welcomeMessage,
+      rateLimitPerMinute: patch.rateLimitPerMinute ?? channel.rateLimitPerMinute,
+      rateLimitPerDay: patch.rateLimitPerDay ?? channel.rateLimitPerDay,
+      updatedAt: now(),
+    };
+    this.channels.set(updated.id, updated);
+    return updated;
+  }
+
+  private async setChannelStatus(
+    organizationId: string,
+    channelId: string,
+    status: EmployeeChannel["status"],
+  ): Promise<EmployeeChannel | null> {
+    const channel = await this.getEmployeeChannel(organizationId, channelId);
+    if (!channel) return null;
+    const updated: EmployeeChannel = {
+      ...channel,
+      status,
+      archivedAt: status === "archived" ? now() : channel.archivedAt,
+      updatedAt: now(),
+    };
+    this.channels.set(updated.id, updated);
+    return updated;
+  }
+
+  async activateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "active");
+  }
+
+  async pauseEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "paused");
+  }
+
+  async archiveEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "archived");
+  }
+
+  async createPublicChatSession(input: CreatePublicChatSessionInput): Promise<PublicChatSession> {
+    const timestamp = now();
+    const session: PublicChatSession = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      channelId: input.channelId,
+      threadId: input.threadId ?? null,
+      visitorId: input.visitorId,
+      visitorLabel: input.visitorLabel ?? null,
+      originDomain: input.originDomain ?? null,
+      userAgentHash: input.userAgentHash ?? null,
+      ipHash: input.ipHash ?? null,
+      status: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      archivedAt: null,
+    };
+    this.publicSessions.set(session.id, session);
+    return session;
+  }
+
+  async getPublicChatSession(
+    channelId: string,
+    sessionId: string,
+  ): Promise<PublicChatSession | null> {
+    const session = this.publicSessions.get(sessionId);
+    if (!session || session.channelId !== channelId) return null;
+    return session;
+  }
+
+  async getOrCreatePublicChatSession(
+    input: GetOrCreatePublicChatSessionInput,
+  ): Promise<PublicChatSession> {
+    const existing = [...this.publicSessions.values()].find(
+      (s) =>
+        s.channelId === input.channelId && s.visitorId === input.visitorId && s.status === "active",
+    );
+    if (existing) return existing;
+
+    // Each visitor gets an isolated conversation thread.
+    const thread = await this.createEmployeeChatThread({
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      title: "Website visitor",
+      createdByUserId: null,
+    });
+    return this.createPublicChatSession({ ...input, threadId: thread.id });
+  }
+
+  async createPublicChannelEvent(
+    input: CreatePublicChannelEventInput,
+  ): Promise<PublicChannelEvent> {
+    const event: PublicChannelEvent = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId ?? null,
+      channelId: input.channelId ?? null,
+      eventType: input.eventType,
+      metadata: input.metadata ?? {},
+      createdAt: now(),
+    };
+    this.publicChannelEvents.push(event);
+    return event;
+  }
+
+  async listPublicChannelEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 50,
+  ): Promise<PublicChannelEvent[]> {
+    return this.publicChannelEvents
+      .filter((e) => e.organizationId === organizationId && e.employeeId === employeeId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async getChannelOverview(organizationId: string, employeeId: string): Promise<ChannelOverview> {
+    const channels = await this.listEmployeeChannelsForEmployee(organizationId, employeeId);
+    const nonArchived = channels.filter((c) => c.status !== "archived");
+    const webChannel = nonArchived.find((c) => c.channelProvider === "taurus_web") ?? null;
+    const sessionCount = [...this.publicSessions.values()].filter(
+      (s) => s.organizationId === organizationId && s.employeeId === employeeId,
+    ).length;
+    const recentEvents = await this.listPublicChannelEventsForEmployee(
+      organizationId,
+      employeeId,
+      10,
+    );
+    return {
+      totalChannels: nonArchived.length,
+      activeChannels: nonArchived.filter((c) => c.status === "active").length,
+      webChannel,
+      sessionCount,
+      recentEvents,
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

@@ -47,7 +47,10 @@ export class ChatBlockedError extends Error {
 
 export interface ChatActor {
   organizationId: string;
-  userId: string;
+  /** Null for anonymous public-channel visitors. */
+  userId: string | null;
+  /** Defaults to "user"; public-channel turns use "system". */
+  actorType?: "user" | "system";
 }
 
 export interface SendChatMessageParams {
@@ -103,6 +106,7 @@ export async function sendChatMessage(
   const isProduction = deps.isProduction ?? isProductionRuntime;
   const { actor, employee, message, organizationName } = params;
   const orgId = actor.organizationId;
+  const actorType = actor.actorType ?? "user";
 
   // --- Governance gates (re-checked server-side) ---------------------------
   if (employee.status === "archived") throw new ChatBlockedError("archived");
@@ -136,7 +140,7 @@ export async function sendChatMessage(
     });
     await store.createAuditEvent({
       organizationId: orgId,
-      actorType: "user",
+      actorType,
       actorId: actor.userId,
       action: "employee_chat.thread_created",
       targetType: "employee_chat_thread",
@@ -159,7 +163,7 @@ export async function sendChatMessage(
   });
   await store.createAuditEvent({
     organizationId: orgId,
-    actorType: "user",
+    actorType,
     actorId: actor.userId,
     action: "employee_chat.message_sent",
     targetType: "employee_chat_message",
@@ -186,7 +190,7 @@ export async function sendChatMessage(
   });
   await store.createAuditEvent({
     organizationId: orgId,
-    actorType: "user",
+    actorType,
     actorId: actor.userId,
     action: "knowledge_retrieval.searched",
     targetType: "employee",
@@ -240,7 +244,7 @@ export async function sendChatMessage(
 
     await store.createAuditEvent({
       organizationId: orgId,
-      actorType: "user",
+      actorType,
       actorId: actor.userId,
       action: "employee_chat.response_generated",
       targetType: "employee_chat_message",
@@ -288,7 +292,7 @@ export async function sendChatMessage(
 
     await store.createAuditEvent({
       organizationId: orgId,
-      actorType: "user",
+      actorType,
       actorId: actor.userId,
       action: "employee_chat.response_failed",
       targetType: "employee_chat_message",

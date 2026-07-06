@@ -18,9 +18,24 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  ChannelAppearance,
+  ChannelOverview,
+  ChannelProviderType,
+  ChannelStatus,
+  ChannelType,
+  CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
   CreateEmployeeChatThreadInput,
+  CreatePublicChannelEventInput,
+  CreatePublicChatSessionInput,
+  EmployeeChannel,
+  GetOrCreatePublicChatSessionInput,
+  PublicChannelEvent,
+  PublicChannelEventType,
+  PublicChatSession,
+  PublicChatSessionStatus,
+  UpdateEmployeeChannelInput,
   CreateEmployeeInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeRetrievalSegmentInput,
@@ -358,6 +373,76 @@ function mapChatRetrievalEvent(row: Row): EmployeeChatRetrievalEvent {
     queryTextHash: row.query_text_hash,
     retrievedSourceCount: row.retrieved_source_count,
     topSourceIds: Array.isArray(row.top_source_ids) ? row.top_source_ids : [],
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapChannelAppearance(raw: unknown): ChannelAppearance {
+  const a = (raw ?? {}) as Partial<ChannelAppearance>;
+  return {
+    theme: a.theme === "light" ? "light" : "dark",
+    position: a.position === "bottom-left" ? "bottom-left" : "bottom-right",
+    launcherLabel: typeof a.launcherLabel === "string" ? a.launcherLabel : "Chat with us",
+    employeeDisplayName:
+      typeof a.employeeDisplayName === "string" ? a.employeeDisplayName : "AI Employee",
+    accentStyle: a.accentStyle === "solid" ? "solid" : "mono",
+    showSources: a.showSources !== false,
+    collectVisitorEmail: a.collectVisitorEmail === true,
+    brandName: typeof a.brandName === "string" ? a.brandName : null,
+  };
+}
+
+function mapChannel(row: Row): EmployeeChannel {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelType: row.channel_type as ChannelType,
+    channelProvider: row.channel_provider as ChannelProviderType,
+    publicKey: row.public_key,
+    hasSecret: !!row.secret_hash,
+    name: row.name,
+    status: row.status as ChannelStatus,
+    allowedDomains: Array.isArray(row.allowed_domains) ? row.allowed_domains : [],
+    appearance: mapChannelAppearance(row.appearance),
+    providerConfig: (row.provider_config as Record<string, unknown>) ?? {},
+    welcomeMessage: row.welcome_message,
+    rateLimitPerMinute: row.rate_limit_per_minute,
+    rateLimitPerDay: row.rate_limit_per_day,
+    createdByUserId: row.created_by_user_id,
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapPublicSession(row: Row): PublicChatSession {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelId: row.channel_id,
+    threadId: row.thread_id,
+    visitorId: row.visitor_id,
+    visitorLabel: row.visitor_label,
+    originDomain: row.origin_domain,
+    userAgentHash: row.user_agent_hash,
+    ipHash: row.ip_hash,
+    status: row.status as PublicChatSessionStatus,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+  };
+}
+
+function mapChannelEvent(row: Row): PublicChannelEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelId: row.channel_id,
+    eventType: row.event_type as PublicChannelEventType,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -1460,6 +1545,247 @@ export class PostgresStore implements DataStore {
       ],
     );
     return mapChatRetrievalEvent(rows[0]);
+  }
+
+  // --- Channels (Prompt 008) ------------------------------------------------
+
+  async createEmployeeChannel(input: CreateEmployeeChannelInput): Promise<EmployeeChannel> {
+    const { rows } = await this.query(
+      `insert into employee_channels
+         (organization_id, employee_id, channel_type, channel_provider, public_key, secret_hash,
+          name, status, allowed_domains, appearance, provider_config, welcome_message,
+          rate_limit_per_minute, rate_limit_per_day, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.channelType,
+        input.channelProvider ?? "taurus_web",
+        input.publicKey,
+        input.secretHash ?? null,
+        input.name,
+        input.status ?? "draft",
+        JSON.stringify(input.allowedDomains ?? []),
+        JSON.stringify(input.appearance),
+        JSON.stringify(input.providerConfig ?? {}),
+        input.welcomeMessage ?? null,
+        input.rateLimitPerMinute ?? 20,
+        input.rateLimitPerDay ?? 500,
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapChannel(rows[0]);
+  }
+
+  async listEmployeeChannelsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChannel[]> {
+    const { rows } = await this.query(
+      `select * from employee_channels
+       where organization_id = $1 and employee_id = $2
+       order by updated_at desc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapChannel);
+  }
+
+  async getEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    const { rows } = await this.query(
+      "select * from employee_channels where organization_id = $1 and id = $2",
+      [organizationId, channelId],
+    );
+    return rows[0] ? mapChannel(rows[0]) : null;
+  }
+
+  async getEmployeeChannelByPublicKey(publicKey: string): Promise<EmployeeChannel | null> {
+    const { rows } = await this.query("select * from employee_channels where public_key = $1", [
+      publicKey,
+    ]);
+    return rows[0] ? mapChannel(rows[0]) : null;
+  }
+
+  async updateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+    patch: UpdateEmployeeChannelInput,
+  ): Promise<EmployeeChannel | null> {
+    const current = await this.getEmployeeChannel(organizationId, channelId);
+    if (!current) return null;
+    const { rows } = await this.query(
+      `update employee_channels set
+         name = $3,
+         allowed_domains = $4,
+         appearance = $5,
+         provider_config = $6,
+         welcome_message = $7,
+         rate_limit_per_minute = $8,
+         rate_limit_per_day = $9,
+         updated_at = now()
+       where organization_id = $1 and id = $2
+       returning *`,
+      [
+        organizationId,
+        channelId,
+        patch.name ?? current.name,
+        JSON.stringify(patch.allowedDomains ?? current.allowedDomains),
+        JSON.stringify(patch.appearance ?? current.appearance),
+        JSON.stringify(patch.providerConfig ?? current.providerConfig),
+        patch.welcomeMessage !== undefined ? patch.welcomeMessage : current.welcomeMessage,
+        patch.rateLimitPerMinute ?? current.rateLimitPerMinute,
+        patch.rateLimitPerDay ?? current.rateLimitPerDay,
+      ],
+    );
+    return mapChannel(rows[0]);
+  }
+
+  private async setChannelStatus(
+    organizationId: string,
+    channelId: string,
+    status: ChannelStatus,
+  ): Promise<EmployeeChannel | null> {
+    const { rows } = await this.query(
+      `update employee_channels set
+         status = $3,
+         archived_at = case when $3 = 'archived' then now() else archived_at end,
+         updated_at = now()
+       where organization_id = $1 and id = $2
+       returning *`,
+      [organizationId, channelId, status],
+    );
+    return rows[0] ? mapChannel(rows[0]) : null;
+  }
+
+  async activateEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "active");
+  }
+
+  async pauseEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "paused");
+  }
+
+  async archiveEmployeeChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<EmployeeChannel | null> {
+    return this.setChannelStatus(organizationId, channelId, "archived");
+  }
+
+  async createPublicChatSession(input: CreatePublicChatSessionInput): Promise<PublicChatSession> {
+    const { rows } = await this.query(
+      `insert into public_chat_sessions
+         (organization_id, employee_id, channel_id, thread_id, visitor_id, visitor_label,
+          origin_domain, user_agent_hash, ip_hash, status)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,'active')
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.channelId,
+        input.threadId ?? null,
+        input.visitorId,
+        input.visitorLabel ?? null,
+        input.originDomain ?? null,
+        input.userAgentHash ?? null,
+        input.ipHash ?? null,
+      ],
+    );
+    return mapPublicSession(rows[0]);
+  }
+
+  async getPublicChatSession(
+    channelId: string,
+    sessionId: string,
+  ): Promise<PublicChatSession | null> {
+    const { rows } = await this.query(
+      "select * from public_chat_sessions where channel_id = $1 and id = $2",
+      [channelId, sessionId],
+    );
+    return rows[0] ? mapPublicSession(rows[0]) : null;
+  }
+
+  async getOrCreatePublicChatSession(
+    input: GetOrCreatePublicChatSessionInput,
+  ): Promise<PublicChatSession> {
+    const existing = await this.query(
+      `select * from public_chat_sessions
+       where channel_id = $1 and visitor_id = $2 and status = 'active'
+       order by created_at desc limit 1`,
+      [input.channelId, input.visitorId],
+    );
+    if (existing.rows[0]) return mapPublicSession(existing.rows[0]);
+
+    const thread = await this.createEmployeeChatThread({
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      title: "Website visitor",
+      createdByUserId: null,
+    });
+    return this.createPublicChatSession({ ...input, threadId: thread.id });
+  }
+
+  async createPublicChannelEvent(
+    input: CreatePublicChannelEventInput,
+  ): Promise<PublicChannelEvent> {
+    const { rows } = await this.query(
+      `insert into public_channel_events
+         (organization_id, employee_id, channel_id, event_type, metadata)
+       values ($1,$2,$3,$4,$5)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId ?? null,
+        input.channelId ?? null,
+        input.eventType,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapChannelEvent(rows[0]);
+  }
+
+  async listPublicChannelEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 50,
+  ): Promise<PublicChannelEvent[]> {
+    const { rows } = await this.query(
+      `select * from public_channel_events
+       where organization_id = $1 and employee_id = $2
+       order by created_at desc
+       limit $3`,
+      [organizationId, employeeId, limit],
+    );
+    return rows.map(mapChannelEvent);
+  }
+
+  async getChannelOverview(organizationId: string, employeeId: string): Promise<ChannelOverview> {
+    const channels = await this.listEmployeeChannelsForEmployee(organizationId, employeeId);
+    const nonArchived = channels.filter((c) => c.status !== "archived");
+    const webChannel = nonArchived.find((c) => c.channelProvider === "taurus_web") ?? null;
+    const [{ rows: sessionRows }, recentEvents] = await Promise.all([
+      this.query(
+        "select count(*)::int as n from public_chat_sessions where organization_id = $1 and employee_id = $2",
+        [organizationId, employeeId],
+      ),
+      this.listPublicChannelEventsForEmployee(organizationId, employeeId, 10),
+    ]);
+    return {
+      totalChannels: nonArchived.length,
+      activeChannels: nonArchived.filter((c) => c.status === "active").length,
+      webChannel,
+      sessionCount: sessionRows[0]?.n ?? 0,
+      recentEvents,
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

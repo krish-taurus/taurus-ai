@@ -44,6 +44,10 @@ export const PERMISSIONS = [
   // capability every role already has via employee.test, so all roles get both.
   "employee_chat.view",
   "employee_chat.use",
+  // Channels (Prompt 008). view = see channels + install snippets; manage =
+  // create/activate/pause/archive a channel and edit domains/appearance.
+  "channel.view",
+  "channel.manage",
   "employee.test",
   "employee.view",
   "dashboard.view",
@@ -69,6 +73,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "model_hub.manage",
     "employee_chat.view",
     "employee_chat.use",
+    "channel.view",
+    "channel.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -81,6 +87,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "model_hub.view",
     "employee_chat.view",
     "employee_chat.use",
+    "channel.view",
+    "channel.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -92,6 +100,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "model_hub.view",
     "employee_chat.view",
     "employee_chat.use",
+    "channel.view",
     "dashboard.view",
   ]),
 };

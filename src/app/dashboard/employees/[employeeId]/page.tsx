@@ -84,6 +84,13 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
   });
   const canChat = hasPermission(membership.role, "employee_chat.view");
 
+  const canViewChannels = hasPermission(membership.role, "channel.view");
+  const channelCount = canViewChannels
+    ? (await store.listEmployeeChannelsForEmployee(organization.id, employee.id)).filter(
+        (c) => c.status !== "archived",
+      ).length
+    : 0;
+
   return (
     <div className="max-w-3xl">
       <p className="mb-4 text-sm">
@@ -262,6 +269,31 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
             </Link>
           </div>
           <ReadinessChecklist readiness={chatReadiness} employeeId={employee.id} />
+        </Card>
+      ) : null}
+
+      {/* Channels — deploy this AI Employee outside the dashboard. */}
+      {canViewChannels ? (
+        <Card className="mt-6 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-taurus-text">Channels</h2>
+              <p className="mt-1.5 text-sm text-taurus-sub">
+                {channelCount > 0
+                  ? `${channelCount} channel${channelCount === 1 ? "" : "s"} configured`
+                  : "Not deployed yet"}
+              </p>
+              <p className="mt-1.5 text-xs text-taurus-faint">
+                Add this AI Employee to your website, and beyond.
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/employees/${employee.id}/channels`}
+              className={buttonClasses("secondary")}
+            >
+              Add to Website
+            </Link>
+          </div>
         </Card>
       ) : null}
 
