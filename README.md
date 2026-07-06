@@ -933,3 +933,92 @@ own-key storage). None are required for local dev or tests.
 Voice calls and real-time audio are **not built**. Marketing automation, bulk
 messaging, and campaigns are **not built**. Marketplace, billing, cross-company
 collaboration, and CRM integrations are **not built**.
+
+# Voice Call Channel (Prompt 010)
+
+Let an AI Employee answer phone calls — reusing the same Employee DNA, Knowledge
+Vault, Model Hub, usage tracking, audit, and organization security as web and
+messaging channels. This sprint is **foundation**: the full simulated call flow
+works end to end; real-time audio streaming is not built yet.
+
+## Architecture
+
+- Voice channels reuse `employee_channels` (`channelType = "phone_call"`) with a
+  voice provider (`simulated_voice` / `twilio_voice` / `telnyx_voice` /
+  `vonage_voice`). Reasoning runs through the **Employee Chat Runtime (Model
+  Gateway only)** — voice modules never call an LLM provider directly.
+- Provider adapters (`src/modules/voice-runtime/providers/`) parse inbound-call +
+  status webhooks, verify signatures when configured, and generate provider call
+  responses. Speech-to-text (`stt/`) and text-to-speech (`tts/`) live behind their
+  own interfaces with simulated + Deepgram/ElevenLabs foundation adapters.
+
+## Simulated Phone Call mode
+
+On the Voice setup page, **Simulate Phone Call** runs the full runtime locally:
+start a call, send caller utterances, watch the AI Employee reply (grounded via
+Knowledge Vault + DNA), and end the call — all in simulated mode. No telephony, no
+audio, no external calls. The transcript is saved; nothing is sent to a provider.
+
+## Provider foundation status
+
+- **Twilio voice** — inbound-call + status parsing, signature verification, and a
+  spoken-greeting call response. Foundation only (no live audio streaming).
+- **Telnyx voice** — Call Control webhook parsing + a JSON call response.
+  Foundation (full signature verification is a later sprint).
+- **Vonage voice** — placeholder adapter with parsing + an NCCO greeting response.
+- **STT** — `simulated_stt`, `deepgram_stt` (+ `openai_voice` placeholder).
+- **TTS** — `simulated_tts`, `elevenlabs_tts`, `deepgram_tts` (+ `cartesia_tts`,
+  `azure_speech` placeholders). No raw audio is produced or stored.
+
+## Configure a Voice Channel
+
+1. Open an AI Employee → **Channels** → the **Phone Calls** card → **Set up**
+   (owner/admin). Choose a provider, name the channel, add a phone number, and set
+   voice style, speech understanding, speaking voice, recording, and transcript
+   settings.
+2. (Owner/admin) Save provider credentials — stored **encrypted**, never shown
+   again. Requires `TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY`.
+3. Copy the **connection URL** into your provider console, then **Activate**.
+
+## Voice connection (webhook) URLs
+
+```
+POST /api/webhooks/voice/twilio/{publicKey}
+POST /api/webhooks/voice/telnyx/{publicKey}
+POST /api/webhooks/voice/vonage/{publicKey}
+POST /api/webhooks/voice/simulated/{publicKey}
+```
+
+The channel + organization are resolved from the URL **public key** — never from
+client input. Signatures are verified when configured; in local development
+unverified requests are accepted in simulated mode only.
+
+## Environment variables (all optional)
+
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TELNYX_API_KEY`, `TELNYX_PUBLIC_KEY`,
+`VONAGE_API_KEY`, `VONAGE_API_SECRET`, `DEEPGRAM_API_KEY`, `ELEVENLABS_API_KEY`,
+and `TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY`. None are required for local dev or
+tests.
+
+## Security
+
+- No plaintext provider credentials are stored or returned — only provider type,
+  label, and last-four. BYOK is disabled unless the master key is set.
+- **No raw audio is stored** and call recording is metadata-only in this sprint.
+- Caller phone numbers are stored as a **salted hash** (never raw); transcript
+  content lives only in the transcript store — never in audit or stream events.
+- Only **active** channels process calls; **archived** employees and employees
+  **without published Employee DNA** never generate voice responses; knowledge
+  stays limited to the employee's assigned Knowledge Vault sources.
+- Managing Voice Channels + credentials is **owner/admin**; simulating calls is
+  owner/admin/builder; viewing is all roles. Every action re-checks permissions
+  server-side; organizationId is never trusted from the browser. Provider error
+  details are never leaked to callers.
+
+## Not built yet
+
+Production-grade real-time audio streaming, barge-in / interruption handling, real
+phone-number purchasing, an outbound dialer, call campaigns, call transfer to
+humans, payment collection over the phone, full call-recording storage, advanced
+IVR flows, and voice cloning are **not built**. Marketplace, billing, and
+cross-company collaboration are **not built**.

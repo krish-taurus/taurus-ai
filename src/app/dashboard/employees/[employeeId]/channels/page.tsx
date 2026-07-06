@@ -12,6 +12,7 @@ import { CreateChannelButton } from "@/components/channels/create-channel-button
 import { ChannelStatusControls } from "@/components/channels/channel-status-controls";
 import { ChannelSettingsForm } from "@/components/channels/channel-settings-form";
 import { MessagingChannelCards } from "@/components/channels/messaging/messaging-channel-cards";
+import { VoiceChannelCard } from "@/components/channels/voice/voice-channel-card";
 import { Badge, buttonClasses, Card, Notice, PageHeader, StatusDot } from "@/components/ui";
 
 function ChecklistRow({ done, label, hint }: { done: boolean; label: string; hint: string }) {
@@ -39,10 +40,11 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
   if (!employee) notFound();
 
   const canManage = hasPermission(membership.role, "channel.manage");
-  const [readiness, overview, messagingOverview] = await Promise.all([
+  const [readiness, overview, messagingOverview, voiceOverview] = await Promise.all([
     computeChatReadiness(store, { organizationId: organization.id, employee }),
     store.getChannelOverview(organization.id, employee.id),
     store.getMessagingChannelOverview(organization.id, employee.id),
+    store.getVoiceChannelOverview(organization.id, employee.id),
   ]);
   const webChannel = overview.webChannel;
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL;
@@ -201,7 +203,22 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
         <MessagingChannelCards employeeId={employee.id} summaries={messagingOverview.summaries} />
       </section>
 
-      {/* Full channel catalog (Phone / Workplace are coming soon) */}
+      {/* Voice channel (Phone Calls). */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-taurus-text">Phone Calls</h2>
+          <Badge tone="soft">Foundation</Badge>
+        </div>
+        <p className="mb-3 text-xs text-taurus-faint">
+          Let this AI Employee answer phone calls. Test it end to end with Simulate Phone Call
+          before connecting a real number through Twilio, Telnyx, or Vonage.
+        </p>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <VoiceChannelCard employeeId={employee.id} overview={voiceOverview} />
+        </div>
+      </section>
+
+      {/* Full channel catalog (Workplace apps are coming soon) */}
       <ChannelCatalogCards />
     </div>
   );

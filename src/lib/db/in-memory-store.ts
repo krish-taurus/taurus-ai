@@ -27,6 +27,17 @@ import type {
   MessagingTemplateStatus,
   UpdateChannelWebhookEventStatusInput,
   UpsertMessagingContactPreferenceInput,
+  CreateVoicePhoneNumberInput,
+  CreateVoiceCallSessionInput,
+  CreateVoiceTranscriptMessageInput,
+  CreateVoiceStreamEventInput,
+  UpdateVoicePhoneNumberInput,
+  UpdateVoiceCallSessionStatusInput,
+  VoicePhoneNumber,
+  VoiceCallSession,
+  VoiceTranscriptMessage,
+  VoiceStreamEvent,
+  VoiceChannelOverview,
   CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
@@ -128,6 +139,11 @@ export class InMemoryStore implements DataStore {
   private webhookEvents = new Map<string, ChannelWebhookEvent>();
   private messagingTemplates = new Map<string, MessagingTemplate>();
   private contactPreferences = new Map<string, MessagingContactPreference>();
+  // Voice Call Channel (Prompt 010).
+  private voicePhoneNumbers = new Map<string, VoicePhoneNumber>();
+  private voiceCallSessions = new Map<string, VoiceCallSession>();
+  private voiceTranscriptMessages = new Map<string, VoiceTranscriptMessage>();
+  private voiceStreamEvents = new Map<string, VoiceStreamEvent>();
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -1618,6 +1634,283 @@ export class InMemoryStore implements DataStore {
       .sort((a, b) => b.receivedAt.localeCompare(a.receivedAt))
       .slice(0, 10);
     return { summaries, recentWebhookEvents };
+  }
+
+  // --- Voice Call Channel (Prompt 010) --------------------------------------
+
+  async createVoicePhoneNumber(input: CreateVoicePhoneNumberInput): Promise<VoicePhoneNumber> {
+    const timestamp = now();
+    const number: VoicePhoneNumber = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      channelId: input.channelId,
+      providerType: input.providerType,
+      phoneNumber: input.phoneNumber,
+      displayLabel: input.displayLabel ?? null,
+      externalPhoneNumberId: input.externalPhoneNumberId ?? null,
+      countryCode: input.countryCode ?? null,
+      capabilities: input.capabilities ?? {},
+      status: input.status ?? "draft",
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      archivedAt: null,
+    };
+    this.voicePhoneNumbers.set(number.id, number);
+    return number;
+  }
+
+  async listVoicePhoneNumbersForChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<VoicePhoneNumber[]> {
+    return [...this.voicePhoneNumbers.values()]
+      .filter(
+        (n) =>
+          n.organizationId === organizationId &&
+          n.channelId === channelId &&
+          n.status !== "archived",
+      )
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null> {
+    const n = this.voicePhoneNumbers.get(phoneNumberId);
+    if (!n || n.organizationId !== organizationId) return null;
+    return n;
+  }
+
+  async updateVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+    patch: UpdateVoicePhoneNumberInput,
+  ): Promise<VoicePhoneNumber | null> {
+    const n = await this.getVoicePhoneNumber(organizationId, phoneNumberId);
+    if (!n) return null;
+    const updated: VoicePhoneNumber = {
+      ...n,
+      phoneNumber: patch.phoneNumber ?? n.phoneNumber,
+      displayLabel: patch.displayLabel !== undefined ? patch.displayLabel : n.displayLabel,
+      countryCode: patch.countryCode !== undefined ? patch.countryCode : n.countryCode,
+      capabilities: patch.capabilities ?? n.capabilities,
+      status: patch.status ?? n.status,
+      updatedAt: now(),
+    };
+    this.voicePhoneNumbers.set(updated.id, updated);
+    return updated;
+  }
+
+  async archiveVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null> {
+    const n = await this.getVoicePhoneNumber(organizationId, phoneNumberId);
+    if (!n) return null;
+    const updated: VoicePhoneNumber = {
+      ...n,
+      status: "archived",
+      archivedAt: now(),
+      updatedAt: now(),
+    };
+    this.voicePhoneNumbers.set(updated.id, updated);
+    return updated;
+  }
+
+  async createVoiceCallSession(input: CreateVoiceCallSessionInput): Promise<VoiceCallSession> {
+    const timestamp = now();
+    const session: VoiceCallSession = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      channelId: input.channelId,
+      phoneNumberId: input.phoneNumberId ?? null,
+      providerType: input.providerType,
+      externalCallId: input.externalCallId ?? null,
+      direction: input.direction ?? "inbound",
+      callerHash: input.callerHash ?? null,
+      callerLabel: input.callerLabel ?? null,
+      status: input.status ?? "ringing",
+      startedAt: timestamp,
+      answeredAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      endReason: null,
+      recordingStatus: input.recordingStatus ?? "disabled",
+      transcriptStatus: input.transcriptStatus ?? "pending",
+      metadata: input.metadata ?? {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.voiceCallSessions.set(session.id, session);
+    return session;
+  }
+
+  async getVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceCallSession | null> {
+    const s = this.voiceCallSessions.get(callSessionId);
+    if (!s || s.organizationId !== organizationId) return null;
+    return s;
+  }
+
+  async getVoiceCallSessionByExternalId(
+    providerType: ChannelProviderType,
+    externalCallId: string,
+  ): Promise<VoiceCallSession | null> {
+    for (const s of this.voiceCallSessions.values()) {
+      if (s.providerType === providerType && s.externalCallId === externalCallId) return s;
+    }
+    return null;
+  }
+
+  async updateVoiceCallSessionStatus(
+    organizationId: string,
+    callSessionId: string,
+    patch: UpdateVoiceCallSessionStatusInput,
+  ): Promise<VoiceCallSession | null> {
+    const s = await this.getVoiceCallSession(organizationId, callSessionId);
+    if (!s) return null;
+    const updated: VoiceCallSession = {
+      ...s,
+      status: patch.status ?? s.status,
+      answeredAt: patch.answeredAt !== undefined ? patch.answeredAt : s.answeredAt,
+      endedAt: patch.endedAt !== undefined ? patch.endedAt : s.endedAt,
+      durationSeconds:
+        patch.durationSeconds !== undefined ? patch.durationSeconds : s.durationSeconds,
+      endReason: patch.endReason !== undefined ? patch.endReason : s.endReason,
+      recordingStatus: patch.recordingStatus ?? s.recordingStatus,
+      transcriptStatus: patch.transcriptStatus ?? s.transcriptStatus,
+      externalCallId: patch.externalCallId !== undefined ? patch.externalCallId : s.externalCallId,
+      metadata: patch.metadata ? { ...s.metadata, ...patch.metadata } : s.metadata,
+      updatedAt: now(),
+    };
+    this.voiceCallSessions.set(updated.id, updated);
+    return updated;
+  }
+
+  async endVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+    endReason: string,
+  ): Promise<VoiceCallSession | null> {
+    const s = await this.getVoiceCallSession(organizationId, callSessionId);
+    if (!s) return null;
+    const endedAt = now();
+    const durationSeconds = Math.max(
+      0,
+      Math.round((new Date(endedAt).getTime() - new Date(s.startedAt).getTime()) / 1000),
+    );
+    const updated: VoiceCallSession = {
+      ...s,
+      status: s.status === "failed" ? "failed" : "completed",
+      endedAt,
+      durationSeconds,
+      endReason,
+      transcriptStatus: s.transcriptStatus === "pending" ? "completed" : s.transcriptStatus,
+      updatedAt: endedAt,
+    };
+    this.voiceCallSessions.set(updated.id, updated);
+    return updated;
+  }
+
+  async createVoiceTranscriptMessage(
+    input: CreateVoiceTranscriptMessageInput,
+  ): Promise<VoiceTranscriptMessage> {
+    const message: VoiceTranscriptMessage = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      channelId: input.channelId,
+      callSessionId: input.callSessionId,
+      speakerType: input.speakerType,
+      content: input.content,
+      confidence: input.confidence ?? null,
+      startedAtMs: input.startedAtMs ?? null,
+      endedAtMs: input.endedAtMs ?? null,
+      sourceReferences: input.sourceReferences ?? null,
+      modelProviderSlug: input.modelProviderSlug ?? null,
+      modelId: input.modelId ?? null,
+      estimatedCostUsd: input.estimatedCostUsd ?? null,
+      metadata: input.metadata ?? {},
+      createdAt: now(),
+    };
+    this.voiceTranscriptMessages.set(message.id, message);
+    return message;
+  }
+
+  async listVoiceTranscriptMessages(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceTranscriptMessage[]> {
+    return [...this.voiceTranscriptMessages.values()]
+      .filter((m) => m.organizationId === organizationId && m.callSessionId === callSessionId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async createVoiceStreamEvent(input: CreateVoiceStreamEventInput): Promise<VoiceStreamEvent> {
+    const event: VoiceStreamEvent = {
+      id: uuid(),
+      organizationId: input.organizationId ?? null,
+      employeeId: input.employeeId ?? null,
+      channelId: input.channelId ?? null,
+      callSessionId: input.callSessionId ?? null,
+      providerType: input.providerType,
+      eventType: input.eventType,
+      status: input.status ?? "ok",
+      metadata: input.metadata ?? {},
+      createdAt: now(),
+    };
+    this.voiceStreamEvents.set(event.id, event);
+    return event;
+  }
+
+  async listVoiceStreamEventsForCall(
+    organizationId: string,
+    callSessionId: string,
+    limit = 50,
+  ): Promise<VoiceStreamEvent[]> {
+    return [...this.voiceStreamEvents.values()]
+      .filter((e) => e.organizationId === organizationId && e.callSessionId === callSessionId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
+  async getVoiceChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<VoiceChannelOverview> {
+    const channels = await this.listEmployeeChannelsForEmployee(organizationId, employeeId);
+    const channel =
+      channels.find((c) => c.channelType === "phone_call" && c.status !== "archived") ?? null;
+    let phoneNumber: VoicePhoneNumber | null = null;
+    let credentialStatus: VoiceChannelOverview["credentialStatus"] = "not_configured";
+    let recentCalls: VoiceCallSession[] = [];
+    if (channel) {
+      const numbers = await this.listVoicePhoneNumbersForChannel(organizationId, channel.id);
+      phoneNumber = numbers[0] ?? null;
+      const cred = await this.getChannelProviderCredentialMetadata(
+        organizationId,
+        channel.channelProvider,
+      );
+      credentialStatus = cred ? cred.status : "not_configured";
+      recentCalls = [...this.voiceCallSessions.values()]
+        .filter((s) => s.organizationId === organizationId && s.channelId === channel.id)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+        .slice(0, 10);
+    }
+    return {
+      channel,
+      providerType: channel?.channelProvider ?? null,
+      phoneNumber,
+      credentialStatus,
+      callCount: recentCalls.length,
+      lastCallAt: recentCalls[0]?.startedAt ?? null,
+      recentCalls,
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

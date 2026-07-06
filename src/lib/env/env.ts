@@ -57,6 +57,14 @@ const serverSchema = z
     MAILGUN_API_KEY: z.string().optional().or(z.literal("")),
     MAILGUN_DOMAIN: z.string().optional().or(z.literal("")),
     TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
+    // Voice Call Channel (Prompt 010). All optional and server-only; their absence
+    // never breaks local dev or tests — voice falls back to simulated providers.
+    TELNYX_API_KEY: z.string().optional().or(z.literal("")),
+    TELNYX_PUBLIC_KEY: z.string().optional().or(z.literal("")),
+    VONAGE_API_KEY: z.string().optional().or(z.literal("")),
+    VONAGE_API_SECRET: z.string().optional().or(z.literal("")),
+    DEEPGRAM_API_KEY: z.string().optional().or(z.literal("")),
+    ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
     const secret = env.AUTH_SECRET;
@@ -135,6 +143,12 @@ export function getServerEnv(): ServerEnv {
       MAILGUN_API_KEY: process.env.MAILGUN_API_KEY,
       MAILGUN_DOMAIN: process.env.MAILGUN_DOMAIN,
       TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY,
+      TELNYX_API_KEY: process.env.TELNYX_API_KEY,
+      TELNYX_PUBLIC_KEY: process.env.TELNYX_PUBLIC_KEY,
+      VONAGE_API_KEY: process.env.VONAGE_API_KEY,
+      VONAGE_API_SECRET: process.env.VONAGE_API_SECRET,
+      DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY,
+      ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
     });
   }
   return cachedServerEnv;
