@@ -6,6 +6,7 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { StatusBadge, VisibilityBadge } from "@/components/employees/employee-badges";
 import { EmployeeActions } from "@/components/employees/employee-actions";
+import { DnaStatusBadge } from "@/components/employee-dna/dna-version-history";
 import {
   ESCALATION_LABELS,
   FORMALITY_LABELS,
@@ -38,11 +39,29 @@ function StyleRow({ label, value }: { label: string; value: string }) {
 
 export default async function EmployeeDetailPage({ params }: { params: { employeeId: string } }) {
   const { organization, membership } = await requireCurrentOrganization();
+  const store = getStore();
   // Organization-scoped read: an employee from another organization returns null.
-  const employee = await getStore().getEmployee(organization.id, params.employeeId);
+  const employee = await store.getEmployee(organization.id, params.employeeId);
   if (!employee) notFound();
 
   const canManage = hasPermission(membership.role, "employee.manage");
+  const canEditDna = hasPermission(membership.role, "employee_dna.edit");
+
+  const dnaOverview = await store.getEmployeeDnaOverview(organization.id, employee.id);
+  const dnaCurrent = dnaOverview.published ?? dnaOverview.draft ?? null;
+  const hasDna = Boolean(dnaOverview.published || dnaOverview.draft);
+  const dnaStatusText = dnaOverview.published
+    ? "Published"
+    : dnaOverview.draft
+      ? "Draft"
+      : "Not started";
+  const dnaCtaLabel = !hasDna
+    ? canEditDna
+      ? "Add Employee DNA"
+      : "View Employee DNA"
+    : canEditDna
+      ? "Edit Employee DNA"
+      : "View Employee DNA";
 
   return (
     <div className="max-w-3xl">
@@ -121,9 +140,41 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         </div>
       ) : null}
 
+      {/* Employee DNA status + management. */}
+      <div className="mt-6 rounded-lg border border-slate-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-900">Employee DNA</h2>
+            <div className="mt-2 flex items-center gap-2">
+              {dnaCurrent ? <DnaStatusBadge status={dnaCurrent.status} /> : null}
+              <span className="text-sm text-slate-600">{dnaStatusText}</span>
+            </div>
+            {dnaOverview.published ? (
+              <p className="mt-1 text-xs text-slate-400">
+                Published Version {dnaOverview.published.versionNumber} · Updated{" "}
+                {formatDate(dnaOverview.published.updatedAt)}
+              </p>
+            ) : dnaCurrent ? (
+              <p className="mt-1 text-xs text-slate-400">
+                Updated {formatDate(dnaCurrent.updatedAt)}
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-slate-400">
+                Give this AI Employee a working style, responsibilities, and boundaries.
+              </p>
+            )}
+          </div>
+          <Link
+            href={`/dashboard/employees/${employee.id}/dna`}
+            className="shrink-0 rounded-md bg-taurus-accent px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500"
+          >
+            {dnaCtaLabel}
+          </Link>
+        </div>
+      </div>
+
       {/* Placeholders for capabilities delivered in later prompts. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Placeholder label="Employee DNA" value="No active version yet" />
         <Placeholder label="Knowledge Vault" value="0 sources connected" />
         <Placeholder label="Usage" value="No activity recorded yet" />
         <Placeholder label="Recent activity" value="Nothing to show yet" />

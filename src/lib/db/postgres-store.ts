@@ -14,21 +14,29 @@ import { getPool } from "@/lib/db/pool";
 import type { DataStore } from "@/lib/db/store";
 import type {
   AiEmployee,
+  ArchiveDnaVersionInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
+  DnaStatus,
+  EmployeeDnaOverview,
+  EmployeeDnaVersion,
   EmployeeStatus,
   EmployeeVisibility,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  PublishDnaInput,
+  SaveDnaDraftInput,
   UpdateEmployeeInput,
   User,
   WorkingStyle,
 } from "@/lib/db/types";
 import { isRole, type Role } from "@/modules/organizations/roles";
+import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
+import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
 
 // Row shapes come from pg as untyped records; map them explicitly below.
 type Row = Record<string, any>;
@@ -84,6 +92,23 @@ function mapEmployee(row: Row): AiEmployee {
     workingStyle: (row.working_style as WorkingStyle | null) ?? null,
     avatarUrl: row.avatar_url,
     createdBy: row.created_by,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapDnaVersion(row: Row): EmployeeDnaVersion {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    versionNumber: row.version_number,
+    status: row.status as DnaStatus,
+    schemaVersion: row.schema_version,
+    dna: row.dna as EmployeeDnaV1,
+    createdByUserId: row.created_by_user_id,
+    publishedByUserId: row.published_by_user_id,
+    publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -284,6 +309,157 @@ export class PostgresStore implements DataStore {
       employeeId,
     ]);
     return rows[0]?.organization_id ?? null;
+  }
+
+  // --- Employee DNA (Prompt 005) --------------------------------------------
+
+  async getDraftEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null> {
+    const { rows } = await this.query(
+      `select * from employee_dna_versions
+       where organization_id = $1 and employee_id = $2 and status = 'draft' limit 1`,
+      [organizationId, employeeId],
+    );
+    return rows[0] ? mapDnaVersion(rows[0]) : null;
+  }
+
+  async getPublishedEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null> {
+    const { rows } = await this.query(
+      `select * from employee_dna_versions
+       where organization_id = $1 and employee_id = $2 and status = 'published' limit 1`,
+      [organizationId, employeeId],
+    );
+    return rows[0] ? mapDnaVersion(rows[0]) : null;
+  }
+
+  async listEmployeeDnaVersions(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion[]> {
+    const { rows } = await this.query(
+      `select * from employee_dna_versions
+       where organization_id = $1 and employee_id = $2
+       order by version_number desc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapDnaVersion);
+  }
+
+  async getEmployeeDnaOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaOverview> {
+    const versions = await this.listEmployeeDnaVersions(organizationId, employeeId);
+    return {
+      draft: versions.find((v) => v.status === "draft") ?? null,
+      published: versions.find((v) => v.status === "published") ?? null,
+      versions,
+    };
+  }
+
+  async saveEmployeeDnaDraft(input: SaveDnaDraftInput): Promise<EmployeeDnaVersion> {
+    const client: PoolClient = await getPool().connect();
+    try {
+      await client.query("begin");
+      const existing = await client.query(
+        `select * from employee_dna_versions
+         where organization_id = $1 and employee_id = $2 and status = 'draft'
+         for update`,
+        [input.organizationId, input.employeeId],
+      );
+
+      let row;
+      if (existing.rows[0]) {
+        const updated = await client.query(
+          `update employee_dna_versions set dna = $1, updated_at = now()
+           where id = $2 returning *`,
+          [JSON.stringify(input.dna), existing.rows[0].id],
+        );
+        row = updated.rows[0];
+      } else {
+        const next = await client.query(
+          `select coalesce(max(version_number), 0) + 1 as v
+           from employee_dna_versions where organization_id = $1 and employee_id = $2`,
+          [input.organizationId, input.employeeId],
+        );
+        const inserted = await client.query(
+          `insert into employee_dna_versions
+             (organization_id, employee_id, version_number, status, schema_version, dna,
+              created_by_user_id)
+           values ($1, $2, $3, 'draft', $4, $5, $6)
+           returning *`,
+          [
+            input.organizationId,
+            input.employeeId,
+            next.rows[0].v,
+            DNA_SCHEMA_VERSION,
+            JSON.stringify(input.dna),
+            input.userId,
+          ],
+        );
+        row = inserted.rows[0];
+      }
+      await client.query("commit");
+      return mapDnaVersion(row);
+    } catch (err) {
+      await client.query("rollback");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async publishEmployeeDna(input: PublishDnaInput): Promise<EmployeeDnaVersion> {
+    const client: PoolClient = await getPool().connect();
+    try {
+      await client.query("begin");
+      const draftResult = await client.query(
+        `select * from employee_dna_versions
+         where organization_id = $1 and employee_id = $2 and status = 'draft'
+         for update`,
+        [input.organizationId, input.employeeId],
+      );
+      if (!draftResult.rows[0]) {
+        throw new Error("There is no draft Employee DNA to publish.");
+      }
+
+      // Archive any previously published version first (one published at a time).
+      await client.query(
+        `update employee_dna_versions set status = 'archived', updated_at = now()
+         where organization_id = $1 and employee_id = $2 and status = 'published'`,
+        [input.organizationId, input.employeeId],
+      );
+
+      const published = await client.query(
+        `update employee_dna_versions
+         set status = 'published', published_by_user_id = $1, published_at = now(), updated_at = now()
+         where id = $2 returning *`,
+        [input.userId, draftResult.rows[0].id],
+      );
+      await client.query("commit");
+      return mapDnaVersion(published.rows[0]);
+    } catch (err) {
+      await client.query("rollback");
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  async archiveEmployeeDnaVersion(
+    input: ArchiveDnaVersionInput,
+  ): Promise<EmployeeDnaVersion | null> {
+    const { rows } = await this.query(
+      `update employee_dna_versions set status = 'archived', updated_at = now()
+       where id = $1 and organization_id = $2 and employee_id = $3 returning *`,
+      [input.versionId, input.organizationId, input.employeeId],
+    );
+    return rows[0] ? mapDnaVersion(rows[0]) : null;
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {
