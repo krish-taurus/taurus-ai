@@ -17,16 +17,24 @@ import type {
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  CreateEmployeeChatMessageInput,
+  CreateEmployeeChatRetrievalEventInput,
+  CreateEmployeeChatThreadInput,
   CreateKnowledgeDocumentInput,
+  CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
   CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
+  EmployeeChatMessage,
+  EmployeeChatRetrievalEvent,
+  EmployeeChatThread,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
   EmployeeModelSettings,
   KnowledgeDocument,
+  KnowledgeRetrievalSegment,
   KnowledgeSource,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -38,6 +46,7 @@ import type {
   ProviderCredentialMetadata,
   ProviderSlug,
   PublishDnaInput,
+  RankedRetrievalSegment,
   SaveDnaDraftInput,
   SaveProviderCredentialInput,
   UpdateEmployeeInput,
@@ -193,6 +202,58 @@ export interface DataStore {
   createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent>;
 
   getModelHubOverview(organizationId: string): Promise<ModelHubOverview>;
+
+  // Employee Chat Runtime (Prompt 007) — all reads/writes organization-scoped.
+  createEmployeeChatThread(input: CreateEmployeeChatThreadInput): Promise<EmployeeChatThread>;
+  listEmployeeChatThreads(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread[]>;
+  getEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null>;
+  getLatestEmployeeChatThreadForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread | null>;
+  archiveEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null>;
+
+  createEmployeeChatMessage(input: CreateEmployeeChatMessageInput): Promise<EmployeeChatMessage>;
+  listEmployeeChatMessages(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatMessage[]>;
+
+  // Knowledge retrieval segments (internal excerpt store — never "chunks" in UI).
+  createKnowledgeRetrievalSegments(
+    inputs: CreateKnowledgeRetrievalSegmentInput[],
+  ): Promise<KnowledgeRetrievalSegment[]>;
+  listKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<KnowledgeRetrievalSegment[]>;
+  listKnowledgeRetrievalSegmentsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeRetrievalSegment[]>;
+  searchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    query: string,
+    limit?: number,
+  ): Promise<RankedRetrievalSegment[]>;
+  deleteKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<number>;
+
+  createEmployeeChatRetrievalEvent(
+    input: CreateEmployeeChatRetrievalEventInput,
+  ): Promise<EmployeeChatRetrievalEvent>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

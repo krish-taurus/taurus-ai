@@ -39,6 +39,11 @@ export const PERMISSIONS = [
   // organization/employee model settings and provider credentials (owner/admin).
   "model_hub.view",
   "model_hub.manage",
+  // Employee Chat runtime (Prompt 007). view = open a chat + read history;
+  // use = send a message (run the Employee). Testing an Employee is a core
+  // capability every role already has via employee.test, so all roles get both.
+  "employee_chat.view",
+  "employee_chat.use",
   "employee.test",
   "employee.view",
   "dashboard.view",
@@ -62,6 +67,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "knowledge.manage",
     "model_hub.view",
     "model_hub.manage",
+    "employee_chat.view",
+    "employee_chat.use",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -72,6 +79,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "knowledge.view",
     "knowledge.manage",
     "model_hub.view",
+    "employee_chat.view",
+    "employee_chat.use",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -81,6 +90,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee.test",
     "knowledge.view",
     "model_hub.view",
+    "employee_chat.view",
+    "employee_chat.use",
     "dashboard.view",
   ]),
 };

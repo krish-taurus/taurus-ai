@@ -498,3 +498,145 @@ export interface ModelHubOverview {
   estimatedSpendUsd: number;
   recentUsage: LlmUsageEvent[];
 }
+
+// ===========================================================================
+// Employee Chat Runtime (Prompt 007)
+//
+// Chat message contents live only in EmployeeChatMessage. Retrieval segments are
+// internal excerpts (never called "chunks" in the UI). Retrieval events store a
+// query hash, never the full question.
+// ===========================================================================
+
+export type ChatThreadStatus = "active" | "archived";
+export type ChatMessageRole = "user" | "assistant" | "system";
+export type ChatMessageStatus = "sent" | "pending" | "failed";
+export type BrainMode = "live" | "local_demo";
+export type RetrievalSegmentStatus = "ready" | "archived";
+
+/** A source reference attached to an assistant message (safe, UI-facing shape). */
+export interface ChatSourceReference {
+  sourceId: string;
+  name: string;
+  sourceType: KnowledgeSourceType;
+  documentId: string | null;
+  preview: string;
+}
+
+export interface EmployeeChatThread {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  title: string | null;
+  status: ChatThreadStatus;
+  createdByUserId: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateEmployeeChatThreadInput {
+  organizationId: string;
+  employeeId: string;
+  title?: string | null;
+  createdByUserId?: string | null;
+}
+
+export interface EmployeeChatMessage {
+  id: string;
+  organizationId: string;
+  threadId: string;
+  employeeId: string;
+  role: ChatMessageRole;
+  content: string;
+  status: ChatMessageStatus;
+  sourceReferences: ChatSourceReference[] | null;
+  modelProviderSlug: string | null;
+  modelId: string | null;
+  modelTier: string | null;
+  routingMode: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  estimatedCostUsd: number | null;
+  latencyMs: number | null;
+  errorCode: string | null;
+  brainMode: BrainMode | null;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateEmployeeChatMessageInput {
+  organizationId: string;
+  threadId: string;
+  employeeId: string;
+  role: ChatMessageRole;
+  content: string;
+  status?: ChatMessageStatus;
+  sourceReferences?: ChatSourceReference[] | null;
+  modelProviderSlug?: string | null;
+  modelId?: string | null;
+  modelTier?: string | null;
+  routingMode?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  estimatedCostUsd?: number | null;
+  latencyMs?: number | null;
+  errorCode?: string | null;
+  brainMode?: BrainMode | null;
+  createdByUserId?: string | null;
+}
+
+/** Internal searchable excerpt of prepared knowledge. */
+export interface KnowledgeRetrievalSegment {
+  id: string;
+  organizationId: string;
+  knowledgeSourceId: string;
+  knowledgeDocumentId: string | null;
+  title: string;
+  content: string;
+  contentPreview: string;
+  segmentIndex: number;
+  status: RetrievalSegmentStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateKnowledgeRetrievalSegmentInput {
+  organizationId: string;
+  knowledgeSourceId: string;
+  knowledgeDocumentId?: string | null;
+  title: string;
+  content: string;
+  contentPreview: string;
+  segmentIndex: number;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CreateEmployeeChatRetrievalEventInput {
+  organizationId: string;
+  employeeId: string;
+  threadId?: string | null;
+  messageId?: string | null;
+  queryTextHash?: string | null;
+  retrievedSourceCount: number;
+  topSourceIds: string[];
+}
+
+export interface EmployeeChatRetrievalEvent {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  threadId: string | null;
+  messageId: string | null;
+  queryTextHash: string | null;
+  retrievedSourceCount: number;
+  topSourceIds: string[];
+  createdAt: string;
+}
+
+/** A retrieval segment plus its lexical relevance score (internal, not UI). */
+export interface RankedRetrievalSegment {
+  segment: KnowledgeRetrievalSegment;
+  score: number;
+  matchedTerms: string[];
+}

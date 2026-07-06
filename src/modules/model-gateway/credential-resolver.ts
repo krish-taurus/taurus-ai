@@ -18,6 +18,7 @@ import { getProvider } from "@/modules/model-gateway/catalog";
 import { decryptApiKey, isEncryptionConfigured } from "@/modules/model-gateway/credentials";
 import { DEFAULT_PROVIDERS } from "@/modules/model-gateway/providers";
 import { LlmGateway } from "@/modules/model-gateway/gateway";
+import { generateLocalDemoAnswer } from "@/modules/model-gateway/local-demo-brain";
 
 /** Whether a provider has a Taurus-managed key available via env. */
 export function isPlatformKeyAvailable(providerSlug: ProviderSlug): boolean {
@@ -61,11 +62,36 @@ export function createDefaultCredentialResolver(store: DataStore): CredentialRes
   };
 }
 
-/** Build the default, production LLM gateway backed by real provider adapters. */
+/**
+ * True only in production. Used to gate the Local Demo Brain so fake answers are
+ * never served silently to real users.
+ */
+export function isProductionRuntime(): boolean {
+  return process.env.NODE_ENV === "production";
+}
+
+/** Build the default LLM gateway backed by real provider adapters. */
 export function createLlmGateway(store: DataStore): LlmGateway {
   return new LlmGateway({
     store,
     providers: DEFAULT_PROVIDERS,
     resolveCredential: createDefaultCredentialResolver(store),
+    // Local Demo Brain is allowed everywhere EXCEPT production.
+    demo: { allowed: !isProductionRuntime(), generate: generateLocalDemoAnswer },
   });
+}
+
+/**
+ * Whether a live provider credential resolves for the model a request would use.
+ * Drives the chat readiness state (live vs demo vs "configure Model Hub").
+ */
+export async function isLiveProviderConfigured(
+  store: DataStore,
+  organizationId: string,
+  providerSlug: ProviderSlug | null,
+): Promise<boolean> {
+  if (!providerSlug) return false;
+  const resolve = createDefaultCredentialResolver(store);
+  const credential = await resolve(organizationId, providerSlug);
+  return credential !== null;
 }

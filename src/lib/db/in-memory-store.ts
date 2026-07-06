@@ -13,16 +13,24 @@ import type {
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  CreateEmployeeChatMessageInput,
+  CreateEmployeeChatRetrievalEventInput,
+  CreateEmployeeChatThreadInput,
   CreateKnowledgeDocumentInput,
+  CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
   CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
+  EmployeeChatMessage,
+  EmployeeChatRetrievalEvent,
+  EmployeeChatThread,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
   EmployeeModelSettings,
   KnowledgeDocument,
+  KnowledgeRetrievalSegment,
   KnowledgeSource,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -34,6 +42,7 @@ import type {
   ProviderCredentialMetadata,
   ProviderSlug,
   PublishDnaInput,
+  RankedRetrievalSegment,
   SaveDnaDraftInput,
   SaveProviderCredentialInput,
   UpdateEmployeeInput,
@@ -51,6 +60,7 @@ import {
   getModel,
   modelsByProvider,
 } from "@/modules/model-gateway/catalog";
+import { rankSegments } from "@/modules/employee-chat/scoring";
 
 function uuid(): string {
   return globalThis.crypto.randomUUID();
@@ -78,6 +88,11 @@ export class InMemoryStore implements DataStore {
     ProviderCredentialMetadata & { encryptedApiKey: string | null }
   >();
   private llmUsageEvents: LlmUsageEvent[] = [];
+  // Employee Chat Runtime (Prompt 007).
+  private chatThreads = new Map<string, EmployeeChatThread>();
+  private chatMessages = new Map<string, EmployeeChatMessage>();
+  private retrievalSegments = new Map<string, KnowledgeRetrievalSegment>();
+  private chatRetrievalEvents: EmployeeChatRetrievalEvent[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -829,6 +844,227 @@ export class InMemoryStore implements DataStore {
       estimatedSpendUsd: Math.round(estimatedSpendUsd * 1e6) / 1e6,
       recentUsage: usage.slice().reverse().slice(0, 10),
     };
+  }
+
+  // --- Employee Chat Runtime (Prompt 007) -----------------------------------
+
+  async createEmployeeChatThread(
+    input: CreateEmployeeChatThreadInput,
+  ): Promise<EmployeeChatThread> {
+    const timestamp = now();
+    const thread: EmployeeChatThread = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      title: input.title ?? null,
+      status: "active",
+      createdByUserId: input.createdByUserId ?? null,
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.chatThreads.set(thread.id, thread);
+    return thread;
+  }
+
+  async listEmployeeChatThreads(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread[]> {
+    return [...this.chatThreads.values()]
+      .filter((t) => t.organizationId === organizationId && t.employeeId === employeeId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const thread = this.chatThreads.get(threadId);
+    if (!thread || thread.organizationId !== organizationId) return null;
+    return thread;
+  }
+
+  async getLatestEmployeeChatThreadForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const active = (await this.listEmployeeChatThreads(organizationId, employeeId)).filter(
+      (t) => t.status === "active",
+    );
+    return active[0] ?? null;
+  }
+
+  async archiveEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const thread = await this.getEmployeeChatThread(organizationId, threadId);
+    if (!thread) return null;
+    const updated: EmployeeChatThread = {
+      ...thread,
+      status: "archived",
+      archivedAt: now(),
+      updatedAt: now(),
+    };
+    this.chatThreads.set(updated.id, updated);
+    return updated;
+  }
+
+  async createEmployeeChatMessage(
+    input: CreateEmployeeChatMessageInput,
+  ): Promise<EmployeeChatMessage> {
+    const message: EmployeeChatMessage = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      threadId: input.threadId,
+      employeeId: input.employeeId,
+      role: input.role,
+      content: input.content,
+      status: input.status ?? "sent",
+      sourceReferences: input.sourceReferences ?? null,
+      modelProviderSlug: input.modelProviderSlug ?? null,
+      modelId: input.modelId ?? null,
+      modelTier: input.modelTier ?? null,
+      routingMode: input.routingMode ?? null,
+      inputTokens: input.inputTokens ?? null,
+      outputTokens: input.outputTokens ?? null,
+      estimatedCostUsd: input.estimatedCostUsd ?? null,
+      latencyMs: input.latencyMs ?? null,
+      errorCode: input.errorCode ?? null,
+      brainMode: input.brainMode ?? null,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: now(),
+    };
+    this.chatMessages.set(message.id, message);
+    // Touch the thread's updatedAt so latest-thread ordering stays correct.
+    const thread = this.chatThreads.get(input.threadId);
+    if (thread) this.chatThreads.set(thread.id, { ...thread, updatedAt: message.createdAt });
+    return message;
+  }
+
+  async listEmployeeChatMessages(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatMessage[]> {
+    return [...this.chatMessages.values()]
+      .filter((m) => m.organizationId === organizationId && m.threadId === threadId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async createKnowledgeRetrievalSegments(
+    inputs: CreateKnowledgeRetrievalSegmentInput[],
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    const created: KnowledgeRetrievalSegment[] = [];
+    for (const input of inputs) {
+      const timestamp = now();
+      const segment: KnowledgeRetrievalSegment = {
+        id: uuid(),
+        organizationId: input.organizationId,
+        knowledgeSourceId: input.knowledgeSourceId,
+        knowledgeDocumentId: input.knowledgeDocumentId ?? null,
+        title: input.title,
+        content: input.content,
+        contentPreview: input.contentPreview,
+        segmentIndex: input.segmentIndex,
+        status: "ready",
+        metadata: input.metadata ?? {},
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      this.retrievalSegments.set(segment.id, segment);
+      created.push(segment);
+    }
+    return created;
+  }
+
+  async listKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    return [...this.retrievalSegments.values()]
+      .filter(
+        (s) => s.organizationId === organizationId && s.knowledgeSourceId === knowledgeSourceId,
+      )
+      .sort((a, b) => a.segmentIndex - b.segmentIndex);
+  }
+
+  async listKnowledgeRetrievalSegmentsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    // Only assigned, non-archived sources in this organization contribute.
+    const assignedSourceIds = new Set(
+      [...this.knowledgeAssignments.values()]
+        .filter((a) => a.organizationId === organizationId && a.employeeId === employeeId)
+        .map((a) => a.knowledgeSourceId),
+    );
+    const activeSourceIds = new Set(
+      [...this.knowledgeSources.values()]
+        .filter(
+          (s) =>
+            s.organizationId === organizationId &&
+            assignedSourceIds.has(s.id) &&
+            s.status !== "archived",
+        )
+        .map((s) => s.id),
+    );
+    return [...this.retrievalSegments.values()]
+      .filter(
+        (s) =>
+          s.organizationId === organizationId &&
+          activeSourceIds.has(s.knowledgeSourceId) &&
+          s.status === "ready",
+      )
+      .sort((a, b) => a.segmentIndex - b.segmentIndex);
+  }
+
+  async searchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    query: string,
+    limit = 5,
+  ): Promise<RankedRetrievalSegment[]> {
+    const segments = await this.listKnowledgeRetrievalSegmentsForEmployee(
+      organizationId,
+      employeeId,
+    );
+    return rankSegments(query, segments, limit);
+  }
+
+  async deleteKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<number> {
+    let removed = 0;
+    for (const [id, segment] of this.retrievalSegments) {
+      if (
+        segment.organizationId === organizationId &&
+        segment.knowledgeSourceId === knowledgeSourceId
+      ) {
+        this.retrievalSegments.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
+  async createEmployeeChatRetrievalEvent(
+    input: CreateEmployeeChatRetrievalEventInput,
+  ): Promise<EmployeeChatRetrievalEvent> {
+    const event: EmployeeChatRetrievalEvent = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      threadId: input.threadId ?? null,
+      messageId: input.messageId ?? null,
+      queryTextHash: input.queryTextHash ?? null,
+      retrievedSourceCount: input.retrievedSourceCount,
+      topSourceIds: input.topSourceIds,
+      createdAt: now(),
+    };
+    this.chatRetrievalEvents.push(event);
+    return event;
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

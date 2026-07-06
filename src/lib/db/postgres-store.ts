@@ -18,16 +18,28 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  CreateEmployeeChatMessageInput,
+  CreateEmployeeChatRetrievalEventInput,
+  CreateEmployeeChatThreadInput,
   CreateEmployeeInput,
   CreateKnowledgeDocumentInput,
+  CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
   CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
   CredentialMode,
   CredentialStatus,
+  ChatMessageRole,
+  ChatMessageStatus,
+  ChatThreadStatus,
+  BrainMode,
+  ChatSourceReference,
   DnaStatus,
   DocumentExtractionStatus,
+  EmployeeChatMessage,
+  EmployeeChatRetrievalEvent,
+  EmployeeChatThread,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
@@ -35,6 +47,7 @@ import type {
   EmployeeStatus,
   EmployeeVisibility,
   KnowledgeDocument,
+  KnowledgeRetrievalSegment,
   KnowledgeSource,
   KnowledgeSourceStatus,
   KnowledgeSourceType,
@@ -51,6 +64,8 @@ import type {
   ProviderCredentialMetadata,
   ProviderSlug,
   PublishDnaInput,
+  RankedRetrievalSegment,
+  RetrievalSegmentStatus,
   RoutingMode,
   SaveDnaDraftInput,
   SaveProviderCredentialInput,
@@ -68,6 +83,7 @@ import {
   getModel,
   modelsByProvider,
 } from "@/modules/model-gateway/catalog";
+import { rankSegments } from "@/modules/employee-chat/scoring";
 import { isRole, type Role } from "@/modules/organizations/roles";
 import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
 import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
@@ -272,6 +288,76 @@ function mapUsageEvent(row: Row): LlmUsageEvent {
     errorCode: row.error_code,
     requestIdHash: row.request_id_hash,
     createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapChatThread(row: Row): EmployeeChatThread {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    title: row.title,
+    status: row.status as ChatThreadStatus,
+    createdByUserId: row.created_by_user_id,
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapChatMessage(row: Row): EmployeeChatMessage {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    threadId: row.thread_id,
+    employeeId: row.employee_id,
+    role: row.role as ChatMessageRole,
+    content: row.content,
+    status: row.status as ChatMessageStatus,
+    sourceReferences: (row.source_references as ChatSourceReference[] | null) ?? null,
+    modelProviderSlug: row.model_provider_slug,
+    modelId: row.model_id,
+    modelTier: row.model_tier,
+    routingMode: row.routing_mode,
+    inputTokens: row.input_tokens,
+    outputTokens: row.output_tokens,
+    estimatedCostUsd: num(row.estimated_cost_usd),
+    latencyMs: row.latency_ms,
+    errorCode: row.error_code,
+    brainMode: (row.brain_mode as BrainMode | null) ?? null,
+    createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapRetrievalSegment(row: Row): KnowledgeRetrievalSegment {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    knowledgeSourceId: row.knowledge_source_id,
+    knowledgeDocumentId: row.knowledge_document_id,
+    title: row.title,
+    content: row.content,
+    contentPreview: row.content_preview,
+    segmentIndex: row.segment_index,
+    status: row.status as RetrievalSegmentStatus,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapChatRetrievalEvent(row: Row): EmployeeChatRetrievalEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    threadId: row.thread_id,
+    messageId: row.message_id,
+    queryTextHash: row.query_text_hash,
+    retrievedSourceCount: row.retrieved_source_count,
+    topSourceIds: Array.isArray(row.top_source_ids) ? row.top_source_ids : [],
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -1145,6 +1231,235 @@ export class PostgresStore implements DataStore {
       estimatedSpendUsd: num(spendRows[0]?.total) ?? 0,
       recentUsage: recent,
     };
+  }
+
+  // --- Employee Chat Runtime (Prompt 007) -----------------------------------
+
+  async createEmployeeChatThread(
+    input: CreateEmployeeChatThreadInput,
+  ): Promise<EmployeeChatThread> {
+    const { rows } = await this.query(
+      `insert into employee_chat_threads
+         (organization_id, employee_id, title, status, created_by_user_id)
+       values ($1, $2, $3, 'active', $4)
+       returning *`,
+      [input.organizationId, input.employeeId, input.title ?? null, input.createdByUserId ?? null],
+    );
+    return mapChatThread(rows[0]);
+  }
+
+  async listEmployeeChatThreads(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread[]> {
+    const { rows } = await this.query(
+      `select * from employee_chat_threads
+       where organization_id = $1 and employee_id = $2
+       order by updated_at desc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapChatThread);
+  }
+
+  async getEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const { rows } = await this.query(
+      "select * from employee_chat_threads where organization_id = $1 and id = $2",
+      [organizationId, threadId],
+    );
+    return rows[0] ? mapChatThread(rows[0]) : null;
+  }
+
+  async getLatestEmployeeChatThreadForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const { rows } = await this.query(
+      `select * from employee_chat_threads
+       where organization_id = $1 and employee_id = $2 and status = 'active'
+       order by updated_at desc
+       limit 1`,
+      [organizationId, employeeId],
+    );
+    return rows[0] ? mapChatThread(rows[0]) : null;
+  }
+
+  async archiveEmployeeChatThread(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatThread | null> {
+    const { rows } = await this.query(
+      `update employee_chat_threads
+       set status = 'archived', archived_at = now(), updated_at = now()
+       where organization_id = $1 and id = $2
+       returning *`,
+      [organizationId, threadId],
+    );
+    return rows[0] ? mapChatThread(rows[0]) : null;
+  }
+
+  async createEmployeeChatMessage(
+    input: CreateEmployeeChatMessageInput,
+  ): Promise<EmployeeChatMessage> {
+    const { rows } = await this.query(
+      `insert into employee_chat_messages
+         (organization_id, thread_id, employee_id, role, content, status, source_references,
+          model_provider_slug, model_id, model_tier, routing_mode, input_tokens, output_tokens,
+          estimated_cost_usd, latency_ms, error_code, brain_mode, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+       returning *`,
+      [
+        input.organizationId,
+        input.threadId,
+        input.employeeId,
+        input.role,
+        input.content,
+        input.status ?? "sent",
+        input.sourceReferences ? JSON.stringify(input.sourceReferences) : null,
+        input.modelProviderSlug ?? null,
+        input.modelId ?? null,
+        input.modelTier ?? null,
+        input.routingMode ?? null,
+        input.inputTokens ?? null,
+        input.outputTokens ?? null,
+        input.estimatedCostUsd ?? null,
+        input.latencyMs ?? null,
+        input.errorCode ?? null,
+        input.brainMode ?? null,
+        input.createdByUserId ?? null,
+      ],
+    );
+    // Keep thread ordering fresh.
+    await this.query(
+      "update employee_chat_threads set updated_at = now() where id = $1 and organization_id = $2",
+      [input.threadId, input.organizationId],
+    );
+    return mapChatMessage(rows[0]);
+  }
+
+  async listEmployeeChatMessages(
+    organizationId: string,
+    threadId: string,
+  ): Promise<EmployeeChatMessage[]> {
+    const { rows } = await this.query(
+      `select * from employee_chat_messages
+       where organization_id = $1 and thread_id = $2
+       order by created_at asc`,
+      [organizationId, threadId],
+    );
+    return rows.map(mapChatMessage);
+  }
+
+  async createKnowledgeRetrievalSegments(
+    inputs: CreateKnowledgeRetrievalSegmentInput[],
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    const created: KnowledgeRetrievalSegment[] = [];
+    for (const input of inputs) {
+      const { rows } = await this.query(
+        `insert into knowledge_retrieval_segments
+           (organization_id, knowledge_source_id, knowledge_document_id, title, content,
+            content_preview, segment_index, status, metadata)
+         values ($1,$2,$3,$4,$5,$6,$7,'ready',$8)
+         returning *`,
+        [
+          input.organizationId,
+          input.knowledgeSourceId,
+          input.knowledgeDocumentId ?? null,
+          input.title,
+          input.content,
+          input.contentPreview,
+          input.segmentIndex,
+          JSON.stringify(input.metadata ?? {}),
+        ],
+      );
+      created.push(mapRetrievalSegment(rows[0]));
+    }
+    return created;
+  }
+
+  async listKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    const { rows } = await this.query(
+      `select * from knowledge_retrieval_segments
+       where organization_id = $1 and knowledge_source_id = $2
+       order by segment_index asc`,
+      [organizationId, knowledgeSourceId],
+    );
+    return rows.map(mapRetrievalSegment);
+  }
+
+  async listKnowledgeRetrievalSegmentsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeRetrievalSegment[]> {
+    // Only ready segments from assigned, non-archived sources in this org.
+    const { rows } = await this.query(
+      `select seg.* from knowledge_retrieval_segments seg
+         join employee_knowledge_sources eks
+           on eks.knowledge_source_id = seg.knowledge_source_id
+          and eks.organization_id = seg.organization_id
+         join knowledge_sources src
+           on src.id = seg.knowledge_source_id
+          and src.organization_id = seg.organization_id
+       where seg.organization_id = $1
+         and eks.employee_id = $2
+         and seg.status = 'ready'
+         and src.status <> 'archived'
+       order by seg.segment_index asc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapRetrievalSegment);
+  }
+
+  async searchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    query: string,
+    limit = 5,
+  ): Promise<RankedRetrievalSegment[]> {
+    // Deterministic lexical ranking in code keeps results identical across stores.
+    const segments = await this.listKnowledgeRetrievalSegmentsForEmployee(
+      organizationId,
+      employeeId,
+    );
+    return rankSegments(query, segments, limit);
+  }
+
+  async deleteKnowledgeRetrievalSegmentsForSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<number> {
+    const { rowCount } = await this.query(
+      "delete from knowledge_retrieval_segments where organization_id = $1 and knowledge_source_id = $2",
+      [organizationId, knowledgeSourceId],
+    );
+    return rowCount ?? 0;
+  }
+
+  async createEmployeeChatRetrievalEvent(
+    input: CreateEmployeeChatRetrievalEventInput,
+  ): Promise<EmployeeChatRetrievalEvent> {
+    const { rows } = await this.query(
+      `insert into employee_chat_retrieval_events
+         (organization_id, employee_id, thread_id, message_id, query_text_hash,
+          retrieved_source_count, top_source_ids)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.threadId ?? null,
+        input.messageId ?? null,
+        input.queryTextHash ?? null,
+        input.retrievedSourceCount,
+        JSON.stringify(input.topSourceIds),
+      ],
+    );
+    return mapChatRetrievalEvent(rows[0]);
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

@@ -115,6 +115,10 @@ export interface GatewayResponse {
   latencyMs: number;
   rawProviderRequestId?: string | null;
   finishReason?: string | null;
+  /** True when answered by the Local Demo Brain (dev/test only, never prod). */
+  demo?: boolean;
+  /** Human label for the brain that answered (e.g. "Local demo brain"). */
+  brainLabel?: string | null;
 }
 
 /** Result of resolving which model should serve a request. */
