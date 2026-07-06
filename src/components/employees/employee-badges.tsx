@@ -1,33 +1,31 @@
 /**
- * Status and visibility badges for AI Employees (Prompt 003).
- * Presentation-only; labels come from the employees metadata module.
+ * Status and visibility badges for AI Employees (Prompt 003; restyled 005B).
+ *
+ * Monochrome. Status is conveyed by the label plus a status dot whose fill level
+ * differs per state, so it never relies on color alone.
  */
 
 import type { EmployeeStatus, EmployeeVisibility } from "@/lib/db/types";
 import { EMPLOYEE_STATUS_LABELS, EMPLOYEE_VISIBILITY_LABELS } from "@/modules/employees/metadata";
+import { Badge, StatusDot } from "@/components/ui";
 
-const STATUS_STYLES: Record<EmployeeStatus, string> = {
-  draft: "bg-slate-100 text-slate-700",
-  training: "bg-amber-100 text-amber-800",
-  active: "bg-green-100 text-green-800",
-  paused: "bg-yellow-100 text-yellow-800",
-  archived: "bg-slate-200 text-slate-500",
+const STATUS_LEVEL: Record<EmployeeStatus, 0 | 1 | 2 | 3> = {
+  active: 3,
+  training: 2,
+  draft: 1,
+  paused: 0,
+  archived: 0,
 };
 
 export function StatusBadge({ status }: { status: EmployeeStatus }) {
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}
-    >
+    <Badge tone={status === "archived" ? "outline" : "soft"}>
+      <StatusDot level={STATUS_LEVEL[status]} />
       {EMPLOYEE_STATUS_LABELS[status]}
-    </span>
+    </Badge>
   );
 }
 
 export function VisibilityBadge({ visibility }: { visibility: EmployeeVisibility }) {
-  return (
-    <span className="inline-flex items-center rounded-full border border-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">
-      {EMPLOYEE_VISIBILITY_LABELS[visibility]}
-    </span>
-  );
+  return <Badge tone="outline">{EMPLOYEE_VISIBILITY_LABELS[visibility]}</Badge>;
 }

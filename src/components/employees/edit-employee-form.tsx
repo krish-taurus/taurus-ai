@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Edit AI Employee form (Prompt 003).
+ * Edit AI Employee form (Prompt 003; restyled Sprint 005B).
  *
  * Prefilled from the existing employee. Posts to updateEmployeeAction. Status and
  * visibility use plain-language labels. The employee id travels in a hidden field
@@ -18,18 +18,12 @@ import {
   EMPLOYEE_VISIBILITIES,
   EMPLOYEE_VISIBILITY_LABELS,
 } from "@/modules/employees/metadata";
-
-const inputClass =
-  "w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-taurus-accent focus:outline-none focus:ring-1 focus:ring-taurus-accent";
+import { buttonClasses, Field, FieldError, Input, Select, Textarea } from "@/components/ui";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-taurus-accent px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:opacity-60"
-    >
+    <button type="submit" disabled={pending} className={buttonClasses("primary", "lg")}>
       {pending ? "Saving…" : "Save changes"}
     </button>
   );
@@ -42,105 +36,74 @@ export function EditEmployeeForm({ employee }: { employee: AiEmployee }) {
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="employeeId" value={employee.id} />
 
-      <div>
-        <label htmlFor="name" className="mb-1 block text-sm font-medium text-slate-700">
-          Name
-        </label>
-        <input
+      <Field label="Name" htmlFor="name">
+        <Input
           id="name"
           name="name"
           type="text"
           required
           minLength={2}
           defaultValue={employee.name}
-          className={inputClass}
         />
-      </div>
+      </Field>
 
-      <div>
-        <label htmlFor="roleTitle" className="mb-1 block text-sm font-medium text-slate-700">
-          Role title
-        </label>
-        <input
+      <Field label="Role title" htmlFor="roleTitle">
+        <Input
           id="roleTitle"
           name="roleTitle"
           type="text"
           required
           minLength={2}
           defaultValue={employee.roleTitle}
-          className={inputClass}
         />
-      </div>
+      </Field>
 
-      <div>
-        <label htmlFor="department" className="mb-1 block text-sm font-medium text-slate-700">
-          Department <span className="font-normal text-slate-400">(optional)</span>
-        </label>
-        <input
+      <Field label="Department" htmlFor="department" optional>
+        <Input
           id="department"
           name="department"
           type="text"
           defaultValue={employee.department ?? ""}
-          className={inputClass}
         />
-      </div>
+      </Field>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <label htmlFor="status" className="mb-1 block text-sm font-medium text-slate-700">
-            Status
-          </label>
-          <select id="status" name="status" defaultValue={employee.status} className={inputClass}>
+        <Field label="Status" htmlFor="status">
+          <Select id="status" name="status" defaultValue={employee.status}>
             {EMPLOYEE_STATUSES.map((s) => (
               <option key={s} value={s}>
                 {EMPLOYEE_STATUS_LABELS[s]}
               </option>
             ))}
-          </select>
-        </div>
-        <div>
-          <label htmlFor="visibility" className="mb-1 block text-sm font-medium text-slate-700">
-            Visibility
-          </label>
-          <select
-            id="visibility"
-            name="visibility"
-            defaultValue={employee.visibility}
-            className={inputClass}
-          >
+          </Select>
+        </Field>
+        <Field label="Visibility" htmlFor="visibility">
+          <Select id="visibility" name="visibility" defaultValue={employee.visibility}>
             {EMPLOYEE_VISIBILITIES.map((v) => (
               <option key={v} value={v}>
                 {EMPLOYEE_VISIBILITY_LABELS[v]}
               </option>
             ))}
-          </select>
-        </div>
+          </Select>
+        </Field>
       </div>
 
-      <div>
-        <label htmlFor="description" className="mb-1 block text-sm font-medium text-slate-700">
-          Description <span className="font-normal text-slate-400">(optional)</span>
-        </label>
-        <textarea
+      <Field label="Description" htmlFor="description" optional>
+        <Textarea
           id="description"
           name="description"
           rows={3}
           defaultValue={employee.description ?? ""}
-          className={inputClass}
         />
-      </div>
+      </Field>
 
-      {state?.error ? (
-        <p role="alert" className="text-sm text-red-600">
-          {state.error}
-        </p>
-      ) : null}
+      {state?.error ? <FieldError>{state.error}</FieldError> : null}
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <SubmitButton />
         <Link
           href={`/dashboard/employees/${employee.id}`}
-          className="text-sm font-medium text-slate-600 hover:text-slate-900"
+          className="text-sm font-medium text-taurus-sub transition-colors hover:text-taurus-text"
         >
           Cancel
         </Link>

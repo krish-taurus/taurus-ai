@@ -1,14 +1,15 @@
 "use client";
 
 /**
- * Simple dashboard navigation shell (Prompt 001).
+ * Dashboard sidebar navigation (Prompt 001; restyled Sprint 005B).
  *
- * Provides the persistent sidebar links across the dashboard. Uses Taurus
- * terminology only — no "agent", "prompt", or "knowledge base" in the UI.
+ * Persistent sidebar links. Taurus terminology only — never "agent" or the raw
+ * word for a prompt in the UI.
  */
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { cn } from "@/components/ui";
 
 interface NavItem {
   href: string;
@@ -18,6 +19,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/employees", label: "AI Employees" },
+  { href: "/dashboard/hire", label: "Hiring Studio" },
   { href: "/dashboard/knowledge", label: "Knowledge Vault" },
   { href: "/dashboard/collaboration", label: "Collaboration" },
   { href: "/dashboard/audit", label: "Audit" },
@@ -35,7 +37,7 @@ export function DashboardNav() {
   const pathname = usePathname();
 
   return (
-    <nav aria-label="Dashboard" className="flex flex-col gap-1">
+    <nav aria-label="Dashboard" className="flex flex-col gap-0.5">
       {NAV_ITEMS.map((item) => {
         const active = isActive(pathname, item.href);
         return (
@@ -43,12 +45,12 @@ export function DashboardNav() {
             key={item.href}
             href={item.href}
             aria-current={active ? "page" : undefined}
-            className={[
-              "rounded-md px-3 py-2 text-sm font-medium transition-colors",
+            className={cn(
+              "rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-200",
               active
-                ? "bg-taurus-accent text-white"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
-            ].join(" ")}
+                ? "bg-taurus-muted text-taurus-text"
+                : "text-taurus-sub hover:bg-taurus-muted/60 hover:text-taurus-text",
+            )}
           >
             {item.label}
           </Link>

@@ -1,12 +1,6 @@
 /**
- * Reusable page header for placeholder pages (Prompt 001).
+ * PageHeader (Prompt 001; superseded by the design system in Sprint 005B).
+ * Re-exported from the shared UI so existing imports get the premium version.
  */
 
-export function PageHeader({ title, description }: { title: string; description?: string }) {
-  return (
-    <header className="mb-6">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-      {description ? <p className="mt-1 text-sm text-slate-600">{description}</p> : null}
-    </header>
-  );
-}
+export { PageHeader } from "@/components/ui";

@@ -11,6 +11,7 @@ import { DnaEditor } from "@/components/employee-dna/dna-editor";
 import { DnaSummary } from "@/components/employee-dna/dna-summary";
 import { DnaCompletionCard } from "@/components/employee-dna/dna-completion";
 import { DnaStatusBadge, DnaVersionHistory } from "@/components/employee-dna/dna-version-history";
+import { Card, Notice, SectionHeader } from "@/components/ui";
 
 export default async function EmployeeDnaPage({
   params,
@@ -47,17 +48,17 @@ export default async function EmployeeDnaPage({
       <p className="mb-4 text-sm">
         <Link
           href={`/dashboard/employees/${employee.id}`}
-          className="font-medium text-taurus-accent hover:underline"
+          className="font-medium text-taurus-sub hover:text-taurus-text"
         >
           ← Back to {employee.name}
         </Link>
       </p>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+      <Card className="p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-2xl font-semibold text-slate-900">Employee DNA</h1>
-            <p className="mt-1 text-sm text-slate-600">
+            <h1 className="text-2xl font-semibold tracking-tight text-taurus-text">Employee DNA</h1>
+            <p className="mt-1.5 text-sm text-taurus-sub">
               Define {employee.name}&apos;s working style, responsibilities, and boundaries — like
               an employee handbook.
             </p>
@@ -65,27 +66,29 @@ export default async function EmployeeDnaPage({
           <div className="text-right">
             <div className="flex items-center justify-end gap-2">
               {currentVersion ? <DnaStatusBadge status={currentVersion.status} /> : null}
-              <span className="text-sm font-medium text-slate-700">{statusText}</span>
+              {!currentVersion ? (
+                <span className="text-sm font-medium text-taurus-sub">{statusText}</span>
+              ) : null}
             </div>
             {currentVersion ? (
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1.5 text-xs text-taurus-faint">
                 Version {currentVersion.versionNumber} · Updated{" "}
                 {formatDate(currentVersion.updatedAt)}
               </p>
             ) : null}
           </div>
         </div>
-      </div>
+      </Card>
 
       {searchParams?.saved ? (
-        <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-2 text-sm text-slate-700">
-          Draft saved.
-        </p>
+        <div className="mt-4">
+          <Notice>Draft saved.</Notice>
+        </div>
       ) : null}
       {searchParams?.published ? (
-        <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">
-          Employee DNA published.
-        </p>
+        <div className="mt-4">
+          <Notice>Employee DNA published.</Notice>
+        </div>
       ) : null}
 
       <div className="mt-6">
@@ -99,7 +102,7 @@ export default async function EmployeeDnaPage({
         ) : overview.published ? (
           <DnaSummary dna={overview.published.dna} />
         ) : (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-white p-6 text-sm text-slate-600">
+          <div className="rounded-lg border border-dashed border-taurus-line bg-taurus-surface p-6 text-sm text-taurus-sub">
             This AI Employee does not have published DNA yet. An organization admin or builder can
             add it.
           </div>
@@ -109,15 +112,15 @@ export default async function EmployeeDnaPage({
       {/* Read-only view of the currently published DNA, if any. */}
       {overview.published && canEdit ? (
         <div className="mt-8">
-          <h2 className="mb-3 text-sm font-semibold text-slate-900">
-            Currently published · Version {overview.published.versionNumber}
-          </h2>
+          <SectionHeader
+            title={`Currently published · Version ${overview.published.versionNumber}`}
+          />
           <DnaSummary dna={overview.published.dna} />
         </div>
       ) : null}
 
       <div className="mt-8">
-        <h2 className="mb-3 text-sm font-semibold text-slate-900">Version history</h2>
+        <SectionHeader title="Version history" />
         <DnaVersionHistory
           versions={overview.versions}
           employeeId={employee.id}

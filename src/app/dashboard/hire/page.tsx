@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { HiringStudio } from "@/components/hiring/hiring-studio";
-import { PageHeader } from "@/components/page-header";
+import { Card, PageHeader } from "@/components/ui";
 
 export default async function HirePage() {
   const { organization, membership } = await requireCurrentOrganization();
@@ -15,18 +15,19 @@ export default async function HirePage() {
   return (
     <div className="max-w-3xl">
       <PageHeader
-        title="Hiring Studio"
-        description={`Hire a new AI Employee for ${organization.name} in a few simple steps.`}
+        eyebrow="Hiring Studio"
+        title={`Hire a new AI Employee`}
+        description={`Bring on an AI Employee for ${organization.name} in a few simple steps.`}
       />
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+      <Card className="p-6 sm:p-8">
         <HiringStudio />
-      </div>
+      </Card>
 
       <p className="mt-4 text-sm">
         <Link
           href="/dashboard/employees"
-          className="font-medium text-taurus-accent hover:underline"
+          className="font-medium text-taurus-sub hover:text-taurus-text"
         >
           ← Back to AI Employees
         </Link>

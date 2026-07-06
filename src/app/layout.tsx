@@ -2,15 +2,15 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Taurus AI — Hire AI employees in five minutes",
+  title: "Taurus AI — The operating system for AI Employees",
   description:
-    "Taurus AI is the world's easiest enterprise platform to hire, manage, and collaborate with AI employees.",
+    "Taurus AI is the enterprise operating system for AI Employees. Hire, shape, and manage a premium AI workforce.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="bg-taurus-app">
+      <body className="min-h-screen">{children}</body>
     </html>
   );
 }

@@ -4,7 +4,7 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { EditEmployeeForm } from "@/components/employees/edit-employee-form";
-import { PageHeader } from "@/components/page-header";
+import { Card, PageHeader } from "@/components/ui";
 
 export default async function EditEmployeePage({ params }: { params: { employeeId: string } }) {
   const { organization, membership } = await requireCurrentOrganization();
@@ -22,7 +22,7 @@ export default async function EditEmployeePage({ params }: { params: { employeeI
       <p className="mb-4 text-sm">
         <Link
           href={`/dashboard/employees/${employee.id}`}
-          className="font-medium text-taurus-accent hover:underline"
+          className="font-medium text-taurus-sub hover:text-taurus-text"
         >
           ← Back to profile
         </Link>
@@ -33,9 +33,9 @@ export default async function EditEmployeePage({ params }: { params: { employeeI
         description="Update this AI Employee's profile."
       />
 
-      <div className="rounded-lg border border-slate-200 bg-white p-6">
+      <Card className="p-6">
         <EditEmployeeForm employee={employee} />
-      </div>
+      </Card>
     </div>
   );
 }

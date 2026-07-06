@@ -10,8 +10,8 @@ function TextBlock({ label, value }: { label: string; value: string }) {
   if (!value.trim()) return null;
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
-      <dd className="mt-1 whitespace-pre-line text-sm text-slate-700">{value}</dd>
+      <dt className="text-xs font-medium uppercase tracking-wide text-taurus-faint">{label}</dt>
+      <dd className="mt-1 whitespace-pre-line text-sm text-taurus-sub">{value}</dd>
     </div>
   );
 }
@@ -21,9 +21,9 @@ function ListBlock({ label, items }: { label: string; items: string[] }) {
   if (filled.length === 0) return null;
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</dt>
+      <dt className="text-xs font-medium uppercase tracking-wide text-taurus-faint">{label}</dt>
       <dd className="mt-1">
-        <ul className="list-inside list-disc space-y-1 text-sm text-slate-700">
+        <ul className="list-inside list-disc space-y-1 text-sm text-taurus-sub">
           {filled.map((item, i) => (
             <li key={i}>{item}</li>
           ))}
@@ -35,8 +35,8 @@ function ListBlock({ label, items }: { label: string; items: string[] }) {
 
 function SummarySection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-5">
-      <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
+    <div className="rounded-lg border border-taurus-line bg-taurus-surface p-5">
+      <h3 className="text-sm font-semibold text-taurus-text">{title}</h3>
       <dl className="mt-3 space-y-3">{children}</dl>
     </div>
   );

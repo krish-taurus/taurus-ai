@@ -34,6 +34,7 @@ import {
   saveDnaDraftAction,
   type DnaActionState,
 } from "@/modules/employee-dna/actions";
+import { buttonClasses, Card, FieldError } from "@/components/ui";
 
 function Section({
   title,
@@ -45,22 +46,18 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-6">
-      <h2 className="text-base font-semibold text-slate-900">{title}</h2>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
-      <div className="mt-4 space-y-4">{children}</div>
-    </section>
+    <Card className="p-6">
+      <h2 className="text-base font-semibold text-taurus-text">{title}</h2>
+      <p className="mt-1 text-sm text-taurus-faint">{description}</p>
+      <div className="mt-5 space-y-4">{children}</div>
+    </Card>
   );
 }
 
 function SaveButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-60"
-    >
+    <button type="submit" disabled={pending} className={buttonClasses("secondary", "lg")}>
       {pending ? "Saving…" : "Save Draft"}
     </button>
   );
@@ -69,11 +66,7 @@ function SaveButton() {
 function PublishButton() {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="rounded-md bg-taurus-accent px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500 disabled:opacity-60"
-    >
+    <button type="submit" disabled={pending} className={buttonClasses("primary", "lg")}>
       {pending ? "Publishing…" : "Publish DNA"}
     </button>
   );
@@ -344,11 +337,7 @@ export function DnaEditor({
         />
       </Section>
 
-      {error ? (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      ) : null}
+      {error ? <FieldError>{error}</FieldError> : null}
 
       <div className="flex flex-wrap items-center gap-3">
         <form action={saveAction}>
@@ -364,7 +353,7 @@ export function DnaEditor({
             <PublishButton />
           </form>
         ) : (
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-taurus-faint">
             An organization admin can publish this Employee DNA.
           </p>
         )}

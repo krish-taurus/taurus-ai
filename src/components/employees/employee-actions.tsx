@@ -1,11 +1,11 @@
 "use client";
 
 /**
- * Lifecycle action buttons for an AI Employee (Prompt 003).
+ * Lifecycle action buttons for an AI Employee (Prompt 003; restyled 005B).
  *
- * Renders Pause/Activate and Archive controls that post to server actions. Only
- * shown to users who can manage employees (checked again server-side). Archive
- * asks for confirmation since it takes the employee out of service.
+ * Renders Edit / Pause / Activate / Archive controls that post to server
+ * actions. Only shown to users who can manage employees (re-checked server-side).
+ * Archive asks for confirmation since it takes the employee out of service.
  */
 
 import Link from "next/link";
@@ -15,24 +15,25 @@ import {
   archiveEmployeeAction,
   pauseEmployeeAction,
 } from "@/modules/employees/actions";
-
-const secondaryButton =
-  "rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50";
+import { buttonClasses } from "@/components/ui";
 
 export function EmployeeActions({ employee }: { employee: AiEmployee }) {
   const isArchived = employee.status === "archived";
   const isPaused = employee.status === "paused";
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Link href={`/dashboard/employees/${employee.id}/edit`} className={secondaryButton}>
-        Edit
+    <div className="flex flex-wrap items-center gap-2.5">
+      <Link
+        href={`/dashboard/employees/${employee.id}/edit`}
+        className={buttonClasses("secondary")}
+      >
+        Edit Employee
       </Link>
 
       {!isArchived && isPaused ? (
         <form action={activateEmployeeAction}>
           <input type="hidden" name="employeeId" value={employee.id} />
-          <button type="submit" className={secondaryButton}>
+          <button type="submit" className={buttonClasses("outline")}>
             Activate
           </button>
         </form>
@@ -41,7 +42,7 @@ export function EmployeeActions({ employee }: { employee: AiEmployee }) {
       {!isArchived && !isPaused ? (
         <form action={pauseEmployeeAction}>
           <input type="hidden" name="employeeId" value={employee.id} />
-          <button type="submit" className={secondaryButton}>
+          <button type="submit" className={buttonClasses("outline")}>
             Pause
           </button>
         </form>
@@ -57,10 +58,7 @@ export function EmployeeActions({ employee }: { employee: AiEmployee }) {
           }}
         >
           <input type="hidden" name="employeeId" value={employee.id} />
-          <button
-            type="submit"
-            className="rounded-md border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-          >
+          <button type="submit" className={buttonClasses("danger")}>
             Archive
           </button>
         </form>
