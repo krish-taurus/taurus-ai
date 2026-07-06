@@ -41,6 +41,17 @@ import type {
   UpdateChannelWebhookEventStatusInput,
   UpdateEmployeeChannelInput,
   UpsertMessagingContactPreferenceInput,
+  CreateVoicePhoneNumberInput,
+  CreateVoiceCallSessionInput,
+  CreateVoiceTranscriptMessageInput,
+  CreateVoiceStreamEventInput,
+  UpdateVoicePhoneNumberInput,
+  UpdateVoiceCallSessionStatusInput,
+  VoicePhoneNumber,
+  VoiceCallSession,
+  VoiceTranscriptMessage,
+  VoiceStreamEvent,
+  VoiceChannelOverview,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
@@ -381,6 +392,68 @@ export interface DataStore {
     organizationId: string,
     employeeId: string,
   ): Promise<MessagingChannelOverview>;
+
+  // Voice Call Channel (Prompt 010). Organization-scoped; public webhooks resolve
+  // via the channel public key. Caller numbers are hashed; no raw audio is stored.
+  createVoicePhoneNumber(input: CreateVoicePhoneNumberInput): Promise<VoicePhoneNumber>;
+  listVoicePhoneNumbersForChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<VoicePhoneNumber[]>;
+  getVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null>;
+  updateVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+    patch: UpdateVoicePhoneNumberInput,
+  ): Promise<VoicePhoneNumber | null>;
+  archiveVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null>;
+
+  createVoiceCallSession(input: CreateVoiceCallSessionInput): Promise<VoiceCallSession>;
+  getVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceCallSession | null>;
+  /** Public resolver by provider + external id (never client-supplied org). */
+  getVoiceCallSessionByExternalId(
+    providerType: ChannelProviderType,
+    externalCallId: string,
+  ): Promise<VoiceCallSession | null>;
+  updateVoiceCallSessionStatus(
+    organizationId: string,
+    callSessionId: string,
+    patch: UpdateVoiceCallSessionStatusInput,
+  ): Promise<VoiceCallSession | null>;
+  endVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+    endReason: string,
+  ): Promise<VoiceCallSession | null>;
+
+  createVoiceTranscriptMessage(
+    input: CreateVoiceTranscriptMessageInput,
+  ): Promise<VoiceTranscriptMessage>;
+  listVoiceTranscriptMessages(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceTranscriptMessage[]>;
+
+  createVoiceStreamEvent(input: CreateVoiceStreamEventInput): Promise<VoiceStreamEvent>;
+  listVoiceStreamEventsForCall(
+    organizationId: string,
+    callSessionId: string,
+    limit?: number,
+  ): Promise<VoiceStreamEvent[]>;
+
+  getVoiceChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<VoiceChannelOverview>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

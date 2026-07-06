@@ -677,7 +677,12 @@ export type ChannelProviderType =
   | "slack"
   | "microsoft_graph"
   | "telegram"
-  | "custom_webhook";
+  | "custom_webhook"
+  // Voice Call Channel (Prompt 010).
+  | "twilio_voice"
+  | "telnyx_voice"
+  | "vonage_voice"
+  | "simulated_voice";
 
 export type ChannelStatus = "draft" | "active" | "paused" | "archived";
 export type PublicChatSessionStatus = "active" | "archived" | "blocked";
@@ -978,4 +983,200 @@ export interface MessagingChannelSummary {
 export interface MessagingChannelOverview {
   summaries: MessagingChannelSummary[];
   recentWebhookEvents: ChannelWebhookEvent[];
+}
+
+// ===========================================================================
+// Voice Call Channel (Prompt 010)
+//
+// Voice channels reuse employee_channels (channelType 'phone_call') + a voice
+// provider. Caller numbers are salted-hashed; transcript content lives only in
+// voice_call_transcript_messages; no raw audio is ever stored.
+// ===========================================================================
+
+export type VoiceProviderType =
+  | "twilio_voice"
+  | "telnyx_voice"
+  | "vonage_voice"
+  | "simulated_voice";
+
+export type VoicePhoneNumberStatus = "draft" | "active" | "paused" | "archived";
+export type VoiceCallDirection = "inbound" | "outbound";
+export type VoiceCallStatus = "ringing" | "active" | "completed" | "failed" | "missed" | "blocked";
+export type VoiceRecordingStatus = "disabled" | "pending" | "available" | "failed";
+export type VoiceTranscriptStatus = "pending" | "partial" | "completed" | "failed";
+export type VoiceSpeakerType = "caller" | "employee" | "system";
+
+export type VoiceStreamEventType =
+  | "call.webhook_received"
+  | "call.started"
+  | "call.answered"
+  | "call.ended"
+  | "call.failed"
+  | "audio.stream_started"
+  | "audio.stream_stopped"
+  | "transcript.partial"
+  | "transcript.final"
+  | "voice.response_generated"
+  | "voice.response_played"
+  | "voice.response_failed";
+
+export interface VoicePhoneNumber {
+  id: string;
+  organizationId: string;
+  channelId: string;
+  providerType: ChannelProviderType;
+  phoneNumber: string;
+  displayLabel: string | null;
+  externalPhoneNumberId: string | null;
+  countryCode: string | null;
+  capabilities: Record<string, unknown>;
+  status: VoicePhoneNumberStatus;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+
+export interface CreateVoicePhoneNumberInput {
+  organizationId: string;
+  channelId: string;
+  providerType: ChannelProviderType;
+  phoneNumber: string;
+  displayLabel?: string | null;
+  externalPhoneNumberId?: string | null;
+  countryCode?: string | null;
+  capabilities?: Record<string, unknown>;
+  status?: VoicePhoneNumberStatus;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateVoicePhoneNumberInput {
+  phoneNumber?: string;
+  displayLabel?: string | null;
+  countryCode?: string | null;
+  capabilities?: Record<string, unknown>;
+  status?: VoicePhoneNumberStatus;
+}
+
+export interface VoiceCallSession {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  phoneNumberId: string | null;
+  providerType: ChannelProviderType;
+  externalCallId: string | null;
+  direction: VoiceCallDirection;
+  callerHash: string | null;
+  callerLabel: string | null;
+  status: VoiceCallStatus;
+  startedAt: string;
+  answeredAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  endReason: string | null;
+  recordingStatus: VoiceRecordingStatus;
+  transcriptStatus: VoiceTranscriptStatus;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateVoiceCallSessionInput {
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  phoneNumberId?: string | null;
+  providerType: ChannelProviderType;
+  externalCallId?: string | null;
+  direction?: VoiceCallDirection;
+  callerHash?: string | null;
+  callerLabel?: string | null;
+  status?: VoiceCallStatus;
+  recordingStatus?: VoiceRecordingStatus;
+  transcriptStatus?: VoiceTranscriptStatus;
+  metadata?: Record<string, unknown>;
+}
+
+export interface UpdateVoiceCallSessionStatusInput {
+  status?: VoiceCallStatus;
+  answeredAt?: string | null;
+  endedAt?: string | null;
+  durationSeconds?: number | null;
+  endReason?: string | null;
+  recordingStatus?: VoiceRecordingStatus;
+  transcriptStatus?: VoiceTranscriptStatus;
+  externalCallId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface VoiceTranscriptMessage {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  callSessionId: string;
+  speakerType: VoiceSpeakerType;
+  content: string;
+  confidence: number | null;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
+  sourceReferences: ChatSourceReference[] | null;
+  modelProviderSlug: string | null;
+  modelId: string | null;
+  estimatedCostUsd: number | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreateVoiceTranscriptMessageInput {
+  organizationId: string;
+  employeeId: string;
+  channelId: string;
+  callSessionId: string;
+  speakerType: VoiceSpeakerType;
+  content: string;
+  confidence?: number | null;
+  startedAtMs?: number | null;
+  endedAtMs?: number | null;
+  sourceReferences?: ChatSourceReference[] | null;
+  modelProviderSlug?: string | null;
+  modelId?: string | null;
+  estimatedCostUsd?: number | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface VoiceStreamEvent {
+  id: string;
+  organizationId: string | null;
+  employeeId: string | null;
+  channelId: string | null;
+  callSessionId: string | null;
+  providerType: ChannelProviderType;
+  eventType: VoiceStreamEventType;
+  status: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreateVoiceStreamEventInput {
+  organizationId?: string | null;
+  employeeId?: string | null;
+  channelId?: string | null;
+  callSessionId?: string | null;
+  providerType: ChannelProviderType;
+  eventType: VoiceStreamEventType;
+  status?: string;
+  metadata?: Record<string, unknown>;
+}
+
+/** Aggregate for the voice section of the Channels dashboard. */
+export interface VoiceChannelOverview {
+  channel: EmployeeChannel | null;
+  providerType: ChannelProviderType | null;
+  phoneNumber: VoicePhoneNumber | null;
+  credentialStatus: ChannelCredentialStatus | "not_configured";
+  callCount: number;
+  lastCallAt: string | null;
+  recentCalls: VoiceCallSession[];
 }

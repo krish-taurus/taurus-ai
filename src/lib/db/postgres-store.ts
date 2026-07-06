@@ -40,6 +40,24 @@ import type {
   MessagingTemplateStatus,
   UpdateChannelWebhookEventStatusInput,
   UpsertMessagingContactPreferenceInput,
+  CreateVoicePhoneNumberInput,
+  CreateVoiceCallSessionInput,
+  CreateVoiceTranscriptMessageInput,
+  CreateVoiceStreamEventInput,
+  UpdateVoicePhoneNumberInput,
+  UpdateVoiceCallSessionStatusInput,
+  VoicePhoneNumber,
+  VoicePhoneNumberStatus,
+  VoiceCallSession,
+  VoiceCallDirection,
+  VoiceCallStatus,
+  VoiceRecordingStatus,
+  VoiceTranscriptStatus,
+  VoiceTranscriptMessage,
+  VoiceSpeakerType,
+  VoiceStreamEvent,
+  VoiceStreamEventType,
+  VoiceChannelOverview,
   CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
@@ -531,6 +549,87 @@ function mapContactPreference(row: Row): MessagingContactPreference {
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapVoicePhoneNumber(row: Row): VoicePhoneNumber {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    channelId: row.channel_id,
+    providerType: row.provider_type as ChannelProviderType,
+    phoneNumber: row.phone_number,
+    displayLabel: row.display_label,
+    externalPhoneNumberId: row.external_phone_number_id,
+    countryCode: row.country_code,
+    capabilities: (row.capabilities as Record<string, unknown>) ?? {},
+    status: row.status as VoicePhoneNumberStatus,
+    createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+  };
+}
+
+function mapVoiceCall(row: Row): VoiceCallSession {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelId: row.channel_id,
+    phoneNumberId: row.phone_number_id,
+    providerType: row.provider_type as ChannelProviderType,
+    externalCallId: row.external_call_id,
+    direction: row.direction as VoiceCallDirection,
+    callerHash: row.caller_hash,
+    callerLabel: row.caller_label,
+    status: row.status as VoiceCallStatus,
+    startedAt: new Date(row.started_at).toISOString(),
+    answeredAt: row.answered_at ? new Date(row.answered_at).toISOString() : null,
+    endedAt: row.ended_at ? new Date(row.ended_at).toISOString() : null,
+    durationSeconds: row.duration_seconds,
+    endReason: row.end_reason,
+    recordingStatus: row.recording_status as VoiceRecordingStatus,
+    transcriptStatus: row.transcript_status as VoiceTranscriptStatus,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapVoiceTranscript(row: Row): VoiceTranscriptMessage {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelId: row.channel_id,
+    callSessionId: row.call_session_id,
+    speakerType: row.speaker_type as VoiceSpeakerType,
+    content: row.content,
+    confidence: num(row.confidence),
+    startedAtMs: row.started_at_ms,
+    endedAtMs: row.ended_at_ms,
+    sourceReferences: (row.source_references as ChatSourceReference[] | null) ?? null,
+    modelProviderSlug: row.model_provider_slug,
+    modelId: row.model_id,
+    estimatedCostUsd: num(row.estimated_cost_usd),
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapVoiceStreamEvent(row: Row): VoiceStreamEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    channelId: row.channel_id,
+    callSessionId: row.call_session_id,
+    providerType: row.provider_type as ChannelProviderType,
+    eventType: row.event_type as VoiceStreamEventType,
+    status: row.status,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -2175,6 +2274,301 @@ export class PostgresStore implements DataStore {
       [organizationId],
     );
     return { summaries, recentWebhookEvents: rows.map(mapWebhookEvent) };
+  }
+
+  // --- Voice Call Channel (Prompt 010) --------------------------------------
+
+  async createVoicePhoneNumber(input: CreateVoicePhoneNumberInput): Promise<VoicePhoneNumber> {
+    const { rows } = await this.query(
+      `insert into voice_phone_numbers
+         (organization_id, channel_id, provider_type, phone_number, display_label,
+          external_phone_number_id, country_code, capabilities, status, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       returning *`,
+      [
+        input.organizationId,
+        input.channelId,
+        input.providerType,
+        input.phoneNumber,
+        input.displayLabel ?? null,
+        input.externalPhoneNumberId ?? null,
+        input.countryCode ?? null,
+        JSON.stringify(input.capabilities ?? {}),
+        input.status ?? "draft",
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapVoicePhoneNumber(rows[0]);
+  }
+
+  async listVoicePhoneNumbersForChannel(
+    organizationId: string,
+    channelId: string,
+  ): Promise<VoicePhoneNumber[]> {
+    const { rows } = await this.query(
+      `select * from voice_phone_numbers
+       where organization_id = $1 and channel_id = $2 and status <> 'archived'
+       order by updated_at desc`,
+      [organizationId, channelId],
+    );
+    return rows.map(mapVoicePhoneNumber);
+  }
+
+  async getVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null> {
+    const { rows } = await this.query(
+      "select * from voice_phone_numbers where organization_id = $1 and id = $2",
+      [organizationId, phoneNumberId],
+    );
+    return rows[0] ? mapVoicePhoneNumber(rows[0]) : null;
+  }
+
+  async updateVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+    patch: UpdateVoicePhoneNumberInput,
+  ): Promise<VoicePhoneNumber | null> {
+    const current = await this.getVoicePhoneNumber(organizationId, phoneNumberId);
+    if (!current) return null;
+    const { rows } = await this.query(
+      `update voice_phone_numbers set
+         phone_number = $3, display_label = $4, country_code = $5, capabilities = $6,
+         status = $7, updated_at = now()
+       where organization_id = $1 and id = $2 returning *`,
+      [
+        organizationId,
+        phoneNumberId,
+        patch.phoneNumber ?? current.phoneNumber,
+        patch.displayLabel !== undefined ? patch.displayLabel : current.displayLabel,
+        patch.countryCode !== undefined ? patch.countryCode : current.countryCode,
+        JSON.stringify(patch.capabilities ?? current.capabilities),
+        patch.status ?? current.status,
+      ],
+    );
+    return rows[0] ? mapVoicePhoneNumber(rows[0]) : null;
+  }
+
+  async archiveVoicePhoneNumber(
+    organizationId: string,
+    phoneNumberId: string,
+  ): Promise<VoicePhoneNumber | null> {
+    const { rows } = await this.query(
+      `update voice_phone_numbers set status = 'archived', archived_at = now(), updated_at = now()
+       where organization_id = $1 and id = $2 returning *`,
+      [organizationId, phoneNumberId],
+    );
+    return rows[0] ? mapVoicePhoneNumber(rows[0]) : null;
+  }
+
+  async createVoiceCallSession(input: CreateVoiceCallSessionInput): Promise<VoiceCallSession> {
+    const { rows } = await this.query(
+      `insert into voice_call_sessions
+         (organization_id, employee_id, channel_id, phone_number_id, provider_type,
+          external_call_id, direction, caller_hash, caller_label, status, recording_status,
+          transcript_status, metadata)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.channelId,
+        input.phoneNumberId ?? null,
+        input.providerType,
+        input.externalCallId ?? null,
+        input.direction ?? "inbound",
+        input.callerHash ?? null,
+        input.callerLabel ?? null,
+        input.status ?? "ringing",
+        input.recordingStatus ?? "disabled",
+        input.transcriptStatus ?? "pending",
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapVoiceCall(rows[0]);
+  }
+
+  async getVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceCallSession | null> {
+    const { rows } = await this.query(
+      "select * from voice_call_sessions where organization_id = $1 and id = $2",
+      [organizationId, callSessionId],
+    );
+    return rows[0] ? mapVoiceCall(rows[0]) : null;
+  }
+
+  async getVoiceCallSessionByExternalId(
+    providerType: ChannelProviderType,
+    externalCallId: string,
+  ): Promise<VoiceCallSession | null> {
+    const { rows } = await this.query(
+      "select * from voice_call_sessions where provider_type = $1 and external_call_id = $2 order by created_at desc limit 1",
+      [providerType, externalCallId],
+    );
+    return rows[0] ? mapVoiceCall(rows[0]) : null;
+  }
+
+  async updateVoiceCallSessionStatus(
+    organizationId: string,
+    callSessionId: string,
+    patch: UpdateVoiceCallSessionStatusInput,
+  ): Promise<VoiceCallSession | null> {
+    const current = await this.getVoiceCallSession(organizationId, callSessionId);
+    if (!current) return null;
+    const { rows } = await this.query(
+      `update voice_call_sessions set
+         status = $3, answered_at = $4, ended_at = $5, duration_seconds = $6, end_reason = $7,
+         recording_status = $8, transcript_status = $9, external_call_id = $10,
+         metadata = metadata || $11::jsonb, updated_at = now()
+       where organization_id = $1 and id = $2 returning *`,
+      [
+        organizationId,
+        callSessionId,
+        patch.status ?? current.status,
+        patch.answeredAt !== undefined ? patch.answeredAt : current.answeredAt,
+        patch.endedAt !== undefined ? patch.endedAt : current.endedAt,
+        patch.durationSeconds !== undefined ? patch.durationSeconds : current.durationSeconds,
+        patch.endReason !== undefined ? patch.endReason : current.endReason,
+        patch.recordingStatus ?? current.recordingStatus,
+        patch.transcriptStatus ?? current.transcriptStatus,
+        patch.externalCallId !== undefined ? patch.externalCallId : current.externalCallId,
+        JSON.stringify(patch.metadata ?? {}),
+      ],
+    );
+    return rows[0] ? mapVoiceCall(rows[0]) : null;
+  }
+
+  async endVoiceCallSession(
+    organizationId: string,
+    callSessionId: string,
+    endReason: string,
+  ): Promise<VoiceCallSession | null> {
+    const { rows } = await this.query(
+      `update voice_call_sessions set
+         status = case when status = 'failed' then 'failed' else 'completed' end,
+         ended_at = now(),
+         duration_seconds = greatest(0, extract(epoch from (now() - started_at))::int),
+         end_reason = $3,
+         transcript_status = case when transcript_status = 'pending' then 'completed' else transcript_status end,
+         updated_at = now()
+       where organization_id = $1 and id = $2 returning *`,
+      [organizationId, callSessionId, endReason],
+    );
+    return rows[0] ? mapVoiceCall(rows[0]) : null;
+  }
+
+  async createVoiceTranscriptMessage(
+    input: CreateVoiceTranscriptMessageInput,
+  ): Promise<VoiceTranscriptMessage> {
+    const { rows } = await this.query(
+      `insert into voice_call_transcript_messages
+         (organization_id, employee_id, channel_id, call_session_id, speaker_type, content,
+          confidence, started_at_ms, ended_at_ms, source_references, model_provider_slug,
+          model_id, estimated_cost_usd, metadata)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.channelId,
+        input.callSessionId,
+        input.speakerType,
+        input.content,
+        input.confidence ?? null,
+        input.startedAtMs ?? null,
+        input.endedAtMs ?? null,
+        input.sourceReferences ? JSON.stringify(input.sourceReferences) : null,
+        input.modelProviderSlug ?? null,
+        input.modelId ?? null,
+        input.estimatedCostUsd ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapVoiceTranscript(rows[0]);
+  }
+
+  async listVoiceTranscriptMessages(
+    organizationId: string,
+    callSessionId: string,
+  ): Promise<VoiceTranscriptMessage[]> {
+    const { rows } = await this.query(
+      `select * from voice_call_transcript_messages
+       where organization_id = $1 and call_session_id = $2 order by created_at asc`,
+      [organizationId, callSessionId],
+    );
+    return rows.map(mapVoiceTranscript);
+  }
+
+  async createVoiceStreamEvent(input: CreateVoiceStreamEventInput): Promise<VoiceStreamEvent> {
+    const { rows } = await this.query(
+      `insert into voice_stream_events
+         (organization_id, employee_id, channel_id, call_session_id, provider_type, event_type,
+          status, metadata)
+       values ($1,$2,$3,$4,$5,$6,$7,$8)
+       returning *`,
+      [
+        input.organizationId ?? null,
+        input.employeeId ?? null,
+        input.channelId ?? null,
+        input.callSessionId ?? null,
+        input.providerType,
+        input.eventType,
+        input.status ?? "ok",
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapVoiceStreamEvent(rows[0]);
+  }
+
+  async listVoiceStreamEventsForCall(
+    organizationId: string,
+    callSessionId: string,
+    limit = 50,
+  ): Promise<VoiceStreamEvent[]> {
+    const { rows } = await this.query(
+      `select * from voice_stream_events
+       where organization_id = $1 and call_session_id = $2 order by created_at desc limit $3`,
+      [organizationId, callSessionId, limit],
+    );
+    return rows.map(mapVoiceStreamEvent);
+  }
+
+  async getVoiceChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<VoiceChannelOverview> {
+    const channels = await this.listEmployeeChannelsForEmployee(organizationId, employeeId);
+    const channel =
+      channels.find((c) => c.channelType === "phone_call" && c.status !== "archived") ?? null;
+    let phoneNumber: VoicePhoneNumber | null = null;
+    let credentialStatus: VoiceChannelOverview["credentialStatus"] = "not_configured";
+    let recentCalls: VoiceCallSession[] = [];
+    if (channel) {
+      const numbers = await this.listVoicePhoneNumbersForChannel(organizationId, channel.id);
+      phoneNumber = numbers[0] ?? null;
+      const cred = await this.getChannelProviderCredentialMetadata(
+        organizationId,
+        channel.channelProvider,
+      );
+      credentialStatus = cred ? cred.status : "not_configured";
+      const { rows } = await this.query(
+        "select * from voice_call_sessions where organization_id = $1 and channel_id = $2 order by started_at desc limit 10",
+        [organizationId, channel.id],
+      );
+      recentCalls = rows.map(mapVoiceCall);
+    }
+    return {
+      channel,
+      providerType: channel?.channelProvider ?? null,
+      phoneNumber,
+      credentialStatus,
+      callCount: recentCalls.length,
+      lastCallAt: recentCalls[0]?.startedAt ?? null,
+      recentCalls,
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

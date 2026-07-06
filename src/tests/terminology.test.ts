@@ -28,6 +28,10 @@ const FORBIDDEN: { label: string; pattern: RegExp }[] = [
   { label: "retriever", pattern: /\bretrievers?\b/i },
   // Prompt 007: Employee Chat must not leak raw model terminology.
   { label: "LLM", pattern: /\bLLMs?\b/ },
+  // Prompt 010: Voice Channel must not leak telephony/streaming jargon.
+  { label: "websocket", pattern: /\bweb\s?sockets?\b/i },
+  { label: "TwiML", pattern: /\bTwiML\b/i },
+  { label: "SIP", pattern: /\bSIP\b/ },
 ];
 
 function collectFiles(dir: string): string[] {
