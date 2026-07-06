@@ -49,3 +49,8 @@ export async function hashUserAgent(ua: string | null | undefined): Promise<stri
 export async function hashSecret(secret: string): Promise<string> {
   return sha256Hex(`secret:${salt()}:${secret}`);
 }
+
+/** Salted hash of a messaging contact id (phone/email) — never store it raw. */
+export async function hashContact(value: string): Promise<string> {
+  return (await sha256Hex(`contact:${salt()}:${value.trim().toLowerCase()}`)).slice(0, 40);
+}

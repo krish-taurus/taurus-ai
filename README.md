@@ -839,3 +839,97 @@ Voice, WhatsApp/SMS/Telegram/Instagram/Messenger, email sending, Slack/Microsoft
 Teams, CRM integrations, marketplace, cross-company collaboration, billing, human
 handoff, lead routing, calendar booking, and advanced analytics are not built —
 only reserved as channel foundation.
+
+# Messaging Channels (Prompt 009)
+
+Deploy an AI Employee to WhatsApp, SMS, and email — reusing the same Employee DNA,
+Knowledge Vault, Model Hub, usage tracking, audit, and security as web channels.
+This sprint is **foundation**: real messages send only when provider credentials
+are configured; otherwise everything runs in **simulated mode**.
+
+## Architecture
+
+- Messaging channels reuse `employee_channels` (`channelType`: `whatsapp` / `sms`
+  / `email`) and conversations reuse `public_chat_sessions` +
+  `employee_chat_messages`, so replies run through the **Employee Chat Runtime
+  (Model Gateway only)** — no LLM providers are called from messaging code.
+- Provider adapters (`src/modules/channels/messaging/providers/`) implement one
+  interface — `parseInboundWebhook` / `verifyWebhook` / `sendMessage` /
+  `parseDeliveryStatus` / `getProviderStatus` — and normalize every provider into
+  a common inbound / outbound / delivery shape. Adding a provider is an adapter +
+  catalog change.
+
+## WhatsApp / SMS / Email foundation status
+
+- **SMS** — Twilio inbound + delivery parsing, signature verification, outbound
+  send (live with credentials).
+- **WhatsApp** — Twilio and Meta WhatsApp Cloud (inbound, delivery, GET
+  verification challenge, signature verification, outbound send).
+- **Email** — SendGrid and Mailgun inbound parsing (HTML is stripped to safe
+  plain text, never rendered), signature verification (Mailgun), outbound send.
+
+Not built: voice calls, marketing/bulk messaging, template submission/approval,
+mailbox sync, Slack/Teams/Telegram/Instagram/Messenger, CRM, billing.
+
+## Simulated messaging mode
+
+Locally (and in tests) no provider credentials are needed. On a channel's setup
+page, **Simulate incoming message** runs a fake inbound message through the full
+runtime — it creates a conversation, stores the inbound message, generates a
+reply via the Model Gateway, and stores the outbound message as **simulated**
+(nothing is sent to a real provider). Simulated mode is clearly labeled and never
+sends real messages, even if credentials exist.
+
+## Configure a messaging channel
+
+1. Open an AI Employee → **Channels** → the WhatsApp / SMS / Email card →
+   **Set up** (owner/admin).
+2. Pick a provider, name the channel, and add the sender identifier (phone number
+   or from-address).
+3. (Owner/admin) Save provider credentials — stored **encrypted**, never shown
+   again (only the last four). Requires `TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY`.
+4. Copy the **webhook URL** into the provider console, then **Activate**.
+
+## Webhook URLs
+
+```
+POST /api/webhooks/channels/twilio/{publicKey}
+POST /api/webhooks/channels/meta-whatsapp/{publicKey}   (+ GET verification)
+POST /api/webhooks/channels/sendgrid/{publicKey}
+POST /api/webhooks/channels/mailgun/{publicKey}
+POST /api/webhooks/channels/custom/{publicKey}
+```
+
+The channel + organization are resolved from the URL **public key** — never from
+client input. Signatures are verified when credentials are configured; in local
+development unverified requests are accepted in simulated mode only.
+
+## Provider environment variables (all optional)
+
+`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`,
+`META_WHATSAPP_ACCESS_TOKEN`, `META_WHATSAPP_PHONE_NUMBER_ID`,
+`META_WHATSAPP_VERIFY_TOKEN`, `SENDGRID_API_KEY`, `MAILGUN_API_KEY`,
+`MAILGUN_DOMAIN`, and `TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY` (gates bring-your-
+own-key storage). None are required for local dev or tests.
+
+## Security
+
+- No plaintext credentials are ever stored or returned — only provider type,
+  label, and `key_last_four`. Bring-your-own-key is disabled unless the master
+  key is set.
+- Webhook events and audit events are **metadata only** — never message contents,
+  raw payloads, or secrets. Contacts are keyed by a salted hash; full IPs are
+  never stored.
+- Only **active** channels process inbound messages; **archived** employees and
+  employees **without published Employee DNA** do not generate replies; knowledge
+  stays limited to the employee's assigned Knowledge Vault sources.
+- Managing messaging channels and credentials is **owner/admin only**; simulated
+  testing is owner/admin/builder; viewing is all roles. Every action re-checks
+  permissions server-side; organizationId is never trusted from the browser.
+- Provider error details are never leaked to end users.
+
+## Not built yet
+
+Voice calls and real-time audio are **not built**. Marketing automation, bulk
+messaging, and campaigns are **not built**. Marketplace, billing, cross-company
+collaboration, and CRM integrations are **not built**.

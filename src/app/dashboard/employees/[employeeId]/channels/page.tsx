@@ -11,6 +11,7 @@ import { InstallSnippetsView } from "@/components/channels/install-snippets";
 import { CreateChannelButton } from "@/components/channels/create-channel-button";
 import { ChannelStatusControls } from "@/components/channels/channel-status-controls";
 import { ChannelSettingsForm } from "@/components/channels/channel-settings-form";
+import { MessagingChannelCards } from "@/components/channels/messaging/messaging-channel-cards";
 import { Badge, buttonClasses, Card, Notice, PageHeader, StatusDot } from "@/components/ui";
 
 function ChecklistRow({ done, label, hint }: { done: boolean; label: string; hint: string }) {
@@ -38,9 +39,10 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
   if (!employee) notFound();
 
   const canManage = hasPermission(membership.role, "channel.manage");
-  const [readiness, overview] = await Promise.all([
+  const [readiness, overview, messagingOverview] = await Promise.all([
     computeChatReadiness(store, { organizationId: organization.id, employee }),
     store.getChannelOverview(organization.id, employee.id),
+    store.getMessagingChannelOverview(organization.id, employee.id),
   ]);
   const webChannel = overview.webChannel;
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL;
@@ -185,7 +187,21 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
         )}
       </section>
 
-      {/* Full channel catalog (Messaging / Phone / Workplace are coming soon) */}
+      {/* Messaging channels (WhatsApp / SMS / Email). */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-taurus-text">Messaging</h2>
+          <Badge tone="soft">Foundation</Badge>
+        </div>
+        <p className="mb-3 text-xs text-taurus-faint">
+          Connect this AI Employee to WhatsApp, SMS, and email. Provider setup may require an
+          account with Twilio, Meta WhatsApp Cloud, SendGrid, or Mailgun. You can test each channel
+          in simulated mode before going live.
+        </p>
+        <MessagingChannelCards employeeId={employee.id} summaries={messagingOverview.summaries} />
+      </section>
+
+      {/* Full channel catalog (Phone / Workplace are coming soon) */}
       <ChannelCatalogCards />
     </div>
   );

@@ -19,10 +19,27 @@ import type {
   AuditEvent,
   AuditEventInput,
   ChannelAppearance,
+  ChannelCredentialMode,
+  ChannelCredentialStatus,
   ChannelOverview,
+  ChannelProviderCredentialMetadata,
   ChannelProviderType,
   ChannelStatus,
   ChannelType,
+  ChannelWebhookEvent,
+  ChannelWebhookEventStatus,
+  ChannelWebhookEventType,
+  CreateChannelProviderCredentialInput,
+  CreateChannelWebhookEventInput,
+  CreateMessagingTemplateInput,
+  MessageOptInStatus,
+  MessagingChannelOverview,
+  MessagingChannelSummary,
+  MessagingContactPreference,
+  MessagingTemplate,
+  MessagingTemplateStatus,
+  UpdateChannelWebhookEventStatusInput,
+  UpsertMessagingContactPreferenceInput,
   CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
@@ -444,6 +461,76 @@ function mapChannelEvent(row: Row): PublicChannelEvent {
     eventType: row.event_type as PublicChannelEventType,
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+/** Maps a provider credential row to client-safe metadata (encrypted blob dropped). */
+function mapProviderCredential(row: Row): ChannelProviderCredentialMetadata {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    providerType: row.provider_type as ChannelProviderType,
+    credentialMode: row.credential_mode as ChannelCredentialMode,
+    credentialLabel: row.credential_label,
+    keyLastFour: row.key_last_four,
+    hasSecret: !!row.has_secret,
+    status: row.status as ChannelCredentialStatus,
+    createdByUserId: row.created_by_user_id,
+    updatedByUserId: row.updated_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapWebhookEvent(row: Row): ChannelWebhookEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    channelId: row.channel_id,
+    providerType: row.provider_type as ChannelProviderType,
+    eventType: row.event_type as ChannelWebhookEventType,
+    externalEventId: row.external_event_id,
+    status: row.status as ChannelWebhookEventStatus,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    receivedAt: new Date(row.received_at).toISOString(),
+    processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
+    errorCode: row.error_code,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapMessagingTemplate(row: Row): MessagingTemplate {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    channelId: row.channel_id,
+    providerType: row.provider_type as ChannelProviderType,
+    templateName: row.template_name,
+    templateCategory: row.template_category,
+    language: row.language,
+    status: row.status as MessagingTemplateStatus,
+    externalTemplateId: row.external_template_id,
+    bodyPreview: row.body_preview,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapContactPreference(row: Row): MessagingContactPreference {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    channelId: row.channel_id,
+    externalContactId: row.external_contact_id,
+    normalizedContactHash: row.normalized_contact_hash,
+    channelType: row.channel_type as ChannelType,
+    optInStatus: row.opt_in_status as MessageOptInStatus,
+    blockedAt: row.blocked_at ? new Date(row.blocked_at).toISOString() : null,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
@@ -1786,6 +1873,308 @@ export class PostgresStore implements DataStore {
       sessionCount: sessionRows[0]?.n ?? 0,
       recentEvents,
     };
+  }
+
+  // --- Messaging Channels (Prompt 009) --------------------------------------
+
+  async createChannelProviderCredential(
+    input: CreateChannelProviderCredentialInput,
+  ): Promise<ChannelProviderCredentialMetadata> {
+    const { rows } = await this.query(
+      `insert into channel_provider_credentials
+         (organization_id, provider_type, credential_mode, encrypted_credentials, credential_label,
+          key_last_four, status, created_by_user_id, updated_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$8)
+       on conflict (organization_id, provider_type) do update set
+         credential_mode = excluded.credential_mode,
+         encrypted_credentials = coalesce(excluded.encrypted_credentials, channel_provider_credentials.encrypted_credentials),
+         credential_label = coalesce(excluded.credential_label, channel_provider_credentials.credential_label),
+         key_last_four = coalesce(excluded.key_last_four, channel_provider_credentials.key_last_four),
+         status = excluded.status,
+         updated_by_user_id = excluded.updated_by_user_id,
+         updated_at = now()
+       returning id, organization_id, provider_type, credential_mode, credential_label, key_last_four,
+                 status, (encrypted_credentials is not null) as has_secret, created_by_user_id,
+                 updated_by_user_id, created_at, updated_at`,
+      [
+        input.organizationId,
+        input.providerType,
+        input.credentialMode,
+        input.encryptedCredentials ?? null,
+        input.credentialLabel ?? null,
+        input.keyLastFour ?? null,
+        input.status ?? "active",
+        input.userId ?? null,
+      ],
+    );
+    return mapProviderCredential(rows[0]);
+  }
+
+  async getChannelProviderCredentialMetadata(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<ChannelProviderCredentialMetadata | null> {
+    const { rows } = await this.query(
+      `select id, organization_id, provider_type, credential_mode, credential_label, key_last_four,
+              status, (encrypted_credentials is not null) as has_secret, created_by_user_id,
+              updated_by_user_id, created_at, updated_at
+       from channel_provider_credentials
+       where organization_id = $1 and provider_type = $2`,
+      [organizationId, providerType],
+    );
+    return rows[0] ? mapProviderCredential(rows[0]) : null;
+  }
+
+  async listChannelProviderCredentials(
+    organizationId: string,
+  ): Promise<ChannelProviderCredentialMetadata[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, provider_type, credential_mode, credential_label, key_last_four,
+              status, (encrypted_credentials is not null) as has_secret, created_by_user_id,
+              updated_by_user_id, created_at, updated_at
+       from channel_provider_credentials where organization_id = $1`,
+      [organizationId],
+    );
+    return rows.map(mapProviderCredential);
+  }
+
+  async getChannelProviderEncryptedCredentials(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<string | null> {
+    const { rows } = await this.query(
+      "select encrypted_credentials from channel_provider_credentials where organization_id = $1 and provider_type = $2",
+      [organizationId, providerType],
+    );
+    return rows[0]?.encrypted_credentials ?? null;
+  }
+
+  async disableChannelProviderCredential(
+    organizationId: string,
+    providerType: ChannelProviderType,
+    userId?: string | null,
+  ): Promise<ChannelProviderCredentialMetadata | null> {
+    const { rows } = await this.query(
+      `update channel_provider_credentials set
+         credential_mode = 'disabled', status = 'disabled', encrypted_credentials = null,
+         key_last_four = null, updated_by_user_id = $3, updated_at = now()
+       where organization_id = $1 and provider_type = $2
+       returning id, organization_id, provider_type, credential_mode, credential_label, key_last_four,
+                 status, (encrypted_credentials is not null) as has_secret, created_by_user_id,
+                 updated_by_user_id, created_at, updated_at`,
+      [organizationId, providerType, userId ?? null],
+    );
+    return rows[0] ? mapProviderCredential(rows[0]) : null;
+  }
+
+  async createChannelWebhookEvent(
+    input: CreateChannelWebhookEventInput,
+  ): Promise<ChannelWebhookEvent> {
+    const { rows } = await this.query(
+      `insert into channel_webhook_events
+         (organization_id, channel_id, provider_type, event_type, external_event_id, status,
+          metadata, processed_at, error_code)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       returning *`,
+      [
+        input.organizationId ?? null,
+        input.channelId ?? null,
+        input.providerType,
+        input.eventType,
+        input.externalEventId ?? null,
+        input.status ?? "received",
+        JSON.stringify(input.metadata ?? {}),
+        input.processedAt ?? null,
+        input.errorCode ?? null,
+      ],
+    );
+    return mapWebhookEvent(rows[0]);
+  }
+
+  async updateChannelWebhookEventStatus(
+    id: string,
+    input: UpdateChannelWebhookEventStatusInput,
+  ): Promise<ChannelWebhookEvent | null> {
+    const { rows } = await this.query(
+      `update channel_webhook_events set
+         status = $2,
+         processed_at = coalesce($3, processed_at),
+         error_code = coalesce($4, error_code),
+         metadata = metadata || $5::jsonb
+       where id = $1
+       returning *`,
+      [
+        id,
+        input.status,
+        input.processedAt ?? null,
+        input.errorCode ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return rows[0] ? mapWebhookEvent(rows[0]) : null;
+  }
+
+  async listChannelWebhookEventsForChannel(
+    organizationId: string,
+    channelId: string,
+    limit = 50,
+  ): Promise<ChannelWebhookEvent[]> {
+    const { rows } = await this.query(
+      `select * from channel_webhook_events
+       where organization_id = $1 and channel_id = $2
+       order by received_at desc limit $3`,
+      [organizationId, channelId, limit],
+    );
+    return rows.map(mapWebhookEvent);
+  }
+
+  async createMessagingTemplate(input: CreateMessagingTemplateInput): Promise<MessagingTemplate> {
+    const { rows } = await this.query(
+      `insert into messaging_templates
+         (organization_id, channel_id, provider_type, template_name, template_category, language,
+          status, external_template_id, body_preview, metadata, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       returning *`,
+      [
+        input.organizationId,
+        input.channelId ?? null,
+        input.providerType,
+        input.templateName,
+        input.templateCategory ?? "utility",
+        input.language ?? "en",
+        input.status ?? "draft",
+        input.externalTemplateId ?? null,
+        input.bodyPreview ?? null,
+        JSON.stringify(input.metadata ?? {}),
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapMessagingTemplate(rows[0]);
+  }
+
+  async listMessagingTemplates(
+    organizationId: string,
+    channelId?: string | null,
+  ): Promise<MessagingTemplate[]> {
+    if (channelId) {
+      const { rows } = await this.query(
+        "select * from messaging_templates where organization_id = $1 and channel_id = $2 order by updated_at desc",
+        [organizationId, channelId],
+      );
+      return rows.map(mapMessagingTemplate);
+    }
+    const { rows } = await this.query(
+      "select * from messaging_templates where organization_id = $1 order by updated_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMessagingTemplate);
+  }
+
+  async updateMessagingTemplateStatus(
+    organizationId: string,
+    templateId: string,
+    status: MessagingTemplateStatus,
+  ): Promise<MessagingTemplate | null> {
+    const { rows } = await this.query(
+      `update messaging_templates set status = $3, updated_at = now()
+       where organization_id = $1 and id = $2 returning *`,
+      [organizationId, templateId, status],
+    );
+    return rows[0] ? mapMessagingTemplate(rows[0]) : null;
+  }
+
+  async getMessagingContactPreference(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+  ): Promise<MessagingContactPreference | null> {
+    const { rows } = await this.query(
+      `select * from messaging_contact_preferences
+       where organization_id = $1 and channel_id = $2 and normalized_contact_hash = $3`,
+      [organizationId, channelId, normalizedContactHash],
+    );
+    return rows[0] ? mapContactPreference(rows[0]) : null;
+  }
+
+  async upsertMessagingContactPreference(
+    input: UpsertMessagingContactPreferenceInput,
+  ): Promise<MessagingContactPreference> {
+    const { rows } = await this.query(
+      `insert into messaging_contact_preferences
+         (organization_id, channel_id, external_contact_id, normalized_contact_hash, channel_type,
+          opt_in_status, metadata)
+       values ($1,$2,$3,$4,$5,$6,$7)
+       on conflict (channel_id, normalized_contact_hash) do update set
+         external_contact_id = coalesce(excluded.external_contact_id, messaging_contact_preferences.external_contact_id),
+         opt_in_status = excluded.opt_in_status,
+         metadata = excluded.metadata,
+         updated_at = now()
+       returning *`,
+      [
+        input.organizationId,
+        input.channelId,
+        input.externalContactId ?? null,
+        input.normalizedContactHash,
+        input.channelType,
+        input.optInStatus ?? "unknown",
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapContactPreference(rows[0]);
+  }
+
+  async blockMessagingContact(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+    _userId?: string | null,
+  ): Promise<MessagingContactPreference | null> {
+    void _userId;
+    const { rows } = await this.query(
+      `update messaging_contact_preferences set
+         opt_in_status = 'blocked', blocked_at = now(), updated_at = now()
+       where organization_id = $1 and channel_id = $2 and normalized_contact_hash = $3
+       returning *`,
+      [organizationId, channelId, normalizedContactHash],
+    );
+    return rows[0] ? mapContactPreference(rows[0]) : null;
+  }
+
+  async getMessagingChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MessagingChannelOverview> {
+    const channels = (
+      await this.listEmployeeChannelsForEmployee(organizationId, employeeId)
+    ).filter((c) => c.status !== "archived");
+    const messagingTypes: ChannelType[] = ["whatsapp", "sms", "email"];
+    const summaries: MessagingChannelSummary[] = [];
+    for (const channelType of messagingTypes) {
+      const channel = channels.find((c) => c.channelType === channelType) ?? null;
+      let lastMessageAt: string | null = null;
+      let credentialStatus: MessagingChannelSummary["credentialStatus"] = "not_configured";
+      if (channel) {
+        const events = await this.listChannelWebhookEventsForChannel(organizationId, channel.id, 1);
+        lastMessageAt = events[0]?.receivedAt ?? null;
+        const cred = await this.getChannelProviderCredentialMetadata(
+          organizationId,
+          channel.channelProvider,
+        );
+        credentialStatus = cred ? cred.status : "not_configured";
+      }
+      summaries.push({
+        channelType,
+        channel,
+        providerType: channel?.channelProvider ?? null,
+        credentialStatus,
+        lastMessageAt,
+      });
+    }
+    const { rows } = await this.query(
+      "select * from channel_webhook_events where organization_id = $1 order by received_at desc limit 10",
+      [organizationId],
+    );
+    return { summaries, recentWebhookEvents: rows.map(mapWebhookEvent) };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

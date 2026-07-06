@@ -18,17 +18,29 @@ import type {
   AuditEventInput,
   CreateEmployeeInput,
   ChannelOverview,
+  ChannelProviderCredentialMetadata,
+  ChannelProviderType,
+  ChannelWebhookEvent,
+  CreateChannelProviderCredentialInput,
+  CreateChannelWebhookEventInput,
   CreateEmployeeChannelInput,
   CreateEmployeeChatMessageInput,
   CreateEmployeeChatRetrievalEventInput,
   CreateEmployeeChatThreadInput,
+  CreateMessagingTemplateInput,
   CreatePublicChannelEventInput,
   CreatePublicChatSessionInput,
   EmployeeChannel,
   GetOrCreatePublicChatSessionInput,
+  MessagingChannelOverview,
+  MessagingContactPreference,
+  MessagingTemplate,
+  MessagingTemplateStatus,
   PublicChannelEvent,
   PublicChatSession,
+  UpdateChannelWebhookEventStatusInput,
   UpdateEmployeeChannelInput,
+  UpsertMessagingContactPreferenceInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeRetrievalSegmentInput,
   CreateKnowledgeSourceInput,
@@ -304,6 +316,71 @@ export interface DataStore {
   ): Promise<PublicChannelEvent[]>;
 
   getChannelOverview(organizationId: string, employeeId: string): Promise<ChannelOverview>;
+
+  // Messaging Channels (Prompt 009). Organization-scoped; credentials store only
+  // encrypted blobs and metadata never includes the encrypted/plaintext secret.
+  createChannelProviderCredential(
+    input: CreateChannelProviderCredentialInput,
+  ): Promise<ChannelProviderCredentialMetadata>;
+  getChannelProviderCredentialMetadata(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<ChannelProviderCredentialMetadata | null>;
+  listChannelProviderCredentials(
+    organizationId: string,
+  ): Promise<ChannelProviderCredentialMetadata[]>;
+  /** Server-only: the encrypted blob for adapters to decrypt. Never client-facing. */
+  getChannelProviderEncryptedCredentials(
+    organizationId: string,
+    providerType: ChannelProviderType,
+  ): Promise<string | null>;
+  disableChannelProviderCredential(
+    organizationId: string,
+    providerType: ChannelProviderType,
+    userId?: string | null,
+  ): Promise<ChannelProviderCredentialMetadata | null>;
+
+  createChannelWebhookEvent(input: CreateChannelWebhookEventInput): Promise<ChannelWebhookEvent>;
+  updateChannelWebhookEventStatus(
+    id: string,
+    input: UpdateChannelWebhookEventStatusInput,
+  ): Promise<ChannelWebhookEvent | null>;
+  listChannelWebhookEventsForChannel(
+    organizationId: string,
+    channelId: string,
+    limit?: number,
+  ): Promise<ChannelWebhookEvent[]>;
+
+  createMessagingTemplate(input: CreateMessagingTemplateInput): Promise<MessagingTemplate>;
+  listMessagingTemplates(
+    organizationId: string,
+    channelId?: string | null,
+  ): Promise<MessagingTemplate[]>;
+  updateMessagingTemplateStatus(
+    organizationId: string,
+    templateId: string,
+    status: MessagingTemplateStatus,
+  ): Promise<MessagingTemplate | null>;
+
+  getMessagingContactPreference(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+  ): Promise<MessagingContactPreference | null>;
+  upsertMessagingContactPreference(
+    input: UpsertMessagingContactPreferenceInput,
+  ): Promise<MessagingContactPreference>;
+  blockMessagingContact(
+    organizationId: string,
+    channelId: string,
+    normalizedContactHash: string,
+    userId?: string | null,
+  ): Promise<MessagingContactPreference | null>;
+
+  getMessagingChannelOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MessagingChannelOverview>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
