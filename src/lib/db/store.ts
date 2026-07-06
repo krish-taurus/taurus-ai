@@ -19,23 +19,34 @@ import type {
   CreateEmployeeInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeSourceInput,
+  CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
+  EmployeeModelSettings,
   KnowledgeDocument,
   KnowledgeSource,
   KnowledgeVaultOverview,
+  LlmUsageEvent,
+  ModelHubOverview,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  OrganizationModelSettings,
+  ProviderCredentialMetadata,
+  ProviderSlug,
   PublishDnaInput,
   SaveDnaDraftInput,
+  SaveProviderCredentialInput,
   UpdateEmployeeInput,
+  UpdateEmployeeModelSettingsInput,
   UpdateKnowledgeSourceInput,
+  UpdateOrganizationModelSettingsInput,
   User,
 } from "@/lib/db/types";
+import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
 import type { Role } from "@/modules/organizations/roles";
 import { InMemoryStore } from "@/lib/db/in-memory-store";
 import { PostgresStore } from "@/lib/db/postgres-store";
@@ -135,6 +146,53 @@ export interface DataStore {
   countAssignedKnowledgeForEmployee(organizationId: string, employeeId: string): Promise<number>;
 
   getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview>;
+
+  // Model Hub + LLM Gateway (Prompt 006B).
+  // Catalog (code-authoritative; not organization-scoped).
+  listModelProviders(): Promise<ModelProvider[]>;
+  listAiModels(): Promise<AiModel[]>;
+  getAiModel(modelId: string): Promise<AiModel | null>;
+  getModelsByProvider(providerSlug: ProviderSlug): Promise<AiModel[]>;
+
+  // Organization + employee model settings — organization-scoped.
+  getOrganizationModelSettings(organizationId: string): Promise<OrganizationModelSettings>;
+  updateOrganizationModelSettings(
+    organizationId: string,
+    patch: UpdateOrganizationModelSettingsInput,
+  ): Promise<OrganizationModelSettings>;
+  getEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeModelSettings | null>;
+  updateEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeModelSettingsInput,
+  ): Promise<EmployeeModelSettings>;
+
+  // Provider credentials — metadata never includes the encrypted/plaintext key.
+  getProviderCredentialMetadata(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<ProviderCredentialMetadata | null>;
+  listProviderCredentialMetadata(organizationId: string): Promise<ProviderCredentialMetadata[]>;
+  /** Server-only: the encrypted key for the gateway to decrypt. Never client-facing. */
+  getProviderEncryptedKey(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<string | null>;
+  saveProviderCredential(input: SaveProviderCredentialInput): Promise<ProviderCredentialMetadata>;
+  disableProviderCredential(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+    userId?: string | null,
+  ): Promise<ProviderCredentialMetadata | null>;
+
+  // Usage events — metadata only (never message contents).
+  listLlmUsageEvents(organizationId: string, limit?: number): Promise<LlmUsageEvent[]>;
+  createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent>;
+
+  getModelHubOverview(organizationId: string): Promise<ModelHubOverview>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

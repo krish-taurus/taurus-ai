@@ -3,6 +3,9 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { EmployeeCard } from "@/components/employees/employee-card";
+import { getModel } from "@/modules/model-gateway/catalog";
+import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
+import { formatUsd } from "@/modules/model-gateway/pricing";
 import { buttonClasses, EmptyState, PageHeader, SectionHeader, StatCard } from "@/components/ui";
 
 export default async function DashboardPage() {
@@ -18,6 +21,15 @@ export default async function DashboardPage() {
   const knowledge = await store.getKnowledgeVaultOverview(organization.id);
   const canViewKnowledge = hasPermission(membership.role, "knowledge.view");
   const canManageKnowledge = hasPermission(membership.role, "knowledge.manage");
+
+  const modelHub = await store.getModelHubOverview(organization.id);
+  const canViewModelHub = hasPermission(membership.role, "model_hub.view");
+  const defaultBrainLabel = modelHub.defaultModelId
+    ? (getModel(modelHub.defaultModelId)?.displayName ??
+      brainModeForRoutingMode(modelHub.routingMode)?.label ??
+      ROUTING_MODE_LABELS[modelHub.routingMode])
+    : (brainModeForRoutingMode(modelHub.routingMode)?.label ??
+      ROUTING_MODE_LABELS[modelHub.routingMode]);
 
   return (
     <div>
@@ -117,6 +129,35 @@ export default async function DashboardPage() {
               <StatCard label="Assigned" value={knowledge.assigned} />
             </div>
           )}
+        </section>
+      ) : null}
+
+      {canViewModelHub ? (
+        <section className="mt-10">
+          <SectionHeader
+            title="Model Hub"
+            action={
+              <Link
+                href="/dashboard/settings/models"
+                className="text-sm font-medium text-taurus-sub hover:text-taurus-text"
+              >
+                Open Model Hub
+              </Link>
+            }
+          />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <StatCard label="Default Employee Brain" value={defaultBrainLabel} />
+            <StatCard
+              label="Monthly budget"
+              value={
+                modelHub.monthlyBudgetUsd != null ? formatUsd(modelHub.monthlyBudgetUsd) : "Not set"
+              }
+            />
+            <StatCard
+              label="Allowed providers"
+              value={`${modelHub.allowedProviderCount} of ${modelHub.totalProviders}`}
+            />
+          </div>
         </section>
       ) : null}
     </div>

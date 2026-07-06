@@ -574,3 +574,88 @@ attachment, never inline). Files are never served publicly.
 No retrieval/embeddings/vectors/chunking, semantic search, answering, chat,
 citations, website crawling, OCR, advanced PDF/DOCX parsing, integrations,
 public sharing, marketplace, or voice.
+
+# Model Hub + LLM Gateway (Prompt 006B)
+
+Taurus is provider-agnostic. Admins configure a **Model Hub**; normal users only
+pick a simple **Employee Brain** mode (Economy / Balanced / Premium / Privacy
+First). Business code never imports a provider SDK — it goes through the internal
+LLM Gateway, so Taurus is never locked to any single provider.
+
+## Routes
+
+- `/dashboard/settings/models` — Model Hub overview (default Employee Brain,
+  monthly budget, allowed providers, a cost estimate, and provider status).
+- `/dashboard/settings/models/configure` — organization model settings
+  (routing behavior, exact default/fallback model, allow/block lists, budget).
+- `/dashboard/settings/models/catalog` — full model catalog (provider, model,
+  tier, features, context, approximate price, best for).
+- `/dashboard/settings/models/providers` — provider credentials: Taurus-managed
+  availability + bring-your-own-key (BYOK). Only the last four of a saved key is
+  ever shown.
+- `/dashboard/employees/[employeeId]/brain` — Employee Brain: inherit the
+  organization default, pick a simple mode, or (advanced) pin an exact model.
+
+## Gateway (`src/modules/model-gateway`)
+
+- `catalog.ts` — code-authoritative catalog of 8 providers (OpenAI, Anthropic,
+  DeepSeek, Moonshot Kimi, Groq/Llama, Google Gemini, Fireworks, custom
+  OpenAI-compatible) and their models, with capabilities and **approximate
+  snapshot pricing**.
+- `pricing.ts` — deterministic cost estimator; returns an "unknown" state when a
+  model has no listed price.
+- `router.ts` — pure model routing (routing modes ↔ brain modes, capability
+  filtering, allow/block lists, fallback).
+- `gateway.ts` — `LlmGateway` with `generateText` / `streamText` (foundation) /
+  `estimateCost` / `resolveModelForTask` / `validateModelSupportsTask`. Providers
+  and the credential resolver are injected. Usage is recorded as **metadata only**
+  (token counts, cost, latency — never message contents), and raw provider
+  responses are never exposed to the UI.
+- `providers/*` — one adapter per provider behind a common `LLMProvider`
+  interface. They perform real network calls and are **never invoked from tests
+  or any UI in this sprint** (tests use fakes; no external API calls happen).
+
+## Pricing
+
+> Pricing is an estimate and may vary by provider, region, discounts, caching,
+> and enterprise agreement.
+
+Prices are a dated snapshot in `catalog.ts` (with source URLs) and are **not
+guaranteed**. The UI shows this disclaimer wherever cost appears.
+
+## Environment variables (all optional; server-only)
+
+- `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`,
+  `GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `FIREWORKS_API_KEY` — when a
+  provider's key is set, that provider is offered as **Taurus managed**. Absent
+  keys never break local dev or tests; the provider stays visible but not
+  runnable.
+- `TAURUS_MODEL_CREDENTIALS_MASTER_KEY` — master key used to encrypt BYOK
+  provider keys at rest (AES-256-GCM). If it is not set, **BYOK is disabled** in
+  the UI (Taurus-managed keys still work).
+
+## Data & security
+
+- Tables (migration `db/migrations/0006_model_hub.sql`): `ai_model_providers`,
+  `ai_models` (persistent mirror of the code catalog), `organization_model_settings`,
+  `employee_model_settings`, `organization_provider_credentials`,
+  `llm_usage_events`. Every organization-scoped table is indexed on
+  `organization_id`.
+- **API keys are never stored in plaintext** and the encrypted value is never
+  returned to the client — only `key_last_four`. The gateway reads the encrypted
+  key server-side via a dedicated store method.
+- Permissions: `model_hub.view` (all roles) to view catalog/overview;
+  `model_hub.manage` (owner/admin only) to change organization/employee model
+  settings and provider credentials. Every action re-checks permissions
+  server-side and resolves the organization from the session — never the client.
+- Audit events (`model_settings.updated`, `model_budget.updated`,
+  `employee_brain.updated`, `provider_credential.saved`,
+  `provider_credential.disabled`) record **metadata only** — never API keys or
+  message contents.
+
+## Not in this prompt
+
+No end-user chat/RAG answers, Knowledge Vault retrieval, embeddings, vector
+search, chat/streaming UI, voice, marketplace, collaboration, billing, public
+profiles, autonomous tool execution, or website/file crawling. Prompt 007 can
+consume the LLM Gateway without importing any provider SDK directly.

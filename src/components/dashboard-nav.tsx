@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/employees", label: "AI Employees" },
   { href: "/dashboard/hire", label: "Hiring Studio" },
   { href: "/dashboard/knowledge", label: "Knowledge Vault" },
+  { href: "/dashboard/settings/models", label: "Model Hub" },
   { href: "/dashboard/collaboration", label: "Collaboration" },
   { href: "/dashboard/audit", label: "Audit" },
   { href: "/dashboard/settings", label: "Settings" },
