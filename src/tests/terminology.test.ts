@@ -51,6 +51,13 @@ function collectFiles(dir: string): string[] {
   return out;
 }
 
+/**
+ * Explicitly approved marketing phrases. Each is removed verbatim (exact match,
+ * case-sensitive) before scanning, so ONLY these exact usages are permitted.
+ * Landing v2: the single allowed "prompt" comparison hook.
+ */
+const ALLOWED_PHRASES = ["Replace prompt engineering with Employee DNA."];
+
 /** Remove block comments and full-line // comments so notes are ignored. */
 function stripComments(source: string): string {
   const withoutBlocks = source.replace(/\/\*[\s\S]*?\*\//g, " ");
@@ -58,6 +65,10 @@ function stripComments(source: string): string {
     .split("\n")
     .filter((line) => !/^\s*\/\//.test(line))
     .join("\n");
+}
+
+function stripAllowedPhrases(source: string): string {
+  return ALLOWED_PHRASES.reduce((text, phrase) => text.split(phrase).join(" "), source);
 }
 
 describe("Taurus terminology in the user-facing UI", () => {
@@ -70,7 +81,7 @@ describe("Taurus terminology in the user-facing UI", () => {
   for (const { label, pattern } of FORBIDDEN) {
     it(`does not use the word "${label}"`, () => {
       const offenders = files.filter((file) =>
-        pattern.test(stripComments(readFileSync(file, "utf8"))),
+        pattern.test(stripAllowedPhrases(stripComments(readFileSync(file, "utf8")))),
       );
       expect(offenders, `Forbidden term "${label}" found in: ${offenders.join(", ")}`).toEqual([]);
     });

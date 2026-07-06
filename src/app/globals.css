@@ -82,6 +82,86 @@
   }
 }
 
+/* ==========================================================================
+   Landing page motion (Premium Landing v2) — monochrome + CSS-driven so the
+   global reduced-motion rule below disables everything automatically.
+   ========================================================================== */
+@layer utilities {
+  /* Flowing dashes along SVG connection lines. */
+  @keyframes landing-dash {
+    to {
+      stroke-dashoffset: -24;
+    }
+  }
+  .landing-dash {
+    stroke-dasharray: 3 9;
+    animation: landing-dash 1.6s linear infinite;
+  }
+  .landing-dash-slow {
+    stroke-dasharray: 2 10;
+    animation: landing-dash 2.8s linear infinite;
+  }
+
+  /* Gentle vertical float for cards/nodes. */
+  @keyframes landing-float {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-8px);
+    }
+  }
+  .landing-float {
+    animation: landing-float 7s ease-in-out infinite;
+  }
+  .landing-float-delayed {
+    animation: landing-float 8.5s ease-in-out 1.2s infinite;
+  }
+
+  /* Soft node glow pulse. */
+  @keyframes landing-pulse {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scale(1);
+    }
+    50% {
+      opacity: 0.9;
+      transform: scale(1.25);
+    }
+  }
+  .landing-pulse {
+    animation: landing-pulse 3.2s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+
+  /* Slow conic sweep behind the hero visual. */
+  @keyframes landing-sweep {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .landing-sweep {
+    animation: landing-sweep 28s linear infinite;
+  }
+
+  /* Shimmer across silver accents. */
+  @keyframes landing-shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  .landing-shimmer {
+    background-size: 200% 100%;
+    animation: landing-shimmer 6s linear infinite;
+  }
+}
+
 /* Respect users who prefer reduced motion: disable all transitions/animations. */
 @media (prefers-reduced-motion: reduce) {
   *,
