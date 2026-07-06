@@ -324,3 +324,61 @@ variables are required for this prompt.
   usage, and recent activity — those features arrive in later prompts.
 - No chat, RAG, voice, marketplace, collaboration, file uploads, or public
   profiles (intentionally out of scope for this prompt).
+
+---
+
+# Hiring Studio (Prompt 004)
+
+Prompt 004 adds the **Hiring Studio** — a guided, non-technical flow for hiring
+an AI Employee in under five minutes. It replaces the single-form create page
+(`/dashboard/employees/new` now redirects here).
+
+## Route & flow
+
+`/dashboard/hire` — a four-step wizard (with a progress indicator and
+Back/Continue):
+
+1. **Choose role** — 9 role templates (Receptionist, Sales, Customer Support,
+   HR, Finance, Operations, Legal Assistant, Marketing, Custom). Picking one
+   pre-fills sensible defaults.
+2. **Describe** — name, role title, department, description, main responsibilities.
+3. **Working style** — tone, formality, risk level, escalation preference (plain
+   language, no model/prompt settings).
+4. **Review & hire** — confirm everything (plus Visibility: Private, Status:
+   Draft) and hire.
+
+On success, `/dashboard/hire/success/[employeeId]` shows a confirmation with
+links to the new profile and dashboard, and placeholder "next steps" (Employee
+DNA, Knowledge Vault, Test Chat, Configure Voice) that are **coming soon** — not
+implemented in this prompt.
+
+The dashboard "Hire AI Employee" CTA opens the Hiring Studio.
+
+## Data
+
+The Hiring Studio reuses the Prompt-003 `AiEmployee` model, extended with two
+minimal JSON fields (migration `db/migrations/0003_hiring_studio.sql`):
+
+- `responsibilities` (`jsonb`, list of plain-language bullet points)
+- `working_style` (`jsonb`: `tone`, `formality`, `riskLevel`, `escalation`)
+
+This is intentionally **not** a full Employee DNA system. Templates and
+working-style options live in `src/modules/employees/hiring-templates.ts`; the
+pure hiring logic + Zod schema are in `src/modules/employees/hiring.ts`.
+
+## Security
+
+- Authentication + organization are resolved server-side
+  (`requireCurrentOrganization`); `organizationId` is never taken from the client.
+- The `hireEmployeeAction` re-checks the `employee.create` permission — client
+  gating is never trusted alone.
+- Hiring records an `employee.created` audit event with minimal, non-sensitive
+  metadata, and every read/write stays organization-scoped.
+
+## Known limitations (Prompt 004)
+
+- Working style is stored but does not yet drive AI behavior (that is Employee
+  DNA, a later prompt).
+- The success page "next steps" are inert placeholders.
+- No Employee DNA editor, Knowledge Vault, chat/RAG, voice, marketplace,
+  collaboration, billing, tool integrations, public profiles, or LLM calls.

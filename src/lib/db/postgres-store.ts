@@ -26,6 +26,7 @@ import type {
   OrganizationMembershipView,
   UpdateEmployeeInput,
   User,
+  WorkingStyle,
 } from "@/lib/db/types";
 import { isRole, type Role } from "@/modules/organizations/roles";
 
@@ -79,6 +80,8 @@ function mapEmployee(row: Row): AiEmployee {
     description: row.description,
     status: row.status as EmployeeStatus,
     visibility: row.visibility as EmployeeVisibility,
+    responsibilities: Array.isArray(row.responsibilities) ? row.responsibilities : [],
+    workingStyle: (row.working_style as WorkingStyle | null) ?? null,
     avatarUrl: row.avatar_url,
     createdBy: row.created_by,
     createdAt: new Date(row.created_at).toISOString(),
@@ -206,8 +209,9 @@ export class PostgresStore implements DataStore {
   async createEmployee(input: CreateEmployeeInput): Promise<AiEmployee> {
     const { rows } = await this.query(
       `insert into ai_employees
-         (organization_id, name, role_title, department, description, status, visibility, created_by)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+         (organization_id, name, role_title, department, description, status, visibility,
+          responsibilities, working_style, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        returning *`,
       [
         input.organizationId,
@@ -217,6 +221,8 @@ export class PostgresStore implements DataStore {
         input.description ?? null,
         input.status ?? "draft",
         input.visibility ?? "private",
+        JSON.stringify(input.responsibilities ?? []),
+        input.workingStyle ? JSON.stringify(input.workingStyle) : null,
         input.createdBy ?? null,
       ],
     );

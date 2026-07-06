@@ -6,6 +6,12 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { StatusBadge, VisibilityBadge } from "@/components/employees/employee-badges";
 import { EmployeeActions } from "@/components/employees/employee-actions";
+import {
+  ESCALATION_LABELS,
+  FORMALITY_LABELS,
+  RISK_LABELS,
+  TONE_LABELS,
+} from "@/modules/employees/hiring-templates";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
@@ -17,6 +23,15 @@ function Placeholder({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-slate-200 bg-white p-4">
       <p className="text-xs font-medium uppercase tracking-wide text-slate-400">{label}</p>
       <p className="mt-1 text-sm text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function StyleRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-4">
+      <dt className="text-slate-500">{label}</dt>
+      <dd className="font-medium text-slate-800">{value}</dd>
     </div>
   );
 }
@@ -71,6 +86,40 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
           </div>
         ) : null}
       </div>
+
+      {/* Responsibilities + working style captured during hiring. */}
+      {employee.responsibilities.length > 0 || employee.workingStyle ? (
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          {employee.responsibilities.length > 0 ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <h2 className="text-sm font-semibold text-slate-900">Responsibilities</h2>
+              <ul className="mt-3 list-inside list-disc space-y-1 text-sm text-slate-700">
+                {employee.responsibilities.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {employee.workingStyle ? (
+            <div className="rounded-lg border border-slate-200 bg-white p-5">
+              <h2 className="text-sm font-semibold text-slate-900">Working style</h2>
+              <dl className="mt-3 space-y-2 text-sm">
+                <StyleRow label="Tone" value={TONE_LABELS[employee.workingStyle.tone]} />
+                <StyleRow
+                  label="Formality"
+                  value={FORMALITY_LABELS[employee.workingStyle.formality]}
+                />
+                <StyleRow label="Risk level" value={RISK_LABELS[employee.workingStyle.riskLevel]} />
+                <StyleRow
+                  label="Escalation"
+                  value={ESCALATION_LABELS[employee.workingStyle.escalation]}
+                />
+              </dl>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Placeholders for capabilities delivered in later prompts. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">

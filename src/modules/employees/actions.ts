@@ -17,8 +17,6 @@ import { hasPermission, type Permission } from "@/modules/organizations/roles";
 import {
   archiveEmployee,
   activateEmployee,
-  createEmployeeForOrganization,
-  createEmployeeSchema,
   pauseEmployee,
   updateEmployeeProfile,
   updateEmployeeSchema,
@@ -35,42 +33,6 @@ async function requirePermission(permission: Permission) {
     return { denied: true as const, user, organization };
   }
   return { denied: false as const, user, organization };
-}
-
-export async function createEmployeeAction(
-  _prevState: EmployeeActionState,
-  formData: FormData,
-): Promise<EmployeeActionState> {
-  const ctx = await requirePermission("employee.create");
-  if (ctx.denied) {
-    return { error: "You do not have permission to hire AI Employees in this organization." };
-  }
-
-  const parsed = createEmployeeSchema.safeParse({
-    name: formData.get("name"),
-    roleTitle: formData.get("roleTitle"),
-    department: formData.get("department") ?? undefined,
-    description: formData.get("description") ?? undefined,
-    template: formData.get("template") ?? undefined,
-  });
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Please check the form and try again." };
-  }
-
-  let employeeId: string;
-  try {
-    const employee = await createEmployeeForOrganization(
-      getStore(),
-      { organizationId: ctx.organization.id, userId: ctx.user.id },
-      parsed.data,
-    );
-    employeeId = employee.id;
-  } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not create the AI Employee." };
-  }
-
-  revalidatePath("/dashboard/employees");
-  redirect(`/dashboard/employees/${employeeId}`);
 }
 
 export async function updateEmployeeAction(

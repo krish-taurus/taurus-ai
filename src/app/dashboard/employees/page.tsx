@@ -35,7 +35,7 @@ export default async function EmployeesPage() {
           {canHire ? (
             <div className="mt-6">
               <Link
-                href="/dashboard/employees/new"
+                href="/dashboard/hire"
                 className="inline-flex items-center rounded-md bg-taurus-accent px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-500"
               >
                 Hire AI Employee

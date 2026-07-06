@@ -36,7 +36,8 @@ values (
 
 -- A sample AI Employee so the dashboard is not empty on a fresh seed.
 insert into ai_employees
-  (id, organization_id, name, role_title, department, description, status, visibility, created_by)
+  (id, organization_id, name, role_title, department, description, status, visibility,
+   responsibilities, working_style, created_by)
 values (
   '00000000-0000-0000-0000-0000000000c1',
   '00000000-0000-0000-0000-0000000000a1',
@@ -46,6 +47,8 @@ values (
   'Answers common customer support questions for the demo organization.',
   'active',
   'organization',
+  '["Answer common support questions", "Help customers resolve issues", "Escalate complex problems to a human"]'::jsonb,
+  '{"tone": "friendly", "formality": "balanced", "riskLevel": "conservative", "escalation": "ask_when_unsure"}'::jsonb,
   '00000000-0000-0000-0000-000000000001'
 )
 on conflict (id) do nothing;
