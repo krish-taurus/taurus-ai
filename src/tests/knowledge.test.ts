@@ -1,0 +1,297 @@
+import { describe, it, expect } from "vitest";
+import { InMemoryStore } from "@/lib/db/in-memory-store";
+import { createOrganizationForUser } from "@/modules/organizations/service";
+import { hasPermission } from "@/modules/organizations/roles";
+import {
+  archiveSource,
+  assignKnowledgeToEmployee,
+  createFileSource,
+  createTextSource,
+  createUrlSource,
+  getVaultOverview,
+  KnowledgeNotFoundError,
+  KnowledgeValidationError,
+  unassignKnowledgeFromEmployee,
+  validateUpload,
+  type KnowledgeStorage,
+} from "@/modules/knowledge/service";
+
+class FakeStorage implements KnowledgeStorage {
+  saved: { organizationId: string; storageKey: string; bytes: Uint8Array }[] = [];
+  async save(input: { organizationId: string; storageKey: string; bytes: Uint8Array }) {
+    this.saved.push(input);
+  }
+}
+
+function bytes(text: string): Uint8Array {
+  return new TextEncoder().encode(text);
+}
+
+async function setup() {
+  const store = new InMemoryStore();
+  const alice = await store.createUser({ email: "alice@example.com", fullName: "Alice" });
+  const bob = await store.createUser({ email: "bob@example.com", fullName: "Bob" });
+  const aliceOrg = (await createOrganizationForUser(store, alice.id, { name: "Alice Co" }))
+    .organization;
+  const bobOrg = (await createOrganizationForUser(store, bob.id, { name: "Bob Co" })).organization;
+  const employee = await store.createEmployee({
+    organizationId: aliceOrg.id,
+    name: "Maya",
+    roleTitle: "Support AI",
+  });
+  return { store, alice, bob, aliceOrg, bobOrg, employee };
+}
+
+const actor = (organizationId: string, userId: string) => ({ organizationId, userId });
+
+describe("Knowledge Vault validation", () => {
+  it("requires a name", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    await expect(
+      createTextSource(store, actor(aliceOrg.id, alice.id), { name: "A", text: "hello" }),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
+  });
+
+  it("requires text content for a text source", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    await expect(
+      createTextSource(store, actor(aliceOrg.id, alice.id), { name: "Policy", text: "" }),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
+  });
+
+  it("rejects non-http(s) and malformed URLs", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    await expect(
+      createUrlSource(store, actor(aliceOrg.id, alice.id), { name: "Site", url: "ftp://x.com" }),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
+    await expect(
+      createUrlSource(store, actor(aliceOrg.id, alice.id), { name: "Site", url: "not a url" }),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
+  });
+
+  it("validates upload type, empty, and size", () => {
+    expect(() =>
+      validateUpload({ originalFilename: "a.exe", contentType: null, bytes: bytes("x") }),
+    ).toThrow(KnowledgeValidationError);
+    expect(() =>
+      validateUpload({ originalFilename: "a.txt", contentType: null, bytes: new Uint8Array(0) }),
+    ).toThrow(KnowledgeValidationError);
+    const big = new Uint8Array(11 * 1024 * 1024);
+    expect(() =>
+      validateUpload({ originalFilename: "a.txt", contentType: null, bytes: big }),
+    ).toThrow(KnowledgeValidationError);
+    expect(
+      validateUpload({ originalFilename: "a.txt", contentType: null, bytes: bytes("x") }).extension,
+    ).toBe(".txt");
+  });
+});
+
+describe("manual text source", () => {
+  it("creates a ready text source with extracted document + preview", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Refund policy",
+      description: "How refunds work",
+      text: "Refunds are processed within 14 days.",
+    });
+
+    expect(source.sourceType).toBe("text");
+    expect(source.status).toBe("ready");
+
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].extractionStatus).toBe("extracted");
+    expect(docs[0].textContent).toContain("Refunds are processed");
+    expect(docs[0].textPreview).toContain("Refunds are processed");
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.created")).toBe(true);
+  });
+});
+
+describe("website URL record", () => {
+  it("stores the URL in metadata without fetching, status uploaded", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createUrlSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Help center",
+      url: "https://example.com/help",
+    });
+    expect(source.sourceType).toBe("url");
+    expect(source.status).toBe("uploaded");
+    expect(source.metadata.url).toBe("https://example.com/help");
+    // No document is created for a URL record (nothing was fetched).
+    expect(await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id)).toHaveLength(0);
+  });
+});
+
+describe("file source", () => {
+  it("extracts text for .txt and marks ready", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const storage = new FakeStorage();
+    const source = await createFileSource(store, storage, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Notes" },
+      file: {
+        originalFilename: "notes.txt",
+        contentType: "text/plain",
+        bytes: bytes("hello team"),
+      },
+    });
+    expect(source.status).toBe("ready");
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs[0].extractionStatus).toBe("extracted");
+    expect(docs[0].textContent).toBe("hello team");
+    expect(docs[0].storageKey).toBeTruthy();
+    expect(docs[0].storageKey).not.toContain("notes.txt"); // opaque key, not raw filename
+    expect(storage.saved).toHaveLength(1);
+    expect(docs[0].checksumSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("stores .pdf as metadata only (unsupported extraction)", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const storage = new FakeStorage();
+    const source = await createFileSource(store, storage, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Handbook" },
+      file: {
+        originalFilename: "handbook.pdf",
+        contentType: "application/pdf",
+        bytes: bytes("%PDF-1.4"),
+      },
+    });
+    expect(source.status).toBe("uploaded");
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs[0].extractionStatus).toBe("unsupported");
+    expect(docs[0].textContent).toBeNull();
+  });
+});
+
+describe("assignment", () => {
+  it("assigns and unassigns a source to an employee", async () => {
+    const { store, alice, aliceOrg, employee } = await setup();
+    const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "FAQ",
+      text: "Q&A",
+    });
+
+    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+      employeeId: employee.id,
+      knowledgeSourceId: source.id,
+    });
+    expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(1);
+
+    // Assigning again is idempotent (unique constraint).
+    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+      employeeId: employee.id,
+      knowledgeSourceId: source.id,
+    });
+    expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(1);
+
+    const assigned = await store.listKnowledgeSourcesForEmployee(aliceOrg.id, employee.id);
+    expect(assigned.map((s) => s.id)).toContain(source.id);
+
+    const removed = await unassignKnowledgeFromEmployee(store, actor(aliceOrg.id, alice.id), {
+      employeeId: employee.id,
+      knowledgeSourceId: source.id,
+    });
+    expect(removed).toBe(true);
+    expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(0);
+
+    const actions = store._auditEvents().map((e) => e.action);
+    expect(actions).toContain("knowledge_source.assigned_to_employee");
+    expect(actions).toContain("knowledge_source.unassigned_from_employee");
+  });
+});
+
+describe("organization isolation", () => {
+  it("never exposes a source to another organization", async () => {
+    const { store, alice, aliceOrg, bobOrg } = await setup();
+    const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Secret",
+      text: "internal",
+    });
+    expect(await store.getKnowledgeSource(aliceOrg.id, source.id)).not.toBeNull();
+    expect(await store.getKnowledgeSource(bobOrg.id, source.id)).toBeNull();
+    expect(await store.listKnowledgeSources(bobOrg.id)).toHaveLength(0);
+  });
+
+  it("refuses to assign a source from another organization", async () => {
+    const { store, alice, bob, aliceOrg, bobOrg } = await setup();
+    const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Alpha",
+      text: "x",
+    });
+    const bobEmployee = await store.createEmployee({
+      organizationId: bobOrg.id,
+      name: "Sam",
+      roleTitle: "Ops AI",
+    });
+    await expect(
+      assignKnowledgeToEmployee(store, actor(bobOrg.id, bob.id), {
+        employeeId: bobEmployee.id,
+        knowledgeSourceId: source.id,
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
+  });
+});
+
+describe("archive + overview", () => {
+  it("archives a source and reflects it in the overview", async () => {
+    const { store, alice, aliceOrg, employee } = await setup();
+    const s1 = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "One",
+      text: "a",
+    });
+    await createUrlSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Two",
+      url: "https://x.com",
+    });
+    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+      employeeId: employee.id,
+      knowledgeSourceId: s1.id,
+    });
+
+    let overview = await getVaultOverview(store, aliceOrg.id);
+    expect(overview.total).toBe(2);
+    expect(overview.ready).toBe(1); // text source is ready; url is uploaded
+    expect(overview.assigned).toBe(1);
+
+    const archived = await archiveSource(store, actor(aliceOrg.id, alice.id), s1.id);
+    expect(archived.status).toBe("archived");
+    expect(archived.archivedAt).not.toBeNull();
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.archived")).toBe(true);
+
+    overview = await getVaultOverview(store, aliceOrg.id);
+    expect(overview.total).toBe(1); // archived excluded
+  });
+});
+
+describe("audit safety", () => {
+  it("does not record text content or file bytes in audit events", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Sensitive",
+      text: "SECRET_TEXT_MARKER_9421",
+    });
+    const storage = new FakeStorage();
+    await createFileSource(store, storage, actor(aliceOrg.id, alice.id), {
+      meta: { name: "File" },
+      file: {
+        originalFilename: "secret.txt",
+        contentType: "text/plain",
+        bytes: bytes("FILE_SECRET_MARKER_7788"),
+      },
+    });
+    const auditJson = JSON.stringify(store._auditEvents());
+    expect(auditJson).not.toContain("SECRET_TEXT_MARKER_9421");
+    expect(auditJson).not.toContain("FILE_SECRET_MARKER_7788");
+  });
+});
+
+describe("permissions (role matrix)", () => {
+  it("grants knowledge.view to all roles and knowledge.manage only to owner/admin/builder", () => {
+    for (const role of ["owner", "admin", "builder", "viewer"] as const) {
+      expect(hasPermission(role, "knowledge.view")).toBe(true);
+    }
+    expect(hasPermission("owner", "knowledge.manage")).toBe(true);
+    expect(hasPermission("admin", "knowledge.manage")).toBe(true);
+    expect(hasPermission("builder", "knowledge.manage")).toBe(true);
+    expect(hasPermission("viewer", "knowledge.manage")).toBe(false);
+  });
+});

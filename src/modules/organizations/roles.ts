@@ -33,6 +33,7 @@ export const PERMISSIONS = [
   "employee.create",
   "employee.manage",
   "employee_dna.edit",
+  "knowledge.view",
   "knowledge.manage",
   "employee.test",
   "employee.view",
@@ -53,6 +54,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee.create",
     "employee.manage",
     "employee_dna.edit",
+    "knowledge.view",
     "knowledge.manage",
     "employee.test",
     "employee.view",
@@ -61,12 +63,18 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   builder: new Set<Permission>([
     "employee.create",
     "employee_dna.edit",
+    "knowledge.view",
     "knowledge.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
   ]),
-  viewer: new Set<Permission>(["employee.view", "employee.test", "dashboard.view"]),
+  viewer: new Set<Permission>([
+    "employee.view",
+    "employee.test",
+    "knowledge.view",
+    "dashboard.view",
+  ]),
 };
 
 export function hasPermission(role: Role, permission: Permission): boolean {

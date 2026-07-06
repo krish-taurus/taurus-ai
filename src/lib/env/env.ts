@@ -27,6 +27,9 @@ const serverSchema = z
     AUTH_SECRET: z.string().optional().or(z.literal("")),
     // Explicit opt-in required to use the passwordless dev auth in production.
     TAURUS_ALLOW_DEV_AUTH: z.enum(["true", "false"]).optional().or(z.literal("")),
+    // Local directory for Knowledge Vault uploads (server-only). Defaults to
+    // "storage/uploads" (gitignored). Files are never served publicly.
+    TAURUS_UPLOAD_DIR: z.string().optional().or(z.literal("")),
     AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
@@ -86,6 +89,7 @@ export function getServerEnv(): ServerEnv {
       DATABASE_URL: process.env.DATABASE_URL,
       AUTH_SECRET: process.env.AUTH_SECRET,
       TAURUS_ALLOW_DEV_AUTH: process.env.TAURUS_ALLOW_DEV_AUTH,
+      TAURUS_UPLOAD_DIR: process.env.TAURUS_UPLOAD_DIR,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
     });
   }

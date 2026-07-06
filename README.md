@@ -503,3 +503,74 @@ Reusable primitives live in [`src/components/ui`](src/components/ui) (import fro
 - Status is never conveyed by color alone — badges pair labels with a status dot
   whose fill level differs per state (works in greyscale).
 - Reduced-motion is respected globally.
+
+---
+
+# Knowledge Vault (Prompt 006)
+
+Prompt 006 adds an organization-scoped **Knowledge Vault** — a secure company
+library of documents, notes, and website records that AI Employees can later be
+assigned. This sprint is the storage + assignment foundation only: **there is no
+retrieval, answering, chat, or crawling yet.**
+
+## Routes
+
+| Route                                            | Purpose                              |
+| ------------------------------------------------ | ------------------------------------ |
+| `/dashboard/knowledge`                           | Knowledge Vault list + summary       |
+| `/dashboard/knowledge/new`                       | Add Knowledge (text / file / website)|
+| `/dashboard/knowledge/:sourceId`                 | Source detail                        |
+| `/dashboard/knowledge/:sourceId/edit`            | Edit source metadata                 |
+| `/dashboard/employees/:employeeId/knowledge`     | Assign/unassign sources to an Employee|
+
+Uploaded files are downloaded only through the authenticated, organization-scoped
+route `/dashboard/knowledge/:sourceId/documents/:documentId/download` (forced
+attachment, never inline). Files are never served publicly.
+
+## Source types
+
+- **Note** (manual text) — text is stored and previewed; source becomes `ready`.
+- **Document** (file upload) — `.txt/.md/.csv/.json` have their text extracted and
+  stored (`ready`); `.pdf/.docx` are stored as metadata only (`uploaded`, marked
+  "Stored as document") — full document understanding comes later.
+- **Website** (URL record) — the address is stored, **never fetched** (no SSRF).
+  Automatic website reading is a later sprint.
+
+## Local upload storage
+
+- Files are written to **`storage/uploads/<organizationId>/<opaque-key>`**
+  (configurable via the `TAURUS_UPLOAD_DIR` env var). This directory is
+  **gitignored** and never placed in `public/`.
+- Storage keys are opaque UUIDs — raw filenames are never used as paths. Display
+  filenames are sanitized. Each file records a `checksum_sha256`.
+
+## Allowed file types & limits
+
+- Allowed: `.txt`, `.md`, `.csv`, `.json`, `.pdf`, `.docx`.
+- Max size: **10 MB**. Empty files and unsupported types are rejected.
+
+## Environment variables
+
+- `TAURUS_UPLOAD_DIR` (optional) — local upload directory. Defaults to
+  `storage/uploads`.
+
+## Data & security
+
+- Tables (migration `db/migrations/0005_knowledge_vault.sql`): `knowledge_sources`,
+  `knowledge_documents`, `employee_knowledge_sources` (unique on
+  `employee_id + knowledge_source_id`). The unused `0001` `knowledge_sources` and
+  `knowledge_chunks` placeholders are dropped and replaced.
+- Permissions: `knowledge.view` (all roles) to view; `knowledge.manage`
+  (owner/admin/builder) to create/edit/archive/assign. Every action re-checks
+  permissions server-side and resolves the organization from the session — never
+  from the client. Cross-organization access returns not found.
+- Audit events (`knowledge_source.created/updated/archived`,
+  `knowledge_document.uploaded`, `knowledge_source.assigned_to_employee` /
+  `unassigned_from_employee`) record **metadata only** — never file or text
+  contents. Text previews are escaped in the UI.
+
+## Not in this prompt
+
+No retrieval/embeddings/vectors/chunking, semantic search, answering, chat,
+citations, website crawling, OCR, advanced PDF/DOCX parsing, integrations,
+public sharing, marketplace, or voice.
