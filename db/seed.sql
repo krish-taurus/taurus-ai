@@ -33,3 +33,19 @@ values (
   '00000000-0000-0000-0000-0000000000a1',
   '{"seeded": true}'
 );
+
+-- A sample AI Employee so the dashboard is not empty on a fresh seed.
+insert into ai_employees
+  (id, organization_id, name, role_title, department, description, status, visibility, created_by)
+values (
+  '00000000-0000-0000-0000-0000000000c1',
+  '00000000-0000-0000-0000-0000000000a1',
+  'Maya',
+  'Customer Support AI',
+  'Support',
+  'Answers common customer support questions for the demo organization.',
+  'active',
+  'organization',
+  '00000000-0000-0000-0000-000000000001'
+)
+on conflict (id) do nothing;

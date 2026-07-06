@@ -7,13 +7,16 @@
 
 import type { DataStore } from "@/lib/db/store";
 import type {
+  AiEmployee,
   AuditEvent,
   AuditEventInput,
+  CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  UpdateEmployeeInput,
   User,
 } from "@/lib/db/types";
 import { DEFAULT_MEMBER_ROLE, type Role } from "@/modules/organizations/roles";
@@ -30,7 +33,7 @@ export class InMemoryStore implements DataStore {
   private users = new Map<string, User>();
   private organizations = new Map<string, Organization>();
   private members = new Map<string, OrganizationMember>();
-  private employees = new Map<string, { organizationId: string }>();
+  private employees = new Map<string, AiEmployee>();
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -132,6 +135,67 @@ export class InMemoryStore implements DataStore {
     return { organization, membership };
   }
 
+  async createEmployee(input: CreateEmployeeInput): Promise<AiEmployee> {
+    const timestamp = now();
+    const employee: AiEmployee = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      name: input.name,
+      roleTitle: input.roleTitle,
+      department: input.department ?? null,
+      description: input.description ?? null,
+      status: input.status ?? "draft",
+      visibility: input.visibility ?? "private",
+      avatarUrl: null,
+      createdBy: input.createdBy ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.employees.set(employee.id, employee);
+    return employee;
+  }
+
+  async listEmployees(organizationId: string): Promise<AiEmployee[]> {
+    const employees = [...this.employees.values()].filter(
+      (employee) => employee.organizationId === organizationId,
+    );
+    // Most recently updated first.
+    employees.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    return employees;
+  }
+
+  async getEmployee(organizationId: string, employeeId: string): Promise<AiEmployee | null> {
+    const employee = this.employees.get(employeeId);
+    // Organization scoping: never return an employee from another organization.
+    if (!employee || employee.organizationId !== organizationId) return null;
+    return employee;
+  }
+
+  async updateEmployee(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeInput,
+  ): Promise<AiEmployee | null> {
+    const existing = await this.getEmployee(organizationId, employeeId);
+    if (!existing) return null;
+    const updated: AiEmployee = {
+      ...existing,
+      ...("name" in patch && patch.name !== undefined ? { name: patch.name } : {}),
+      ...("roleTitle" in patch && patch.roleTitle !== undefined
+        ? { roleTitle: patch.roleTitle }
+        : {}),
+      ...("department" in patch ? { department: patch.department ?? null } : {}),
+      ...("description" in patch ? { description: patch.description ?? null } : {}),
+      ...("status" in patch && patch.status !== undefined ? { status: patch.status } : {}),
+      ...("visibility" in patch && patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
+      updatedAt: now(),
+    };
+    this.employees.set(updated.id, updated);
+    return updated;
+  }
+
   async getEmployeeOrganizationId(employeeId: string): Promise<string | null> {
     return this.employees.get(employeeId)?.organizationId ?? null;
   }
@@ -158,7 +222,21 @@ export class InMemoryStore implements DataStore {
 
   /** Register an employee → organization mapping (used to test tenant checks). */
   _seedEmployee(employeeId: string, organizationId: string): void {
-    this.employees.set(employeeId, { organizationId });
+    const timestamp = now();
+    this.employees.set(employeeId, {
+      id: employeeId,
+      organizationId,
+      name: "Seed Employee",
+      roleTitle: "Seed Role",
+      department: null,
+      description: null,
+      status: "draft",
+      visibility: "private",
+      avatarUrl: null,
+      createdBy: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
   }
 
   /** Default member role used when none is specified. */
