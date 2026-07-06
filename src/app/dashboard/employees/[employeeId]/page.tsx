@@ -13,6 +13,8 @@ import {
   RISK_LABELS,
   TONE_LABELS,
 } from "@/modules/employees/hiring-templates";
+import { getModel } from "@/modules/model-gateway/catalog";
+import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
 import { buttonClasses, Card } from "@/components/ui";
 
 function initials(name: string): string {
@@ -62,6 +64,17 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
     employee.id,
   );
   const canManageKnowledge = hasPermission(membership.role, "knowledge.manage");
+
+  const brainSettings = await store.getEmployeeModelSettings(organization.id, employee.id);
+  const brainLabel = !brainSettings
+    ? "Inherits organization default"
+    : brainSettings.modelId
+      ? (getModel(brainSettings.modelId)?.displayName ?? "Custom model")
+      : brainSettings.routingMode
+        ? (brainModeForRoutingMode(brainSettings.routingMode)?.label ??
+          ROUTING_MODE_LABELS[brainSettings.routingMode])
+        : "Inherits organization default";
+  const canManageBrain = hasPermission(membership.role, "model_hub.manage");
 
   return (
     <div className="max-w-3xl">
@@ -192,6 +205,25 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
             className={buttonClasses("secondary")}
           >
             {canManageKnowledge ? "Manage knowledge" : "View knowledge"}
+          </Link>
+        </div>
+      </Card>
+
+      {/* Employee Brain (Model Hub) status + management. */}
+      <Card className="mt-6 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-taurus-text">Employee Brain</h2>
+            <p className="mt-1.5 text-sm text-taurus-sub">{brainLabel}</p>
+            <p className="mt-1.5 text-xs text-taurus-faint">
+              Choose how much quality, speed, and cost this AI Employee should favor.
+            </p>
+          </div>
+          <Link
+            href={`/dashboard/employees/${employee.id}/brain`}
+            className={buttonClasses("secondary")}
+          >
+            {canManageBrain ? "Manage Employee Brain" : "View Employee Brain"}
           </Link>
         </div>
       </Card>

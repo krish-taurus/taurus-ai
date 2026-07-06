@@ -35,6 +35,10 @@ export const PERMISSIONS = [
   "employee_dna.edit",
   "knowledge.view",
   "knowledge.manage",
+  // Model Hub (Prompt 006B). view = read catalog/overview; manage = change
+  // organization/employee model settings and provider credentials (owner/admin).
+  "model_hub.view",
+  "model_hub.manage",
   "employee.test",
   "employee.view",
   "dashboard.view",
@@ -56,6 +60,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee_dna.edit",
     "knowledge.view",
     "knowledge.manage",
+    "model_hub.view",
+    "model_hub.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -65,6 +71,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee_dna.edit",
     "knowledge.view",
     "knowledge.manage",
+    "model_hub.view",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -73,6 +80,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee.view",
     "employee.test",
     "knowledge.view",
+    "model_hub.view",
     "dashboard.view",
   ]),
 };

@@ -21,13 +21,17 @@ import type {
   CreateEmployeeInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeSourceInput,
+  CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
+  CredentialMode,
+  CredentialStatus,
   DnaStatus,
   DocumentExtractionStatus,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
+  EmployeeModelSettings,
   EmployeeStatus,
   EmployeeVisibility,
   KnowledgeDocument,
@@ -36,16 +40,34 @@ import type {
   KnowledgeSourceType,
   KnowledgeVaultOverview,
   KnowledgeVisibility,
+  LlmTaskType,
+  LlmUsageEvent,
+  LlmUsageStatus,
+  ModelHubOverview,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  OrganizationModelSettings,
+  ProviderCredentialMetadata,
+  ProviderSlug,
   PublishDnaInput,
+  RoutingMode,
   SaveDnaDraftInput,
+  SaveProviderCredentialInput,
   UpdateEmployeeInput,
+  UpdateEmployeeModelSettingsInput,
   UpdateKnowledgeSourceInput,
+  UpdateOrganizationModelSettingsInput,
   User,
   WorkingStyle,
 } from "@/lib/db/types";
+import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
+import {
+  AI_MODELS,
+  MODEL_PROVIDERS,
+  getModel,
+  modelsByProvider,
+} from "@/modules/model-gateway/catalog";
 import { isRole, type Role } from "@/modules/organizations/roles";
 import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
 import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
@@ -171,6 +193,85 @@ function mapKnowledgeAssignment(row: Row): EmployeeKnowledgeAssignment {
     employeeId: row.employee_id,
     knowledgeSourceId: row.knowledge_source_id,
     assignedByUserId: row.assigned_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function num(value: unknown): number | null {
+  if (value == null) return null;
+  const n = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function slugArray(value: unknown): ProviderSlug[] {
+  return Array.isArray(value) ? (value as ProviderSlug[]) : [];
+}
+
+function mapOrgModelSettings(row: Row): OrganizationModelSettings {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    defaultModelId: row.default_model_id,
+    routingMode: row.routing_mode as RoutingMode,
+    allowedProviderSlugs: slugArray(row.allowed_provider_slugs),
+    blockedProviderSlugs: slugArray(row.blocked_provider_slugs),
+    monthlyBudgetUsd: num(row.monthly_budget_usd),
+    budgetAlertThresholdPercent: num(row.budget_alert_threshold_percent),
+    fallbackModelId: row.fallback_model_id,
+    updatedByUserId: row.updated_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapEmployeeModelSettings(row: Row): EmployeeModelSettings {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    modelId: row.model_id,
+    routingMode: (row.routing_mode as RoutingMode | null) ?? null,
+    maxMonthlyBudgetUsd: num(row.max_monthly_budget_usd),
+    fallbackModelId: row.fallback_model_id,
+    updatedByUserId: row.updated_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+/** Maps a credential row to client-safe metadata — the encrypted key is dropped. */
+function mapCredentialMetadata(row: Row): ProviderCredentialMetadata {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    providerSlug: row.provider_slug as ProviderSlug,
+    credentialMode: row.credential_mode as CredentialMode,
+    keyLastFour: row.key_last_four,
+    status: row.status as CredentialStatus,
+    createdByUserId: row.created_by_user_id,
+    updatedByUserId: row.updated_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapUsageEvent(row: Row): LlmUsageEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    providerSlug: row.provider_slug as ProviderSlug,
+    modelId: row.model_id,
+    taskType: row.task_type as LlmTaskType,
+    inputTokens: row.input_tokens,
+    cachedInputTokens: row.cached_input_tokens,
+    outputTokens: row.output_tokens,
+    estimatedCostUsd: num(row.estimated_cost_usd),
+    latencyMs: row.latency_ms,
+    status: row.status as LlmUsageStatus,
+    errorCode: row.error_code,
+    requestIdHash: row.request_id_hash,
+    createdByUserId: row.created_by_user_id,
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -740,6 +841,309 @@ export class PostgresStore implements DataStore {
       ready: sources.filter((s) => s.status === "ready").length,
       assigned: sources.filter((s) => assignedIds.has(s.id)).length,
       recent: sources.slice(0, 5),
+    };
+  }
+
+  // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------
+  // The catalog is code-authoritative; these read from the code catalog so both
+  // stores return identical data regardless of DB seed state.
+
+  async listModelProviders(): Promise<ModelProvider[]> {
+    return [...MODEL_PROVIDERS];
+  }
+
+  async listAiModels(): Promise<AiModel[]> {
+    return [...AI_MODELS];
+  }
+
+  async getAiModel(modelId: string): Promise<AiModel | null> {
+    return getModel(modelId);
+  }
+
+  async getModelsByProvider(providerSlug: ProviderSlug): Promise<AiModel[]> {
+    return modelsByProvider(providerSlug);
+  }
+
+  async getOrganizationModelSettings(organizationId: string): Promise<OrganizationModelSettings> {
+    const { rows } = await this.query(
+      "select * from organization_model_settings where organization_id = $1",
+      [organizationId],
+    );
+    if (rows[0]) return mapOrgModelSettings(rows[0]);
+    const inserted = await this.query(
+      `insert into organization_model_settings (organization_id)
+       values ($1)
+       on conflict (organization_id) do update set organization_id = excluded.organization_id
+       returning *`,
+      [organizationId],
+    );
+    return mapOrgModelSettings(inserted.rows[0]);
+  }
+
+  async updateOrganizationModelSettings(
+    organizationId: string,
+    patch: UpdateOrganizationModelSettingsInput,
+  ): Promise<OrganizationModelSettings> {
+    const current = await this.getOrganizationModelSettings(organizationId);
+    const next = {
+      defaultModelId:
+        patch.defaultModelId !== undefined ? patch.defaultModelId : current.defaultModelId,
+      routingMode: patch.routingMode ?? current.routingMode,
+      allowedProviderSlugs: patch.allowedProviderSlugs ?? current.allowedProviderSlugs,
+      blockedProviderSlugs: patch.blockedProviderSlugs ?? current.blockedProviderSlugs,
+      monthlyBudgetUsd:
+        patch.monthlyBudgetUsd !== undefined ? patch.monthlyBudgetUsd : current.monthlyBudgetUsd,
+      budgetAlertThresholdPercent:
+        patch.budgetAlertThresholdPercent !== undefined
+          ? patch.budgetAlertThresholdPercent
+          : current.budgetAlertThresholdPercent,
+      fallbackModelId:
+        patch.fallbackModelId !== undefined ? patch.fallbackModelId : current.fallbackModelId,
+      updatedByUserId: patch.updatedByUserId ?? current.updatedByUserId,
+    };
+    const { rows } = await this.query(
+      `update organization_model_settings set
+         default_model_id = $2,
+         routing_mode = $3,
+         allowed_provider_slugs = $4,
+         blocked_provider_slugs = $5,
+         monthly_budget_usd = $6,
+         budget_alert_threshold_percent = $7,
+         fallback_model_id = $8,
+         updated_by_user_id = $9,
+         updated_at = now()
+       where organization_id = $1
+       returning *`,
+      [
+        organizationId,
+        next.defaultModelId,
+        next.routingMode,
+        JSON.stringify(next.allowedProviderSlugs),
+        JSON.stringify(next.blockedProviderSlugs),
+        next.monthlyBudgetUsd,
+        next.budgetAlertThresholdPercent,
+        next.fallbackModelId,
+        next.updatedByUserId,
+      ],
+    );
+    return mapOrgModelSettings(rows[0]);
+  }
+
+  async getEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeModelSettings | null> {
+    const { rows } = await this.query(
+      "select * from employee_model_settings where organization_id = $1 and employee_id = $2",
+      [organizationId, employeeId],
+    );
+    return rows[0] ? mapEmployeeModelSettings(rows[0]) : null;
+  }
+
+  async updateEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeModelSettingsInput,
+  ): Promise<EmployeeModelSettings> {
+    const current = await this.getEmployeeModelSettings(organizationId, employeeId);
+    const next = {
+      modelId: patch.modelId !== undefined ? patch.modelId : (current?.modelId ?? null),
+      routingMode:
+        patch.routingMode !== undefined ? patch.routingMode : (current?.routingMode ?? null),
+      maxMonthlyBudgetUsd:
+        patch.maxMonthlyBudgetUsd !== undefined
+          ? patch.maxMonthlyBudgetUsd
+          : (current?.maxMonthlyBudgetUsd ?? null),
+      fallbackModelId:
+        patch.fallbackModelId !== undefined
+          ? patch.fallbackModelId
+          : (current?.fallbackModelId ?? null),
+      updatedByUserId: patch.updatedByUserId ?? current?.updatedByUserId ?? null,
+    };
+    const { rows } = await this.query(
+      `insert into employee_model_settings
+         (organization_id, employee_id, model_id, routing_mode, max_monthly_budget_usd,
+          fallback_model_id, updated_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (employee_id) do update set
+         model_id = excluded.model_id,
+         routing_mode = excluded.routing_mode,
+         max_monthly_budget_usd = excluded.max_monthly_budget_usd,
+         fallback_model_id = excluded.fallback_model_id,
+         updated_by_user_id = excluded.updated_by_user_id,
+         updated_at = now()
+       returning *`,
+      [
+        organizationId,
+        employeeId,
+        next.modelId,
+        next.routingMode,
+        next.maxMonthlyBudgetUsd,
+        next.fallbackModelId,
+        next.updatedByUserId,
+      ],
+    );
+    return mapEmployeeModelSettings(rows[0]);
+  }
+
+  async getProviderCredentialMetadata(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<ProviderCredentialMetadata | null> {
+    const { rows } = await this.query(
+      `select id, organization_id, provider_slug, credential_mode, key_last_four, status,
+              created_by_user_id, updated_by_user_id, created_at, updated_at
+       from organization_provider_credentials
+       where organization_id = $1 and provider_slug = $2`,
+      [organizationId, providerSlug],
+    );
+    return rows[0] ? mapCredentialMetadata(rows[0]) : null;
+  }
+
+  async listProviderCredentialMetadata(
+    organizationId: string,
+  ): Promise<ProviderCredentialMetadata[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, provider_slug, credential_mode, key_last_four, status,
+              created_by_user_id, updated_by_user_id, created_at, updated_at
+       from organization_provider_credentials
+       where organization_id = $1`,
+      [organizationId],
+    );
+    return rows.map(mapCredentialMetadata);
+  }
+
+  async getProviderEncryptedKey(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<string | null> {
+    const { rows } = await this.query(
+      `select encrypted_api_key from organization_provider_credentials
+       where organization_id = $1 and provider_slug = $2`,
+      [organizationId, providerSlug],
+    );
+    return rows[0]?.encrypted_api_key ?? null;
+  }
+
+  async saveProviderCredential(
+    input: SaveProviderCredentialInput,
+  ): Promise<ProviderCredentialMetadata> {
+    const { rows } = await this.query(
+      `insert into organization_provider_credentials
+         (organization_id, provider_slug, credential_mode, encrypted_api_key, key_last_four,
+          status, created_by_user_id, updated_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $7)
+       on conflict (organization_id, provider_slug) do update set
+         credential_mode = excluded.credential_mode,
+         encrypted_api_key = coalesce(excluded.encrypted_api_key, organization_provider_credentials.encrypted_api_key),
+         key_last_four = coalesce(excluded.key_last_four, organization_provider_credentials.key_last_four),
+         status = excluded.status,
+         updated_by_user_id = excluded.updated_by_user_id,
+         updated_at = now()
+       returning id, organization_id, provider_slug, credential_mode, key_last_four, status,
+                 created_by_user_id, updated_by_user_id, created_at, updated_at`,
+      [
+        input.organizationId,
+        input.providerSlug,
+        input.credentialMode,
+        input.encryptedApiKey ?? null,
+        input.keyLastFour ?? null,
+        input.status ?? "active",
+        input.userId ?? null,
+      ],
+    );
+    return mapCredentialMetadata(rows[0]);
+  }
+
+  async disableProviderCredential(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+    userId?: string | null,
+  ): Promise<ProviderCredentialMetadata | null> {
+    const { rows } = await this.query(
+      `update organization_provider_credentials set
+         credential_mode = 'disabled',
+         status = 'disabled',
+         encrypted_api_key = null,
+         key_last_four = null,
+         updated_by_user_id = $3,
+         updated_at = now()
+       where organization_id = $1 and provider_slug = $2
+       returning id, organization_id, provider_slug, credential_mode, key_last_four, status,
+                 created_by_user_id, updated_by_user_id, created_at, updated_at`,
+      [organizationId, providerSlug, userId ?? null],
+    );
+    return rows[0] ? mapCredentialMetadata(rows[0]) : null;
+  }
+
+  async listLlmUsageEvents(organizationId: string, limit = 50): Promise<LlmUsageEvent[]> {
+    const { rows } = await this.query(
+      `select * from llm_usage_events
+       where organization_id = $1
+       order by created_at desc
+       limit $2`,
+      [organizationId, limit],
+    );
+    return rows.map(mapUsageEvent);
+  }
+
+  async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
+    const { rows } = await this.query(
+      `insert into llm_usage_events
+         (organization_id, employee_id, provider_slug, model_id, task_type, input_tokens,
+          cached_input_tokens, output_tokens, estimated_cost_usd, latency_ms, status,
+          error_code, request_id_hash, created_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId ?? null,
+        input.providerSlug,
+        input.modelId,
+        input.taskType,
+        input.inputTokens,
+        input.cachedInputTokens ?? 0,
+        input.outputTokens,
+        input.estimatedCostUsd ?? null,
+        input.latencyMs ?? null,
+        input.status,
+        input.errorCode ?? null,
+        input.requestIdHash ?? null,
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapUsageEvent(rows[0]);
+  }
+
+  async getModelHubOverview(organizationId: string): Promise<ModelHubOverview> {
+    const settings = await this.getOrganizationModelSettings(organizationId);
+    const [{ rows: countRows }, { rows: spendRows }, recent, configured] = await Promise.all([
+      this.query("select count(*)::int as n from llm_usage_events where organization_id = $1", [
+        organizationId,
+      ]),
+      this.query(
+        "select coalesce(sum(estimated_cost_usd), 0) as total from llm_usage_events where organization_id = $1",
+        [organizationId],
+      ),
+      this.listLlmUsageEvents(organizationId, 10),
+      this.query(
+        "select count(*)::int as n from organization_provider_credentials where organization_id = $1 and status = 'active'",
+        [organizationId],
+      ),
+    ]);
+    return {
+      defaultModelId: settings.defaultModelId,
+      routingMode: settings.routingMode,
+      monthlyBudgetUsd: settings.monthlyBudgetUsd,
+      allowedProviderCount:
+        settings.allowedProviderSlugs.length > 0
+          ? settings.allowedProviderSlugs.length
+          : MODEL_PROVIDERS.length - settings.blockedProviderSlugs.length,
+      totalProviders: MODEL_PROVIDERS.length,
+      configuredProviderCount: configured.rows[0]?.n ?? 0,
+      usageEventCount: countRows[0]?.n ?? 0,
+      estimatedSpendUsd: num(spendRows[0]?.total) ?? 0,
+      recentUsage: recent,
     };
   }
 

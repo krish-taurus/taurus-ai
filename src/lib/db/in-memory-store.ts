@@ -15,25 +15,42 @@ import type {
   CreateEmployeeInput,
   CreateKnowledgeDocumentInput,
   CreateKnowledgeSourceInput,
+  CreateLlmUsageEventInput,
   CreateOrganizationInput,
   CreateUserInput,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
   EmployeeKnowledgeAssignment,
+  EmployeeModelSettings,
   KnowledgeDocument,
   KnowledgeSource,
   KnowledgeVaultOverview,
+  LlmUsageEvent,
+  ModelHubOverview,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  OrganizationModelSettings,
+  ProviderCredentialMetadata,
+  ProviderSlug,
   PublishDnaInput,
   SaveDnaDraftInput,
+  SaveProviderCredentialInput,
   UpdateEmployeeInput,
+  UpdateEmployeeModelSettingsInput,
   UpdateKnowledgeSourceInput,
+  UpdateOrganizationModelSettingsInput,
   User,
 } from "@/lib/db/types";
+import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
 import { DEFAULT_MEMBER_ROLE, type Role } from "@/modules/organizations/roles";
 import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
+import {
+  AI_MODELS,
+  MODEL_PROVIDERS,
+  getModel,
+  modelsByProvider,
+} from "@/modules/model-gateway/catalog";
 
 function uuid(): string {
   return globalThis.crypto.randomUUID();
@@ -52,6 +69,15 @@ export class InMemoryStore implements DataStore {
   private knowledgeSources = new Map<string, KnowledgeSource>();
   private knowledgeDocuments = new Map<string, KnowledgeDocument>();
   private knowledgeAssignments = new Map<string, EmployeeKnowledgeAssignment>();
+  // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
+  // metadata getter strips it so it never leaves the store toward the client.
+  private orgModelSettings = new Map<string, OrganizationModelSettings>();
+  private employeeModelSettings = new Map<string, EmployeeModelSettings>();
+  private providerCredentials = new Map<
+    string,
+    ProviderCredentialMetadata & { encryptedApiKey: string | null }
+  >();
+  private llmUsageEvents: LlmUsageEvent[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -546,6 +572,262 @@ export class InMemoryStore implements DataStore {
       ready: sources.filter((s) => s.status === "ready").length,
       assigned: sources.filter((s) => assignedSourceIds.has(s.id)).length,
       recent: sources.slice(0, 5),
+    };
+  }
+
+  // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------
+
+  async listModelProviders(): Promise<ModelProvider[]> {
+    return [...MODEL_PROVIDERS];
+  }
+
+  async listAiModels(): Promise<AiModel[]> {
+    return [...AI_MODELS];
+  }
+
+  async getAiModel(modelId: string): Promise<AiModel | null> {
+    return getModel(modelId);
+  }
+
+  async getModelsByProvider(providerSlug: ProviderSlug): Promise<AiModel[]> {
+    return modelsByProvider(providerSlug);
+  }
+
+  private defaultOrgModelSettings(organizationId: string): OrganizationModelSettings {
+    const timestamp = now();
+    return {
+      id: uuid(),
+      organizationId,
+      defaultModelId: null,
+      routingMode: "auto_balanced",
+      allowedProviderSlugs: [],
+      blockedProviderSlugs: [],
+      monthlyBudgetUsd: null,
+      budgetAlertThresholdPercent: null,
+      fallbackModelId: null,
+      updatedByUserId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+
+  async getOrganizationModelSettings(organizationId: string): Promise<OrganizationModelSettings> {
+    const existing = this.orgModelSettings.get(organizationId);
+    if (existing) return existing;
+    const created = this.defaultOrgModelSettings(organizationId);
+    this.orgModelSettings.set(organizationId, created);
+    return created;
+  }
+
+  async updateOrganizationModelSettings(
+    organizationId: string,
+    patch: UpdateOrganizationModelSettingsInput,
+  ): Promise<OrganizationModelSettings> {
+    const current = await this.getOrganizationModelSettings(organizationId);
+    const updated: OrganizationModelSettings = {
+      ...current,
+      defaultModelId:
+        patch.defaultModelId !== undefined ? patch.defaultModelId : current.defaultModelId,
+      routingMode: patch.routingMode ?? current.routingMode,
+      allowedProviderSlugs: patch.allowedProviderSlugs ?? current.allowedProviderSlugs,
+      blockedProviderSlugs: patch.blockedProviderSlugs ?? current.blockedProviderSlugs,
+      monthlyBudgetUsd:
+        patch.monthlyBudgetUsd !== undefined ? patch.monthlyBudgetUsd : current.monthlyBudgetUsd,
+      budgetAlertThresholdPercent:
+        patch.budgetAlertThresholdPercent !== undefined
+          ? patch.budgetAlertThresholdPercent
+          : current.budgetAlertThresholdPercent,
+      fallbackModelId:
+        patch.fallbackModelId !== undefined ? patch.fallbackModelId : current.fallbackModelId,
+      updatedByUserId: patch.updatedByUserId ?? current.updatedByUserId,
+      updatedAt: now(),
+    };
+    this.orgModelSettings.set(organizationId, updated);
+    return updated;
+  }
+
+  async getEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeModelSettings | null> {
+    const found = this.employeeModelSettings.get(employeeId);
+    if (!found || found.organizationId !== organizationId) return null;
+    return found;
+  }
+
+  async updateEmployeeModelSettings(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeModelSettingsInput,
+  ): Promise<EmployeeModelSettings> {
+    const existing = await this.getEmployeeModelSettings(organizationId, employeeId);
+    const timestamp = now();
+    const base: EmployeeModelSettings = existing ?? {
+      id: uuid(),
+      organizationId,
+      employeeId,
+      modelId: null,
+      routingMode: null,
+      maxMonthlyBudgetUsd: null,
+      fallbackModelId: null,
+      updatedByUserId: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const updated: EmployeeModelSettings = {
+      ...base,
+      modelId: patch.modelId !== undefined ? patch.modelId : base.modelId,
+      routingMode: patch.routingMode !== undefined ? patch.routingMode : base.routingMode,
+      maxMonthlyBudgetUsd:
+        patch.maxMonthlyBudgetUsd !== undefined
+          ? patch.maxMonthlyBudgetUsd
+          : base.maxMonthlyBudgetUsd,
+      fallbackModelId:
+        patch.fallbackModelId !== undefined ? patch.fallbackModelId : base.fallbackModelId,
+      updatedByUserId: patch.updatedByUserId ?? base.updatedByUserId,
+      updatedAt: timestamp,
+    };
+    this.employeeModelSettings.set(employeeId, updated);
+    return updated;
+  }
+
+  private credentialKey(organizationId: string, providerSlug: ProviderSlug): string {
+    return `${organizationId}:${providerSlug}`;
+  }
+
+  private toCredentialMetadata(
+    row: ProviderCredentialMetadata & { encryptedApiKey: string | null },
+  ): ProviderCredentialMetadata {
+    // Strip the encrypted key so it never leaves the store toward the UI.
+    const { encryptedApiKey: _omit, ...metadata } = row;
+    void _omit;
+    return metadata;
+  }
+
+  async getProviderCredentialMetadata(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<ProviderCredentialMetadata | null> {
+    const row = this.providerCredentials.get(this.credentialKey(organizationId, providerSlug));
+    return row ? this.toCredentialMetadata(row) : null;
+  }
+
+  async listProviderCredentialMetadata(
+    organizationId: string,
+  ): Promise<ProviderCredentialMetadata[]> {
+    return [...this.providerCredentials.values()]
+      .filter((row) => row.organizationId === organizationId)
+      .map((row) => this.toCredentialMetadata(row));
+  }
+
+  async getProviderEncryptedKey(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+  ): Promise<string | null> {
+    const row = this.providerCredentials.get(this.credentialKey(organizationId, providerSlug));
+    return row?.encryptedApiKey ?? null;
+  }
+
+  async saveProviderCredential(
+    input: SaveProviderCredentialInput,
+  ): Promise<ProviderCredentialMetadata> {
+    const key = this.credentialKey(input.organizationId, input.providerSlug);
+    const existing = this.providerCredentials.get(key);
+    const timestamp = now();
+    const row: ProviderCredentialMetadata & { encryptedApiKey: string | null } = {
+      id: existing?.id ?? uuid(),
+      organizationId: input.organizationId,
+      providerSlug: input.providerSlug,
+      credentialMode: input.credentialMode,
+      keyLastFour:
+        input.keyLastFour !== undefined ? input.keyLastFour : (existing?.keyLastFour ?? null),
+      status: input.status ?? "active",
+      encryptedApiKey:
+        input.encryptedApiKey !== undefined
+          ? input.encryptedApiKey
+          : (existing?.encryptedApiKey ?? null),
+      createdByUserId: existing?.createdByUserId ?? input.userId ?? null,
+      updatedByUserId: input.userId ?? null,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.providerCredentials.set(key, row);
+    return this.toCredentialMetadata(row);
+  }
+
+  async disableProviderCredential(
+    organizationId: string,
+    providerSlug: ProviderSlug,
+    userId?: string | null,
+  ): Promise<ProviderCredentialMetadata | null> {
+    const key = this.credentialKey(organizationId, providerSlug);
+    const existing = this.providerCredentials.get(key);
+    if (!existing) return null;
+    const row = {
+      ...existing,
+      credentialMode: "disabled" as const,
+      status: "disabled" as const,
+      // Drop the stored key material entirely when disabling.
+      encryptedApiKey: null,
+      keyLastFour: null,
+      updatedByUserId: userId ?? null,
+      updatedAt: now(),
+    };
+    this.providerCredentials.set(key, row);
+    return this.toCredentialMetadata(row);
+  }
+
+  async listLlmUsageEvents(organizationId: string, limit = 50): Promise<LlmUsageEvent[]> {
+    return this.llmUsageEvents
+      .filter((e) => e.organizationId === organizationId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
+    const event: LlmUsageEvent = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId ?? null,
+      providerSlug: input.providerSlug,
+      modelId: input.modelId,
+      taskType: input.taskType,
+      inputTokens: input.inputTokens,
+      cachedInputTokens: input.cachedInputTokens ?? 0,
+      outputTokens: input.outputTokens,
+      estimatedCostUsd: input.estimatedCostUsd ?? null,
+      latencyMs: input.latencyMs ?? null,
+      status: input.status,
+      errorCode: input.errorCode ?? null,
+      requestIdHash: input.requestIdHash ?? null,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: now(),
+    };
+    this.llmUsageEvents.push(event);
+    return event;
+  }
+
+  async getModelHubOverview(organizationId: string): Promise<ModelHubOverview> {
+    const settings = await this.getOrganizationModelSettings(organizationId);
+    const usage = this.llmUsageEvents.filter((e) => e.organizationId === organizationId);
+    const configured = [...this.providerCredentials.values()].filter(
+      (row) => row.organizationId === organizationId && row.status === "active",
+    ).length;
+    const estimatedSpendUsd = usage.reduce((sum, e) => sum + (e.estimatedCostUsd ?? 0), 0);
+    return {
+      defaultModelId: settings.defaultModelId,
+      routingMode: settings.routingMode,
+      monthlyBudgetUsd: settings.monthlyBudgetUsd,
+      allowedProviderCount:
+        settings.allowedProviderSlugs.length > 0
+          ? settings.allowedProviderSlugs.length
+          : MODEL_PROVIDERS.length - settings.blockedProviderSlugs.length,
+      totalProviders: MODEL_PROVIDERS.length,
+      configuredProviderCount: configured,
+      usageEventCount: usage.length,
+      estimatedSpendUsd: Math.round(estimatedSpendUsd * 1e6) / 1e6,
+      recentUsage: usage.slice().reverse().slice(0, 10),
     };
   }
 

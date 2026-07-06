@@ -31,6 +31,19 @@ const serverSchema = z
     // "storage/uploads" (gitignored). Files are never served publicly.
     TAURUS_UPLOAD_DIR: z.string().optional().or(z.literal("")),
     AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
+    // Model Hub (Prompt 006B). All provider keys are optional and server-only;
+    // when present, the matching provider can be offered as "Taurus managed".
+    // Their absence must never break local dev or tests.
+    OPENAI_API_KEY: z.string().optional().or(z.literal("")),
+    ANTHROPIC_API_KEY: z.string().optional().or(z.literal("")),
+    DEEPSEEK_API_KEY: z.string().optional().or(z.literal("")),
+    MOONSHOT_API_KEY: z.string().optional().or(z.literal("")),
+    GROQ_API_KEY: z.string().optional().or(z.literal("")),
+    GOOGLE_GENERATIVE_AI_API_KEY: z.string().optional().or(z.literal("")),
+    FIREWORKS_API_KEY: z.string().optional().or(z.literal("")),
+    // Master key for encrypting bring-your-own-key provider credentials at rest.
+    // If unset, BYOK is disabled in the UI (Taurus-managed keys still work).
+    TAURUS_MODEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
     const secret = env.AUTH_SECRET;
@@ -91,6 +104,14 @@ export function getServerEnv(): ServerEnv {
       TAURUS_ALLOW_DEV_AUTH: process.env.TAURUS_ALLOW_DEV_AUTH,
       TAURUS_UPLOAD_DIR: process.env.TAURUS_UPLOAD_DIR,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
+      DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY,
+      MOONSHOT_API_KEY: process.env.MOONSHOT_API_KEY,
+      GROQ_API_KEY: process.env.GROQ_API_KEY,
+      GOOGLE_GENERATIVE_AI_API_KEY: process.env.GOOGLE_GENERATIVE_AI_API_KEY,
+      FIREWORKS_API_KEY: process.env.FIREWORKS_API_KEY,
+      TAURUS_MODEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_MODEL_CREDENTIALS_MASTER_KEY,
     });
   }
   return cachedServerEnv;

@@ -317,3 +317,184 @@ export interface KnowledgeVaultOverview {
   assigned: number;
   recent: KnowledgeSource[];
 }
+
+// ===========================================================================
+// Model Hub + LLM Gateway (Prompt 006B)
+//
+// Provider-agnostic model configuration. String-literal unions live here (no
+// runtime deps) so both the code catalog (model-gateway) and the stores can
+// share them without an import cycle.
+// ===========================================================================
+
+export type ProviderSlug =
+  | "openai"
+  | "anthropic"
+  | "deepseek"
+  | "moonshot_kimi"
+  | "groq"
+  | "google_gemini"
+  | "fireworks"
+  | "custom_openai_compatible";
+
+export type ProviderType = "openai" | "anthropic" | "google" | "openai_compatible";
+
+export type ModelTier =
+  | "economy"
+  | "balanced"
+  | "premium"
+  | "realtime"
+  | "private_open"
+  | "coding"
+  | "reasoning";
+
+export type RoutingMode =
+  | "auto_balanced"
+  | "cost_optimized"
+  | "quality_first"
+  | "privacy_first"
+  | "provider_locked"
+  | "manual";
+
+export type CredentialMode = "taurus_managed" | "bring_your_own_key" | "disabled";
+
+export type CredentialStatus = "active" | "disabled" | "error";
+
+export type LlmTaskType =
+  | "employee_chat"
+  | "rag_answer"
+  | "dna_summary"
+  | "knowledge_summary"
+  | "classification"
+  | "tool_planning"
+  | "internal_collaboration"
+  | "voice_realtime"
+  | "system_test";
+
+export type LlmUsageStatus = "success" | "error" | "blocked";
+
+/** Organization-level default model configuration (one row per organization). */
+export interface OrganizationModelSettings {
+  id: string;
+  organizationId: string;
+  defaultModelId: string | null;
+  routingMode: RoutingMode;
+  allowedProviderSlugs: ProviderSlug[];
+  blockedProviderSlugs: ProviderSlug[];
+  monthlyBudgetUsd: number | null;
+  budgetAlertThresholdPercent: number | null;
+  fallbackModelId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateOrganizationModelSettingsInput {
+  defaultModelId?: string | null;
+  routingMode?: RoutingMode;
+  allowedProviderSlugs?: ProviderSlug[];
+  blockedProviderSlugs?: ProviderSlug[];
+  monthlyBudgetUsd?: number | null;
+  budgetAlertThresholdPercent?: number | null;
+  fallbackModelId?: string | null;
+  updatedByUserId?: string | null;
+}
+
+/** Employee-level model override (one row per employee). */
+export interface EmployeeModelSettings {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  modelId: string | null;
+  routingMode: RoutingMode | null;
+  maxMonthlyBudgetUsd: number | null;
+  fallbackModelId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateEmployeeModelSettingsInput {
+  modelId?: string | null;
+  routingMode?: RoutingMode | null;
+  maxMonthlyBudgetUsd?: number | null;
+  fallbackModelId?: string | null;
+  updatedByUserId?: string | null;
+}
+
+/**
+ * Provider credential metadata safe to return to the UI. The encrypted key and
+ * plaintext are NEVER part of this shape — only the mode, status, and last four.
+ */
+export interface ProviderCredentialMetadata {
+  id: string;
+  organizationId: string;
+  providerSlug: ProviderSlug;
+  credentialMode: CredentialMode;
+  keyLastFour: string | null;
+  status: CredentialStatus;
+  createdByUserId: string | null;
+  updatedByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SaveProviderCredentialInput {
+  organizationId: string;
+  providerSlug: ProviderSlug;
+  credentialMode: CredentialMode;
+  /** Already-encrypted value (never plaintext). Null when disabling/managed. */
+  encryptedApiKey?: string | null;
+  keyLastFour?: string | null;
+  status?: CredentialStatus;
+  userId?: string | null;
+}
+
+/** A usage event. NEVER stores message contents — token counts + metadata only. */
+export interface LlmUsageEvent {
+  id: string;
+  organizationId: string;
+  employeeId: string | null;
+  providerSlug: ProviderSlug;
+  modelId: string;
+  taskType: LlmTaskType;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  estimatedCostUsd: number | null;
+  latencyMs: number | null;
+  status: LlmUsageStatus;
+  errorCode: string | null;
+  requestIdHash: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateLlmUsageEventInput {
+  organizationId: string;
+  employeeId?: string | null;
+  providerSlug: ProviderSlug;
+  modelId: string;
+  taskType: LlmTaskType;
+  inputTokens: number;
+  cachedInputTokens?: number;
+  outputTokens: number;
+  estimatedCostUsd?: number | null;
+  latencyMs?: number | null;
+  status: LlmUsageStatus;
+  errorCode?: string | null;
+  requestIdHash?: string | null;
+  createdByUserId?: string | null;
+}
+
+/** Aggregate data for the Model Hub overview cards. */
+export interface ModelHubOverview {
+  defaultModelId: string | null;
+  routingMode: RoutingMode;
+  monthlyBudgetUsd: number | null;
+  allowedProviderCount: number;
+  totalProviders: number;
+  configuredProviderCount: number;
+  usageEventCount: number;
+  estimatedSpendUsd: number;
+  recentUsage: LlmUsageEvent[];
+}
