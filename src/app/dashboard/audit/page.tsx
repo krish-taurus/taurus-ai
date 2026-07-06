@@ -1,4 +1,4 @@
-import { PageHeader } from "@/components/page-header";
+import { EmptyState, PageHeader } from "@/components/ui";
 
 export default function AuditPage() {
   return (
@@ -7,12 +7,10 @@ export default function AuditPage() {
         title="Audit"
         description="A record of important actions taken across your organization."
       />
-
-      <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-16 text-center">
-        <p className="mx-auto max-w-md text-base text-slate-700">
-          No audit events yet. Major actions in your organization will be recorded here.
-        </p>
-      </div>
+      <EmptyState
+        title="No audit events yet."
+        description="Major actions in your organization will be recorded here."
+      />
     </div>
   );
 }

@@ -17,7 +17,11 @@ export function OrganizationSwitcher() {
   const formRef = useRef<HTMLFormElement>(null);
 
   if (!organization || organizations.length < 2) {
-    return <span className="text-sm font-medium text-slate-700">{organization?.name}</span>;
+    return (
+      <span className="text-sm font-semibold tracking-tight text-taurus-text">
+        {organization?.name}
+      </span>
+    );
   }
 
   return (
@@ -30,7 +34,7 @@ export function OrganizationSwitcher() {
         name="organizationId"
         defaultValue={organization.id}
         onChange={() => formRef.current?.requestSubmit()}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm font-medium text-slate-700 focus:border-taurus-accent focus:outline-none focus:ring-1 focus:ring-taurus-accent"
+        className="rounded-lg border border-taurus-line bg-taurus-elevated px-2.5 py-1.5 text-sm font-semibold text-taurus-text transition-colors hover:border-taurus-strong focus:border-taurus-strong focus:outline-none"
       >
         {organizations.map((org) => (
           <option key={org.id} value={org.id}>

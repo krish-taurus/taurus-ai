@@ -444,3 +444,62 @@ access returns not found. Audit events: `employee_dna.draft_saved`,
   behavior — no LLM calls, prompt rendering, RAG, chat, or execution.
 - No Knowledge Vault, voice, marketplace, collaboration, billing, tool
   integrations, or public profiles.
+
+---
+
+# Taurus UI — Design System (Sprint 005B)
+
+Sprint 005B upgraded the product UI to a premium, monochrome enterprise design
+system — no product logic, schema, permissions, auth, or routes changed.
+
+## Visual identity
+
+- **Monochrome only**: black, charcoal, grey, silver, white. No brand color, no
+  gradients beyond subtle white-opacity glows / radial highlights.
+- **Feel**: premium enterprise SaaS, a calm and powerful "operating system for AI
+  Employees" — minimal but not empty, futuristic but not gimmicky.
+- **Motion**: subtle page fade-in, hover lift on important cards, smooth button
+  and focus transitions. All motion is disabled under
+  `prefers-reduced-motion`.
+
+## Tokens
+
+Design tokens live as RGB-channel CSS variables in
+[`src/app/globals.css`](src/app/globals.css) and are exposed as Tailwind colors
+in [`tailwind.config.ts`](tailwind.config.ts) (so opacity modifiers like
+`bg-taurus-primary/10` work):
+
+| Token             | Purpose                    |
+| ----------------- | -------------------------- |
+| `taurus-app`      | near-black app background  |
+| `taurus-surface`  | base surface               |
+| `taurus-elevated` | elevated surface / inputs  |
+| `taurus-muted`    | muted surface              |
+| `taurus-line`     | hairline border            |
+| `taurus-strong`   | strong border              |
+| `taurus-text`     | primary text (silver-white)|
+| `taurus-sub`      | secondary text             |
+| `taurus-faint`    | muted text                 |
+| `taurus-primary` / `taurus-onPrimary` | white button + its text |
+| `taurus-focus`    | focus ring                 |
+
+Radius, shadows (`shadow-taurus-lift`), the `ease-taurus` timing, and the
+`fade-in` / `fade-up` animations are also defined in the Tailwind config.
+
+## Component library
+
+Reusable primitives live in [`src/components/ui`](src/components/ui) (import from
+`@/components/ui`): `Button`/`buttonClasses`, `Card`, `Badge`/`StatusDot`,
+`Label`/`Input`/`Textarea`/`Select`/`Field`/`FormSection`, `Container` /
+`PageShell` / `PageHeader` / `SectionHeader`, `Alert` / `FieldError` / `Notice` /
+`EmptyState`, `StatCard` / `Progress` / `Skeleton`, and the Hiring Studio
+`HiringStepper`.
+
+## Accessibility
+
+- Readable contrast on the dark surfaces; a global `:focus-visible` ring keeps
+  every interactive element keyboard-visible.
+- All form fields have labels; buttons are native `<button>`/link elements.
+- Status is never conveyed by color alone — badges pair labels with a status dot
+  whose fill level differs per state (works in greyscale).
+- Reduced-motion is respected globally.

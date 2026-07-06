@@ -9,9 +9,10 @@ import {
   type OrganizationSummary,
 } from "@/modules/organizations/organization-context";
 import { ROLE_LABELS } from "@/modules/organizations/roles";
+import { Badge, buttonClasses } from "@/components/ui";
 
 /**
- * Dashboard shell (Prompt 002).
+ * Dashboard shell (Prompt 002; restyled Sprint 005B).
  *
  * Protected: resolves the authenticated user and their selected organization
  * (redirecting to /login or /onboarding as needed), then provides organization
@@ -36,26 +37,43 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <OrganizationProvider value={contextValue}>
       <div className="flex min-h-screen">
-        <aside className="hidden w-64 shrink-0 border-r border-slate-200 bg-white p-4 sm:block">
-          <Link href="/dashboard" className="mb-6 block px-3 text-lg font-bold text-slate-900">
-            Taurus AI
+        {/* Sidebar */}
+        <aside className="hidden w-64 shrink-0 flex-col border-r border-taurus-line bg-taurus-surface px-4 py-5 sm:flex">
+          <Link
+            href="/dashboard"
+            className="mb-8 flex items-center gap-2 px-2 text-sm font-semibold tracking-[0.16em] text-taurus-text"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-taurus-primary text-xs font-bold text-taurus-onPrimary">
+              T
+            </span>
+            TAURUS AI
           </Link>
+
           <DashboardNav />
+
+          <div className="mt-auto px-2 pt-6">
+            <Link href="/dashboard/hire" className={buttonClasses("primary", "md", "w-full")}>
+              Hire AI Employee
+            </Link>
+          </div>
         </aside>
-        <div className="flex-1">
-          <header className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-3">
+
+        {/* Main column */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-taurus-line bg-taurus-app/80 px-6 py-3 backdrop-blur">
             <div className="flex items-center gap-3">
               <OrganizationSwitcher />
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
-                {ROLE_LABELS[membership.role]}
-              </span>
+              <Badge tone="outline">{ROLE_LABELS[membership.role]}</Badge>
             </div>
             <div className="flex items-center gap-3">
-              <span className="hidden text-sm text-slate-600 sm:inline">{user.email}</span>
+              <span className="hidden text-sm text-taurus-faint sm:inline">{user.email}</span>
               <SignOutButton />
             </div>
           </header>
-          <main className="px-6 py-8">{children}</main>
+
+          <main className="flex-1 px-6 py-8">
+            <div className="animate-fade-in">{children}</div>
+          </main>
         </div>
       </div>
     </OrganizationProvider>
