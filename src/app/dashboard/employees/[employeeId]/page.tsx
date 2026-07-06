@@ -15,6 +15,8 @@ import {
 } from "@/modules/employees/hiring-templates";
 import { getModel } from "@/modules/model-gateway/catalog";
 import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
+import { computeChatReadiness } from "@/modules/employee-chat/readiness";
+import { ReadinessChecklist } from "@/components/employee-chat/readiness-checklist";
 import { buttonClasses, Card } from "@/components/ui";
 
 function initials(name: string): string {
@@ -76,6 +78,12 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         : "Inherits organization default";
   const canManageBrain = hasPermission(membership.role, "model_hub.manage");
 
+  const chatReadiness = await computeChatReadiness(store, {
+    organizationId: organization.id,
+    employee,
+  });
+  const canChat = hasPermission(membership.role, "employee_chat.view");
+
   return (
     <div className="max-w-3xl">
       <p className="mb-4 text-sm">
@@ -106,6 +114,14 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
               <VisibilityBadge visibility={employee.visibility} />
             </div>
           </div>
+          {canChat ? (
+            <Link
+              href={`/dashboard/employees/${employee.id}/chat`}
+              className={buttonClasses("primary", "md", "shrink-0")}
+            >
+              Test Chat
+            </Link>
+          ) : null}
         </div>
 
         {employee.description ? (
@@ -227,6 +243,27 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
           </Link>
         </div>
       </Card>
+
+      {/* Chat readiness checklist + Test Chat. */}
+      {canChat ? (
+        <Card className="mt-6 p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-taurus-text">Ready to chat?</h2>
+              <p className="mt-1.5 text-xs text-taurus-faint">
+                Test this AI Employee once these are in place.
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/employees/${employee.id}/chat`}
+              className={buttonClasses(chatReadiness.canChat ? "primary" : "secondary")}
+            >
+              Test Chat
+            </Link>
+          </div>
+          <ReadinessChecklist readiness={chatReadiness} employeeId={employee.id} />
+        </Card>
+      ) : null}
 
       {/* Placeholders for capabilities delivered in later prompts. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">

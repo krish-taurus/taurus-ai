@@ -659,3 +659,92 @@ No end-user chat/RAG answers, Knowledge Vault retrieval, embeddings, vector
 search, chat/streaming UI, voice, marketplace, collaboration, billing, public
 profiles, autonomous tool execution, or website/file crawling. Prompt 007 can
 consume the LLM Gateway without importing any provider SDK directly.
+
+# Employee Chat Runtime (Prompt 007)
+
+Test and chat with an AI Employee. Answers are grounded in the employee's
+published **Employee DNA** and the **Knowledge Vault** sources assigned to it. The
+runtime uses the **Model Hub / LLM Gateway only** — chat code never imports a
+provider SDK.
+
+## Route
+
+- `/dashboard/employees/[employeeId]/chat` — "Chat with [Employee Name]". Shows
+  role/department/status, DNA status, assigned knowledge count, and the active
+  brain (Live vs Local demo). The employee profile has a **Test Chat** CTA and a
+  readiness checklist (DNA published / knowledge assigned / Employee Brain
+  configured).
+
+## How a chat turn works
+
+1. Auth + organization membership + view permission are re-checked server-side.
+2. The employee is loaded organization-scoped (cross-org → not found; archived →
+   blocked).
+3. The published Employee DNA is loaded (required — see governance below).
+4. Relevant excerpts are retrieved from the employee's assigned, non-archived
+   Knowledge Vault sources (deterministic lexical search — no embeddings).
+5. A runtime context (employee identity + DNA summary + excerpts + safety rules +
+   recent history + question) is built and sent to `ModelGateway.generateText`
+   with `taskType: "employee_chat"`.
+6. User and assistant messages are stored; a usage event and metadata-only audit
+   events are recorded; the answer is returned with the **sources used**.
+
+## Preparing Knowledge Vault sources for chat
+
+Text notes and extracted text files (`.txt/.md/.csv/.json`) are split into
+internal searchable **excerpts** when you use **Prepare / Refresh Knowledge** on
+the chat page. PDFs/DOCX without extracted text are skipped this sprint and are
+simply unavailable for grounding (no full parsing yet). The UI never uses the word
+"chunk".
+
+## Governance states
+
+- **No published Employee DNA** → chat is blocked with "Publish Employee DNA
+  before testing this AI Employee." (CTA to Employee DNA).
+- **No assigned knowledge** → chat still works in DNA-only mode; the UI shows
+  "This AI Employee has no assigned Knowledge Vault sources yet." and the
+  assistant says when it lacks company knowledge (CTA to assign knowledge).
+- **No Model Hub provider (production)** → "Configure Model Hub before running
+  this AI Employee." (CTA to Model Hub). Fake answers are never served silently in
+  production.
+
+## Model Hub usage + Local demo mode
+
+Chat resolves a model from Employee Brain settings → organization default → safe
+fallback, all through the gateway. In **local development and tests**, when no
+real provider credential is configured, the gateway answers with a deterministic
+**Local Demo Brain** (behind the gateway, clearly marked "Local demo mode" in the
+UI). It grounds its reply in the retrieved excerpts, or admits when it has no
+approved knowledge. The demo brain is **disabled in production** (`NODE_ENV=production`).
+
+## Live providers (environment variables)
+
+Set any of the Model Hub provider keys to run real models (all optional, server
+only; absent keys never break dev/tests):
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`,
+`GROQ_API_KEY`, `GOOGLE_GENERATIVE_AI_API_KEY`, `FIREWORKS_API_KEY`. Provider
+execution lives entirely in the Model Gateway's adapter layer.
+
+## Data & security
+
+- Tables (migration `db/migrations/0007_employee_chat_runtime.sql`):
+  `employee_chat_threads`, `employee_chat_messages`, `knowledge_retrieval_segments`
+  (internal excerpts), `employee_chat_retrieval_events` (query **hash** only). All
+  organization-scoped and indexed.
+- Permissions: `employee_chat.view` + `employee_chat.use` — granted to
+  owner/admin/builder/viewer (testing an Employee is a core capability every role
+  already holds via `employee.test`).
+- Message contents live **only** in `employee_chat_messages`. Audit events
+  (`employee_chat.thread_created/message_sent/response_generated/response_failed/
+  thread_archived`, `knowledge_retrieval.prepared/searched`) and retrieval events
+  store **metadata only** — never full messages, model instructions, raw provider
+  responses, or keys.
+- Cross-organization access, unassigned knowledge, archived sources, and archived
+  employees are never exposed. Provider error details are never leaked to users.
+
+## Not in this prompt
+
+No voice, phone/WebRTC, marketplace, cross-company or internal collaboration,
+billing, public profiles, tool/integration execution, autonomous actions, website
+crawling, advanced PDF/DOCX parsing, embeddings, vector database, human-approval
+workflows, or memory beyond the current chat thread.

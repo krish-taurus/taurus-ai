@@ -24,6 +24,8 @@ const FORBIDDEN: { label: string; pattern: RegExp }[] = [
   { label: "chunk", pattern: /\bchunks?\b/i },
   { label: "RAG", pattern: /\bRAG\b/ },
   { label: "retriever", pattern: /\bretrievers?\b/i },
+  // Prompt 007: Employee Chat must not leak raw model terminology.
+  { label: "LLM", pattern: /\bLLMs?\b/ },
 ];
 
 function collectFiles(dir: string): string[] {

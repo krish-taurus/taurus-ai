@@ -13,6 +13,7 @@
 import type { DataStore } from "@/lib/db/store";
 import type { ProviderSlug } from "@/lib/db/types";
 import type {
+  AiModel,
   CostEstimate,
   CredentialResolver,
   GatewayMessage,
@@ -20,6 +21,8 @@ import type {
   GatewayResponse,
   LLMProvider,
   ModelResolution,
+  ProviderGenerateInput,
+  ProviderGenerateResult,
   TokenUsage,
 } from "@/modules/model-gateway/types";
 import { getModel } from "@/modules/model-gateway/catalog";
@@ -41,6 +44,16 @@ export interface LlmGatewayDeps {
   store: DataStore;
   providers: Record<ProviderSlug, LLMProvider>;
   resolveCredential: CredentialResolver;
+  /**
+   * Local Demo Brain (Prompt 007). When no real provider credential resolves and
+   * `allowed` is true (local dev / tests only), the gateway answers with this
+   * deterministic brain instead of throwing. It is NEVER allowed in production,
+   * so demo responses are never served silently to real users.
+   */
+  demo?: {
+    allowed: boolean;
+    generate: (input: ProviderGenerateInput) => ProviderGenerateResult;
+  };
   /** Injectable clock for deterministic latency in tests. */
   now?: () => number;
 }
@@ -142,6 +155,12 @@ export class LlmGateway {
 
     const credential = await this.deps.resolveCredential(request.organizationId, providerSlug);
     if (!credential) {
+      // No real provider configured. In dev/test, fall back to the Local Demo
+      // Brain (behind the gateway). In production this stays a hard error so we
+      // never silently serve fake answers.
+      if (this.deps.demo?.allowed) {
+        return this.runDemo(request, model, providerSlug);
+      }
       throw new GatewayError(
         `Provider ${providerSlug} is not configured for this organization.`,
         "provider_not_configured",
@@ -226,5 +245,61 @@ export class LlmGateway {
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("Provider request failed.", code);
     }
+  }
+
+  /** Answer via the Local Demo Brain and record a metadata-only (free) usage event. */
+  private async runDemo(
+    request: GatewayRequest,
+    model: AiModel,
+    providerSlug: ProviderSlug,
+  ): Promise<GatewayResponse> {
+    if (!this.deps.demo) {
+      throw new GatewayError("Demo brain is not available.", "provider_not_configured");
+    }
+    const start = this.now();
+    const result = this.deps.demo.generate({
+      modelId: model.modelId,
+      system: systemFrom(request.messages),
+      messages: request.messages,
+      maxOutputTokens: request.maxOutputTokens ?? model.maxOutputTokens,
+      apiKey: "",
+      baseUrl: null,
+    });
+    const latencyMs = Math.max(0, this.now() - start);
+    const inputTokens = request.messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    const outputTokens = estimateTokens(result.text);
+
+    // Demo answers are free; still record usage metadata for consistency.
+    await this.deps.store.createLlmUsageEvent({
+      organizationId: request.organizationId,
+      employeeId: request.employeeId ?? null,
+      providerSlug,
+      modelId: model.modelId,
+      taskType: request.taskType,
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      estimatedCostUsd: 0,
+      latencyMs,
+      status: "success",
+      errorCode: null,
+      requestIdHash: null,
+      createdByUserId: request.createdByUserId ?? null,
+    });
+
+    return {
+      text: result.text,
+      providerSlug,
+      modelId: model.modelId,
+      inputTokens,
+      cachedInputTokens: 0,
+      outputTokens,
+      estimatedCostUsd: 0,
+      latencyMs,
+      rawProviderRequestId: null,
+      finishReason: result.finishReason ?? "stop",
+      demo: true,
+      brainLabel: "Local demo brain",
+    };
   }
 }
