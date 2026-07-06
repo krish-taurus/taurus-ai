@@ -7,12 +7,17 @@ import { buttonClasses, EmptyState, PageHeader, SectionHeader, StatCard } from "
 
 export default async function DashboardPage() {
   const { organization, membership } = await requireCurrentOrganization();
-  const employees = await getStore().listEmployees(organization.id);
+  const store = getStore();
+  const employees = await store.listEmployees(organization.id);
   const canHire = hasPermission(membership.role, "employee.create");
   const preview = employees.slice(0, 3);
 
   const activeCount = employees.filter((e) => e.status === "active").length;
   const draftCount = employees.filter((e) => e.status === "draft").length;
+
+  const knowledge = await store.getKnowledgeVaultOverview(organization.id);
+  const canViewKnowledge = hasPermission(membership.role, "knowledge.view");
+  const canManageKnowledge = hasPermission(membership.role, "knowledge.manage");
 
   return (
     <div>
@@ -72,6 +77,48 @@ export default async function DashboardPage() {
           </div>
         )}
       </section>
+
+      {canViewKnowledge ? (
+        <section className="mt-10">
+          <SectionHeader
+            title="Knowledge Vault"
+            action={
+              knowledge.total > 0 ? (
+                <Link
+                  href="/dashboard/knowledge"
+                  className="text-sm font-medium text-taurus-sub hover:text-taurus-text"
+                >
+                  Open Knowledge Vault
+                </Link>
+              ) : undefined
+            }
+          />
+
+          {knowledge.total === 0 ? (
+            <EmptyState
+              title="Your Knowledge Vault is empty."
+              description={
+                canManageKnowledge
+                  ? "Add company knowledge your AI Employees can use."
+                  : "Ask an organization admin to add company knowledge."
+              }
+              action={
+                canManageKnowledge ? (
+                  <Link href="/dashboard/knowledge/new" className={buttonClasses("primary", "lg")}>
+                    Add Knowledge
+                  </Link>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <StatCard label="Sources" value={knowledge.total} />
+              <StatCard label="Ready" value={knowledge.ready} />
+              <StatCard label="Assigned" value={knowledge.assigned} />
+            </div>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

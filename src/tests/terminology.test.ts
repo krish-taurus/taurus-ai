@@ -18,6 +18,12 @@ const FORBIDDEN: { label: string; pattern: RegExp }[] = [
   { label: "agent", pattern: /\bagents?\b/i },
   { label: "prompt", pattern: /\bprompts?\b/i },
   { label: "knowledge base", pattern: /knowledge\s+base/i },
+  // Prompt 006: Knowledge Vault must not leak technical retrieval terms.
+  { label: "embedding", pattern: /\bembeddings?\b/i },
+  { label: "vector", pattern: /\bvectors?\b/i },
+  { label: "chunk", pattern: /\bchunks?\b/i },
+  { label: "RAG", pattern: /\bRAG\b/ },
+  { label: "retriever", pattern: /\bretrievers?\b/i },
 ];
 
 function collectFiles(dir: string): string[] {

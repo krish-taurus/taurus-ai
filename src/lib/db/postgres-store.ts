@@ -15,22 +15,34 @@ import type { DataStore } from "@/lib/db/store";
 import type {
   AiEmployee,
   ArchiveDnaVersionInput,
+  AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  CreateKnowledgeDocumentInput,
+  CreateKnowledgeSourceInput,
   CreateOrganizationInput,
   CreateUserInput,
   DnaStatus,
+  DocumentExtractionStatus,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
+  EmployeeKnowledgeAssignment,
   EmployeeStatus,
   EmployeeVisibility,
+  KnowledgeDocument,
+  KnowledgeSource,
+  KnowledgeSourceStatus,
+  KnowledgeSourceType,
+  KnowledgeVaultOverview,
+  KnowledgeVisibility,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
   PublishDnaInput,
   SaveDnaDraftInput,
   UpdateEmployeeInput,
+  UpdateKnowledgeSourceInput,
   User,
   WorkingStyle,
 } from "@/lib/db/types";
@@ -111,6 +123,55 @@ function mapDnaVersion(row: Row): EmployeeDnaVersion {
     publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapKnowledgeSource(row: Row): KnowledgeSource {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description,
+    sourceType: row.source_type as KnowledgeSourceType,
+    status: row.status as KnowledgeSourceStatus,
+    visibility: row.visibility as KnowledgeVisibility,
+    createdByUserId: row.created_by_user_id,
+    archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapKnowledgeDocument(row: Row): KnowledgeDocument {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    knowledgeSourceId: row.knowledge_source_id,
+    title: row.title,
+    originalFilename: row.original_filename,
+    contentType: row.content_type,
+    byteSize: row.byte_size,
+    checksumSha256: row.checksum_sha256,
+    storageKey: row.storage_key,
+    textContent: row.text_content,
+    textPreview: row.text_preview,
+    extractionStatus: row.extraction_status as DocumentExtractionStatus,
+    extractionError: row.extraction_error,
+    createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapKnowledgeAssignment(row: Row): EmployeeKnowledgeAssignment {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    knowledgeSourceId: row.knowledge_source_id,
+    assignedByUserId: row.assigned_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -460,6 +521,226 @@ export class PostgresStore implements DataStore {
       [input.versionId, input.organizationId, input.employeeId],
     );
     return rows[0] ? mapDnaVersion(rows[0]) : null;
+  }
+
+  // --- Knowledge Vault (Prompt 006) -----------------------------------------
+
+  async createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource> {
+    const { rows } = await this.query(
+      `insert into knowledge_sources
+         (organization_id, name, description, source_type, status, visibility,
+          created_by_user_id, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning *`,
+      [
+        input.organizationId,
+        input.name,
+        input.description ?? null,
+        input.sourceType,
+        input.status ?? "draft",
+        input.visibility ?? "organization",
+        input.createdByUserId ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapKnowledgeSource(rows[0]);
+  }
+
+  async listKnowledgeSources(organizationId: string): Promise<KnowledgeSource[]> {
+    const { rows } = await this.query(
+      "select * from knowledge_sources where organization_id = $1 order by updated_at desc",
+      [organizationId],
+    );
+    return rows.map(mapKnowledgeSource);
+  }
+
+  async getKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeSource | null> {
+    const { rows } = await this.query(
+      "select * from knowledge_sources where id = $1 and organization_id = $2",
+      [sourceId, organizationId],
+    );
+    return rows[0] ? mapKnowledgeSource(rows[0]) : null;
+  }
+
+  async updateKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+    patch: UpdateKnowledgeSourceInput,
+  ): Promise<KnowledgeSource | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (column: string, value: unknown) => {
+      sets.push(`${column} = $${i++}`);
+      values.push(value);
+    };
+    if (patch.name !== undefined) add("name", patch.name);
+    if ("description" in patch) add("description", patch.description ?? null);
+    if (patch.visibility !== undefined) add("visibility", patch.visibility);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (sets.length === 0) return this.getKnowledgeSource(organizationId, sourceId);
+    sets.push("updated_at = now()");
+    values.push(sourceId, organizationId);
+    const { rows } = await this.query(
+      `update knowledge_sources set ${sets.join(", ")}
+       where id = $${i++} and organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapKnowledgeSource(rows[0]) : null;
+  }
+
+  async archiveKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeSource | null> {
+    const { rows } = await this.query(
+      `update knowledge_sources set status = 'archived', archived_at = now(), updated_at = now()
+       where id = $1 and organization_id = $2 returning *`,
+      [sourceId, organizationId],
+    );
+    return rows[0] ? mapKnowledgeSource(rows[0]) : null;
+  }
+
+  async createKnowledgeDocument(input: CreateKnowledgeDocumentInput): Promise<KnowledgeDocument> {
+    const { rows } = await this.query(
+      `insert into knowledge_documents
+         (organization_id, knowledge_source_id, title, original_filename, content_type,
+          byte_size, checksum_sha256, storage_key, text_content, text_preview,
+          extraction_status, extraction_error, created_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+       returning *`,
+      [
+        input.organizationId,
+        input.knowledgeSourceId,
+        input.title,
+        input.originalFilename ?? null,
+        input.contentType ?? null,
+        input.byteSize ?? null,
+        input.checksumSha256 ?? null,
+        input.storageKey ?? null,
+        input.textContent ?? null,
+        input.textPreview ?? null,
+        input.extractionStatus ?? "not_required",
+        input.extractionError ?? null,
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapKnowledgeDocument(rows[0]);
+  }
+
+  async listKnowledgeDocumentsForSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeDocument[]> {
+    const { rows } = await this.query(
+      `select * from knowledge_documents
+       where organization_id = $1 and knowledge_source_id = $2 order by created_at asc`,
+      [organizationId, sourceId],
+    );
+    return rows.map(mapKnowledgeDocument);
+  }
+
+  async getKnowledgeDocument(
+    organizationId: string,
+    documentId: string,
+  ): Promise<KnowledgeDocument | null> {
+    const { rows } = await this.query(
+      "select * from knowledge_documents where id = $1 and organization_id = $2",
+      [documentId, organizationId],
+    );
+    return rows[0] ? mapKnowledgeDocument(rows[0]) : null;
+  }
+
+  async assignKnowledgeSourceToEmployee(
+    input: AssignKnowledgeInput,
+  ): Promise<EmployeeKnowledgeAssignment> {
+    const { rows } = await this.query(
+      `insert into employee_knowledge_sources
+         (organization_id, employee_id, knowledge_source_id, assigned_by_user_id)
+       values ($1, $2, $3, $4)
+       on conflict (employee_id, knowledge_source_id) do update set employee_id = excluded.employee_id
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.knowledgeSourceId,
+        input.assignedByUserId ?? null,
+      ],
+    );
+    return mapKnowledgeAssignment(rows[0]);
+  }
+
+  async unassignKnowledgeSourceFromEmployee(
+    organizationId: string,
+    employeeId: string,
+    knowledgeSourceId: string,
+  ): Promise<boolean> {
+    const { rowCount } = await this.query(
+      `delete from employee_knowledge_sources
+       where organization_id = $1 and employee_id = $2 and knowledge_source_id = $3`,
+      [organizationId, employeeId, knowledgeSourceId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listKnowledgeSourcesForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeSource[]> {
+    const { rows } = await this.query(
+      `select s.* from knowledge_sources s
+       join employee_knowledge_sources a on a.knowledge_source_id = s.id
+       where a.organization_id = $1 and a.employee_id = $2
+       order by s.updated_at desc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapKnowledgeSource);
+  }
+
+  async listEmployeesForKnowledgeSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<AiEmployee[]> {
+    const { rows } = await this.query(
+      `select e.* from ai_employees e
+       join employee_knowledge_sources a on a.employee_id = e.id
+       where a.organization_id = $1 and a.knowledge_source_id = $2
+       order by e.name asc`,
+      [organizationId, knowledgeSourceId],
+    );
+    return rows.map(mapEmployee);
+  }
+
+  async countAssignedKnowledgeForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<number> {
+    const { rows } = await this.query(
+      `select count(*)::int as n from employee_knowledge_sources
+       where organization_id = $1 and employee_id = $2`,
+      [organizationId, employeeId],
+    );
+    return rows[0]?.n ?? 0;
+  }
+
+  async getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview> {
+    const sources = (await this.listKnowledgeSources(organizationId)).filter(
+      (s) => s.status !== "archived",
+    );
+    const { rows } = await this.query(
+      "select distinct knowledge_source_id from employee_knowledge_sources where organization_id = $1",
+      [organizationId],
+    );
+    const assignedIds = new Set(rows.map((r: Row) => r.knowledge_source_id));
+    return {
+      total: sources.length,
+      ready: sources.filter((s) => s.status === "ready").length,
+      assigned: sources.filter((s) => assignedIds.has(s.id)).length,
+      recent: sources.slice(0, 5),
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

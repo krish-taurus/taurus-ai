@@ -13,19 +13,27 @@
 import type {
   AiEmployee,
   ArchiveDnaVersionInput,
+  AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  CreateKnowledgeDocumentInput,
+  CreateKnowledgeSourceInput,
   CreateOrganizationInput,
   CreateUserInput,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
+  EmployeeKnowledgeAssignment,
+  KnowledgeDocument,
+  KnowledgeSource,
+  KnowledgeVaultOverview,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
   PublishDnaInput,
   SaveDnaDraftInput,
   UpdateEmployeeInput,
+  UpdateKnowledgeSourceInput,
   User,
 } from "@/lib/db/types";
 import type { Role } from "@/modules/organizations/roles";
@@ -86,6 +94,47 @@ export interface DataStore {
   /** Promote the current draft to published, archiving any previously published. */
   publishEmployeeDna(input: PublishDnaInput): Promise<EmployeeDnaVersion>;
   archiveEmployeeDnaVersion(input: ArchiveDnaVersionInput): Promise<EmployeeDnaVersion | null>;
+
+  // Knowledge Vault (Prompt 006) — all reads/writes are organization-scoped.
+  createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource>;
+  listKnowledgeSources(organizationId: string): Promise<KnowledgeSource[]>;
+  getKnowledgeSource(organizationId: string, sourceId: string): Promise<KnowledgeSource | null>;
+  updateKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+    patch: UpdateKnowledgeSourceInput,
+  ): Promise<KnowledgeSource | null>;
+  archiveKnowledgeSource(organizationId: string, sourceId: string): Promise<KnowledgeSource | null>;
+
+  createKnowledgeDocument(input: CreateKnowledgeDocumentInput): Promise<KnowledgeDocument>;
+  listKnowledgeDocumentsForSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeDocument[]>;
+  getKnowledgeDocument(
+    organizationId: string,
+    documentId: string,
+  ): Promise<KnowledgeDocument | null>;
+
+  assignKnowledgeSourceToEmployee(
+    input: AssignKnowledgeInput,
+  ): Promise<EmployeeKnowledgeAssignment>;
+  unassignKnowledgeSourceFromEmployee(
+    organizationId: string,
+    employeeId: string,
+    knowledgeSourceId: string,
+  ): Promise<boolean>;
+  listKnowledgeSourcesForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeSource[]>;
+  listEmployeesForKnowledgeSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<AiEmployee[]>;
+  countAssignedKnowledgeForEmployee(organizationId: string, employeeId: string): Promise<number>;
+
+  getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

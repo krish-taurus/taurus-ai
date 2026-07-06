@@ -57,6 +57,12 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
       : "Not started";
   const dnaCtaLabel = canEditDna ? "Configure Employee DNA" : "View Employee DNA";
 
+  const knowledgeCount = await store.countAssignedKnowledgeForEmployee(
+    organization.id,
+    employee.id,
+  );
+  const canManageKnowledge = hasPermission(membership.role, "knowledge.manage");
+
   return (
     <div className="max-w-3xl">
       <p className="mb-4 text-sm">
@@ -169,9 +175,29 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         </div>
       </Card>
 
+      {/* Knowledge Vault status + management. */}
+      <Card className="mt-6 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-semibold text-taurus-text">Knowledge Vault</h2>
+            <p className="mt-1.5 text-sm text-taurus-sub">
+              {knowledgeCount} {knowledgeCount === 1 ? "source" : "sources"} assigned
+            </p>
+            <p className="mt-1.5 text-xs text-taurus-faint">
+              Give this AI Employee trusted company knowledge to work with.
+            </p>
+          </div>
+          <Link
+            href={`/dashboard/employees/${employee.id}/knowledge`}
+            className={buttonClasses("secondary")}
+          >
+            {canManageKnowledge ? "Manage knowledge" : "View knowledge"}
+          </Link>
+        </div>
+      </Card>
+
       {/* Placeholders for capabilities delivered in later prompts. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Placeholder label="Knowledge Vault" value="0 sources connected" />
         <Placeholder label="Usage" value="No activity recorded yet" />
         <Placeholder label="Recent activity" value="Nothing to show yet" />
       </div>

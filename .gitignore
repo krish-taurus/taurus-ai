@@ -35,3 +35,7 @@ next-env.d.ts
 
 # local editor / tooling
 .claude/
+
+# Knowledge Vault local uploads — never commit user files (Prompt 006)
+/storage/
+.taurus/

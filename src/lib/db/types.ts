@@ -195,3 +195,125 @@ export interface ArchiveDnaVersionInput {
   versionId: string;
   userId: string;
 }
+
+// --- Knowledge Vault (Prompt 006) ------------------------------------------
+
+export type KnowledgeSourceType = "file" | "text" | "url";
+
+export type KnowledgeSourceStatus =
+  | "draft"
+  | "uploaded"
+  | "processing"
+  | "ready"
+  | "failed"
+  | "archived";
+
+export type KnowledgeVisibility = "private" | "organization";
+
+export type DocumentExtractionStatus =
+  | "not_required"
+  | "pending"
+  | "extracted"
+  | "failed"
+  | "unsupported";
+
+/**
+ * A knowledge source in an organization's Knowledge Vault: a document, note, or
+ * website record. Every source is tenant-scoped via `organizationId`.
+ */
+export interface KnowledgeSource {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  sourceType: KnowledgeSourceType;
+  status: KnowledgeSourceStatus;
+  visibility: KnowledgeVisibility;
+  createdByUserId: string | null;
+  archivedAt: string | null;
+  /** Non-sensitive structured metadata (e.g. url for url sources). */
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A stored document belonging to a knowledge source. */
+export interface KnowledgeDocument {
+  id: string;
+  organizationId: string;
+  knowledgeSourceId: string;
+  title: string;
+  originalFilename: string | null;
+  contentType: string | null;
+  byteSize: number | null;
+  checksumSha256: string | null;
+  /** Opaque storage key — never a public path, never rendered to the browser. */
+  storageKey: string | null;
+  /** Extracted text for simple text formats; null for pdf/docx (metadata only). */
+  textContent: string | null;
+  textPreview: string | null;
+  extractionStatus: DocumentExtractionStatus;
+  extractionError: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Assignment of a knowledge source to an AI Employee. */
+export interface EmployeeKnowledgeAssignment {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  knowledgeSourceId: string;
+  assignedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface CreateKnowledgeSourceInput {
+  organizationId: string;
+  name: string;
+  description?: string | null;
+  sourceType: KnowledgeSourceType;
+  status?: KnowledgeSourceStatus;
+  visibility?: KnowledgeVisibility;
+  metadata?: Record<string, unknown>;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateKnowledgeSourceInput {
+  name?: string;
+  description?: string | null;
+  visibility?: KnowledgeVisibility;
+  status?: KnowledgeSourceStatus;
+}
+
+export interface CreateKnowledgeDocumentInput {
+  organizationId: string;
+  knowledgeSourceId: string;
+  title: string;
+  originalFilename?: string | null;
+  contentType?: string | null;
+  byteSize?: number | null;
+  checksumSha256?: string | null;
+  storageKey?: string | null;
+  textContent?: string | null;
+  textPreview?: string | null;
+  extractionStatus?: DocumentExtractionStatus;
+  extractionError?: string | null;
+  createdByUserId?: string | null;
+}
+
+export interface AssignKnowledgeInput {
+  organizationId: string;
+  employeeId: string;
+  knowledgeSourceId: string;
+  assignedByUserId?: string | null;
+}
+
+/** Aggregate counts for the Knowledge Vault dashboard cards. */
+export interface KnowledgeVaultOverview {
+  total: number;
+  ready: number;
+  assigned: number;
+  recent: KnowledgeSource[];
+}

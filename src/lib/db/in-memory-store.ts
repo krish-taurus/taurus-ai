@@ -9,19 +9,27 @@ import type { DataStore } from "@/lib/db/store";
 import type {
   AiEmployee,
   ArchiveDnaVersionInput,
+  AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
+  CreateKnowledgeDocumentInput,
+  CreateKnowledgeSourceInput,
   CreateOrganizationInput,
   CreateUserInput,
   EmployeeDnaOverview,
   EmployeeDnaVersion,
+  EmployeeKnowledgeAssignment,
+  KnowledgeDocument,
+  KnowledgeSource,
+  KnowledgeVaultOverview,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
   PublishDnaInput,
   SaveDnaDraftInput,
   UpdateEmployeeInput,
+  UpdateKnowledgeSourceInput,
   User,
 } from "@/lib/db/types";
 import { DEFAULT_MEMBER_ROLE, type Role } from "@/modules/organizations/roles";
@@ -41,6 +49,9 @@ export class InMemoryStore implements DataStore {
   private members = new Map<string, OrganizationMember>();
   private employees = new Map<string, AiEmployee>();
   private dnaVersions = new Map<string, EmployeeDnaVersion>();
+  private knowledgeSources = new Map<string, KnowledgeSource>();
+  private knowledgeDocuments = new Map<string, KnowledgeDocument>();
+  private knowledgeAssignments = new Map<string, EmployeeKnowledgeAssignment>();
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -329,6 +340,213 @@ export class InMemoryStore implements DataStore {
     const archived: EmployeeDnaVersion = { ...version, status: "archived", updatedAt: now() };
     this.dnaVersions.set(archived.id, archived);
     return archived;
+  }
+
+  // --- Knowledge Vault (Prompt 006) -----------------------------------------
+
+  async createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource> {
+    const timestamp = now();
+    const source: KnowledgeSource = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      name: input.name,
+      description: input.description ?? null,
+      sourceType: input.sourceType,
+      status: input.status ?? "draft",
+      visibility: input.visibility ?? "organization",
+      createdByUserId: input.createdByUserId ?? null,
+      archivedAt: null,
+      metadata: input.metadata ?? {},
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.knowledgeSources.set(source.id, source);
+    return source;
+  }
+
+  async listKnowledgeSources(organizationId: string): Promise<KnowledgeSource[]> {
+    return [...this.knowledgeSources.values()]
+      .filter((s) => s.organizationId === organizationId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async getKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeSource | null> {
+    const source = this.knowledgeSources.get(sourceId);
+    if (!source || source.organizationId !== organizationId) return null;
+    return source;
+  }
+
+  async updateKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+    patch: UpdateKnowledgeSourceInput,
+  ): Promise<KnowledgeSource | null> {
+    const existing = await this.getKnowledgeSource(organizationId, sourceId);
+    if (!existing) return null;
+    const updated: KnowledgeSource = {
+      ...existing,
+      ...("name" in patch && patch.name !== undefined ? { name: patch.name } : {}),
+      ...("description" in patch ? { description: patch.description ?? null } : {}),
+      ...("visibility" in patch && patch.visibility !== undefined
+        ? { visibility: patch.visibility }
+        : {}),
+      ...("status" in patch && patch.status !== undefined ? { status: patch.status } : {}),
+      updatedAt: now(),
+    };
+    this.knowledgeSources.set(updated.id, updated);
+    return updated;
+  }
+
+  async archiveKnowledgeSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeSource | null> {
+    const existing = await this.getKnowledgeSource(organizationId, sourceId);
+    if (!existing) return null;
+    const timestamp = now();
+    const archived: KnowledgeSource = {
+      ...existing,
+      status: "archived",
+      archivedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.knowledgeSources.set(archived.id, archived);
+    return archived;
+  }
+
+  async createKnowledgeDocument(input: CreateKnowledgeDocumentInput): Promise<KnowledgeDocument> {
+    const timestamp = now();
+    const document: KnowledgeDocument = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      knowledgeSourceId: input.knowledgeSourceId,
+      title: input.title,
+      originalFilename: input.originalFilename ?? null,
+      contentType: input.contentType ?? null,
+      byteSize: input.byteSize ?? null,
+      checksumSha256: input.checksumSha256 ?? null,
+      storageKey: input.storageKey ?? null,
+      textContent: input.textContent ?? null,
+      textPreview: input.textPreview ?? null,
+      extractionStatus: input.extractionStatus ?? "not_required",
+      extractionError: input.extractionError ?? null,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.knowledgeDocuments.set(document.id, document);
+    return document;
+  }
+
+  async listKnowledgeDocumentsForSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<KnowledgeDocument[]> {
+    return [...this.knowledgeDocuments.values()]
+      .filter((d) => d.organizationId === organizationId && d.knowledgeSourceId === sourceId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getKnowledgeDocument(
+    organizationId: string,
+    documentId: string,
+  ): Promise<KnowledgeDocument | null> {
+    const doc = this.knowledgeDocuments.get(documentId);
+    if (!doc || doc.organizationId !== organizationId) return null;
+    return doc;
+  }
+
+  async assignKnowledgeSourceToEmployee(
+    input: AssignKnowledgeInput,
+  ): Promise<EmployeeKnowledgeAssignment> {
+    const existing = [...this.knowledgeAssignments.values()].find(
+      (a) =>
+        a.organizationId === input.organizationId &&
+        a.employeeId === input.employeeId &&
+        a.knowledgeSourceId === input.knowledgeSourceId,
+    );
+    if (existing) return existing;
+    const assignment: EmployeeKnowledgeAssignment = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      knowledgeSourceId: input.knowledgeSourceId,
+      assignedByUserId: input.assignedByUserId ?? null,
+      createdAt: now(),
+    };
+    this.knowledgeAssignments.set(assignment.id, assignment);
+    return assignment;
+  }
+
+  async unassignKnowledgeSourceFromEmployee(
+    organizationId: string,
+    employeeId: string,
+    knowledgeSourceId: string,
+  ): Promise<boolean> {
+    const existing = [...this.knowledgeAssignments.values()].find(
+      (a) =>
+        a.organizationId === organizationId &&
+        a.employeeId === employeeId &&
+        a.knowledgeSourceId === knowledgeSourceId,
+    );
+    if (!existing) return false;
+    this.knowledgeAssignments.delete(existing.id);
+    return true;
+  }
+
+  async listKnowledgeSourcesForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeSource[]> {
+    const sourceIds = [...this.knowledgeAssignments.values()]
+      .filter((a) => a.organizationId === organizationId && a.employeeId === employeeId)
+      .map((a) => a.knowledgeSourceId);
+    return [...this.knowledgeSources.values()]
+      .filter((s) => s.organizationId === organizationId && sourceIds.includes(s.id))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async listEmployeesForKnowledgeSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<AiEmployee[]> {
+    const employeeIds = [...this.knowledgeAssignments.values()]
+      .filter(
+        (a) => a.organizationId === organizationId && a.knowledgeSourceId === knowledgeSourceId,
+      )
+      .map((a) => a.employeeId);
+    return [...this.employees.values()]
+      .filter((e) => e.organizationId === organizationId && employeeIds.includes(e.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  async countAssignedKnowledgeForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<number> {
+    return [...this.knowledgeAssignments.values()].filter(
+      (a) => a.organizationId === organizationId && a.employeeId === employeeId,
+    ).length;
+  }
+
+  async getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview> {
+    const sources = (await this.listKnowledgeSources(organizationId)).filter(
+      (s) => s.status !== "archived",
+    );
+    const assignedSourceIds = new Set(
+      [...this.knowledgeAssignments.values()]
+        .filter((a) => a.organizationId === organizationId)
+        .map((a) => a.knowledgeSourceId),
+    );
+    return {
+      total: sources.length,
+      ready: sources.filter((s) => s.status === "ready").length,
+      assigned: sources.filter((s) => assignedSourceIds.has(s.id)).length,
+      recent: sources.slice(0, 5),
+    };
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {
