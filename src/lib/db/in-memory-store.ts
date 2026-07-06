@@ -8,18 +8,24 @@
 import type { DataStore } from "@/lib/db/store";
 import type {
   AiEmployee,
+  ArchiveDnaVersionInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
+  EmployeeDnaOverview,
+  EmployeeDnaVersion,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  PublishDnaInput,
+  SaveDnaDraftInput,
   UpdateEmployeeInput,
   User,
 } from "@/lib/db/types";
 import { DEFAULT_MEMBER_ROLE, type Role } from "@/modules/organizations/roles";
+import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
 
 function uuid(): string {
   return globalThis.crypto.randomUUID();
@@ -34,6 +40,7 @@ export class InMemoryStore implements DataStore {
   private organizations = new Map<string, Organization>();
   private members = new Map<string, OrganizationMember>();
   private employees = new Map<string, AiEmployee>();
+  private dnaVersions = new Map<string, EmployeeDnaVersion>();
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -200,6 +207,128 @@ export class InMemoryStore implements DataStore {
 
   async getEmployeeOrganizationId(employeeId: string): Promise<string | null> {
     return this.employees.get(employeeId)?.organizationId ?? null;
+  }
+
+  // --- Employee DNA (Prompt 005) --------------------------------------------
+
+  private dnaVersionsFor(organizationId: string, employeeId: string): EmployeeDnaVersion[] {
+    return [...this.dnaVersions.values()].filter(
+      (v) => v.organizationId === organizationId && v.employeeId === employeeId,
+    );
+  }
+
+  async getDraftEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null> {
+    return (
+      this.dnaVersionsFor(organizationId, employeeId).find((v) => v.status === "draft") ?? null
+    );
+  }
+
+  async getPublishedEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null> {
+    return (
+      this.dnaVersionsFor(organizationId, employeeId).find((v) => v.status === "published") ?? null
+    );
+  }
+
+  async listEmployeeDnaVersions(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion[]> {
+    return this.dnaVersionsFor(organizationId, employeeId).sort(
+      (a, b) => b.versionNumber - a.versionNumber,
+    );
+  }
+
+  async getEmployeeDnaOverview(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaOverview> {
+    const versions = await this.listEmployeeDnaVersions(organizationId, employeeId);
+    return {
+      draft: versions.find((v) => v.status === "draft") ?? null,
+      published: versions.find((v) => v.status === "published") ?? null,
+      versions,
+    };
+  }
+
+  async saveEmployeeDnaDraft(input: SaveDnaDraftInput): Promise<EmployeeDnaVersion> {
+    const dna = JSON.parse(JSON.stringify(input.dna)) as EmployeeDnaVersion["dna"];
+    const existingDraft = await this.getDraftEmployeeDna(input.organizationId, input.employeeId);
+
+    if (existingDraft) {
+      const updated: EmployeeDnaVersion = { ...existingDraft, dna, updatedAt: now() };
+      this.dnaVersions.set(updated.id, updated);
+      return updated;
+    }
+
+    const versions = this.dnaVersionsFor(input.organizationId, input.employeeId);
+    const nextVersion = versions.reduce((max, v) => Math.max(max, v.versionNumber), 0) + 1;
+    const timestamp = now();
+    const draft: EmployeeDnaVersion = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      versionNumber: nextVersion,
+      status: "draft",
+      schemaVersion: DNA_SCHEMA_VERSION,
+      dna,
+      createdByUserId: input.userId,
+      publishedByUserId: null,
+      publishedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.dnaVersions.set(draft.id, draft);
+    return draft;
+  }
+
+  async publishEmployeeDna(input: PublishDnaInput): Promise<EmployeeDnaVersion> {
+    const draft = await this.getDraftEmployeeDna(input.organizationId, input.employeeId);
+    if (!draft) {
+      throw new Error("There is no draft Employee DNA to publish.");
+    }
+
+    // At most one published version: archive the previous one first.
+    const published = await this.getPublishedEmployeeDna(input.organizationId, input.employeeId);
+    if (published) {
+      this.dnaVersions.set(published.id, {
+        ...published,
+        status: "archived",
+        updatedAt: now(),
+      });
+    }
+
+    const timestamp = now();
+    const promoted: EmployeeDnaVersion = {
+      ...draft,
+      status: "published",
+      publishedByUserId: input.userId,
+      publishedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.dnaVersions.set(promoted.id, promoted);
+    return promoted;
+  }
+
+  async archiveEmployeeDnaVersion(
+    input: ArchiveDnaVersionInput,
+  ): Promise<EmployeeDnaVersion | null> {
+    const version = this.dnaVersions.get(input.versionId);
+    if (
+      !version ||
+      version.organizationId !== input.organizationId ||
+      version.employeeId !== input.employeeId
+    ) {
+      return null;
+    }
+    const archived: EmployeeDnaVersion = { ...version, status: "archived", updatedAt: now() };
+    this.dnaVersions.set(archived.id, archived);
+    return archived;
   }
 
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {

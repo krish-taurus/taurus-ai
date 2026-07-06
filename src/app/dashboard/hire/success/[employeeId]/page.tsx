@@ -3,9 +3,16 @@ import { notFound } from "next/navigation";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 
-/** Suggested next steps — placeholders only. These features arrive in later prompts. */
-const NEXT_STEPS: readonly { title: string; hint: string }[] = [
-  { title: "Add Employee DNA", hint: "Shape how your AI Employee thinks and responds." },
+/**
+ * Suggested next steps. "Add Employee DNA" is live (Prompt 005); the rest are
+ * placeholders that arrive in later prompts.
+ */
+const NEXT_STEPS: readonly { title: string; hint: string; live?: boolean }[] = [
+  {
+    title: "Add Employee DNA",
+    hint: "Define working style, responsibilities, and boundaries.",
+    live: true,
+  },
   { title: "Add Knowledge Vault", hint: "Give your AI Employee approved company knowledge." },
   { title: "Test Chat", hint: "Try a conversation before going live." },
   { title: "Configure Voice", hint: "Let your AI Employee answer calls." },
@@ -46,22 +53,36 @@ export default async function HireSuccessPage({ params }: { params: { employeeId
 
       <div className="mt-10 text-left">
         <h2 className="text-sm font-semibold text-slate-900">Suggested next steps</h2>
-        <p className="mt-1 text-sm text-slate-500">These are coming soon.</p>
         <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {NEXT_STEPS.map((step) => (
-            <li
-              key={step.title}
-              className="cursor-not-allowed rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4"
-            >
-              <div className="flex items-center justify-between">
-                <p className="font-medium text-slate-700">{step.title}</p>
-                <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500">
-                  Coming soon
-                </span>
-              </div>
-              <p className="mt-1 text-sm text-slate-500">{step.hint}</p>
-            </li>
-          ))}
+          {NEXT_STEPS.map((step) =>
+            step.live ? (
+              <li key={step.title}>
+                <Link
+                  href={`/dashboard/employees/${employee.id}/dna`}
+                  className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-taurus-accent hover:bg-taurus-accent/5"
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="font-medium text-slate-800">{step.title}</p>
+                    <span className="text-sm font-medium text-taurus-accent">Start →</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-500">{step.hint}</p>
+                </Link>
+              </li>
+            ) : (
+              <li
+                key={step.title}
+                className="cursor-not-allowed rounded-lg border border-dashed border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="font-medium text-slate-700">{step.title}</p>
+                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-500">
+                    Coming soon
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-slate-500">{step.hint}</p>
+              </li>
+            ),
+          )}
         </ul>
       </div>
     </div>

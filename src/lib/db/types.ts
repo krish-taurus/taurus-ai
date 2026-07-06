@@ -7,6 +7,7 @@
  */
 
 import type { Role } from "@/modules/organizations/roles";
+import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
 
 export interface User {
   id: string;
@@ -142,4 +143,55 @@ export interface UpdateEmployeeInput {
   description?: string | null;
   status?: EmployeeStatus;
   visibility?: EmployeeVisibility;
+}
+
+// --- Employee DNA versions (Prompt 005) ------------------------------------
+
+export type DnaStatus = "draft" | "published" | "archived";
+
+/**
+ * A versioned Employee DNA record. Organization-scoped and tied to one employee.
+ * The `dna` payload conforms to EmployeeDnaV1 (schemaVersion "1.0").
+ */
+export interface EmployeeDnaVersion {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  versionNumber: number;
+  status: DnaStatus;
+  schemaVersion: string;
+  dna: EmployeeDnaV1;
+  createdByUserId: string | null;
+  publishedByUserId: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Snapshot of an employee's DNA state used to render the DNA + detail pages. */
+export interface EmployeeDnaOverview {
+  draft: EmployeeDnaVersion | null;
+  published: EmployeeDnaVersion | null;
+  /** All versions, newest first. */
+  versions: EmployeeDnaVersion[];
+}
+
+export interface SaveDnaDraftInput {
+  organizationId: string;
+  employeeId: string;
+  dna: EmployeeDnaV1;
+  userId: string;
+}
+
+export interface PublishDnaInput {
+  organizationId: string;
+  employeeId: string;
+  userId: string;
+}
+
+export interface ArchiveDnaVersionInput {
+  organizationId: string;
+  employeeId: string;
+  versionId: string;
+  userId: string;
 }

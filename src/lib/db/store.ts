@@ -12,14 +12,19 @@
 
 import type {
   AiEmployee,
+  ArchiveDnaVersionInput,
   AuditEvent,
   AuditEventInput,
   CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
+  EmployeeDnaOverview,
+  EmployeeDnaVersion,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  PublishDnaInput,
+  SaveDnaDraftInput,
   UpdateEmployeeInput,
   User,
 } from "@/lib/db/types";
@@ -61,6 +66,26 @@ export interface DataStore {
 
   /** Tenant-isolation seam: which organization owns this employee (or null). */
   getEmployeeOrganizationId(employeeId: string): Promise<string | null>;
+
+  // Employee DNA (Prompt 005) — all reads/writes are organization-scoped.
+  getEmployeeDnaOverview(organizationId: string, employeeId: string): Promise<EmployeeDnaOverview>;
+  getDraftEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null>;
+  getPublishedEmployeeDna(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion | null>;
+  listEmployeeDnaVersions(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<EmployeeDnaVersion[]>;
+  /** Upsert the single draft: updates it if present, else creates the next version. */
+  saveEmployeeDnaDraft(input: SaveDnaDraftInput): Promise<EmployeeDnaVersion>;
+  /** Promote the current draft to published, archiving any previously published. */
+  publishEmployeeDna(input: PublishDnaInput): Promise<EmployeeDnaVersion>;
+  archiveEmployeeDnaVersion(input: ArchiveDnaVersionInput): Promise<EmployeeDnaVersion | null>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;

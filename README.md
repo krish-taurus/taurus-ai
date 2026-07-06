@@ -378,7 +378,69 @@ pure hiring logic + Zod schema are in `src/modules/employees/hiring.ts`.
 ## Known limitations (Prompt 004)
 
 - Working style is stored but does not yet drive AI behavior (that is Employee
-  DNA, a later prompt).
-- The success page "next steps" are inert placeholders.
-- No Employee DNA editor, Knowledge Vault, chat/RAG, voice, marketplace,
-  collaboration, billing, tool integrations, public profiles, or LLM calls.
+  DNA — see Prompt 005 below).
+- The success page "Add Employee DNA" step is now live (Prompt 005); the rest
+  are inert placeholders.
+- No Knowledge Vault, chat/RAG, voice, marketplace, collaboration, billing, tool
+  integrations, public profiles, or LLM calls.
+
+---
+
+# Employee DNA (Prompt 005)
+
+Prompt 005 adds a **versioned Employee DNA** foundation — a structured,
+enterprise-safe "employee handbook" that defines who an AI Employee is, how it
+communicates, what it is responsible for, its boundaries, and when it escalates.
+There are no prompts, model settings, or vector language anywhere.
+
+## Route & flow
+
+`/dashboard/employees/:employeeId/dna` — a handbook-style editor with seven
+sections: **Identity, Responsibilities, Communication Style, Decision Style,
+Boundaries, Company Context, Learning Policy**.
+
+- **Not started → Draft → Published.** Save Draft persists your work; Publish DNA
+  promotes the current draft (archiving any previously published version).
+- When no DNA exists yet, the editor is **prefilled** from the employee's name,
+  role, department, description, and Hiring-Studio responsibilities + working
+  style. Nothing is written until you save.
+- A deterministic **completion score** (0–100, no AI) shows progress per section.
+- The **currently published DNA** is shown read-only, and full **version
+  history** is listed (managers can archive versions).
+- The employee detail page shows DNA status + published version + a manage CTA,
+  and the hire success page's "Add Employee DNA" links here.
+
+## Data
+
+- Table `employee_dna_versions` is reshaped by migration
+  `db/migrations/0004_employee_dna.sql`: `id`, `organization_id`, `employee_id`,
+  `version_number`, `status` (draft/published/archived), `schema_version`
+  (`"1.0"`), `dna` (jsonb), `created_by_user_id`, `published_by_user_id`,
+  `published_at`, timestamps. Indexed on org, employee, status, and
+  `(employee_id, version_number)`, with **partial unique indexes** enforcing at
+  most one draft and one published version per employee.
+- Domain lives in `src/modules/employee-dna/`: `schema.ts` (Zod v1 schema +
+  defaults), `prefill.ts`, `scoring.ts`, `service.ts`, `actions.ts`. Store
+  methods are organization-scoped and consistent across the in-memory and
+  PostgreSQL backends.
+
+## Permissions (server-enforced)
+
+- View DNA → `employee.view` (all active members).
+- Save draft / edit → `employee_dna.edit` (owner / admin / builder).
+- Publish + archive → `employee.manage` (owner / admin). **Builders can draft
+  but not publish.**
+
+Every action re-checks permissions server-side, resolves the organization from
+the session (never from the client), and is organization-scoped. Cross-org
+access returns not found. Audit events: `employee_dna.draft_saved`,
+`employee_dna.published`, `employee_dna.archived`.
+
+## Known limitations (Prompt 005)
+
+- Publishing requires structurally valid DNA, not 100% completion (the score is
+  informational).
+- Employee DNA is stored and versioned but does **not** yet drive runtime
+  behavior — no LLM calls, prompt rendering, RAG, chat, or execution.
+- No Knowledge Vault, voice, marketplace, collaboration, billing, tool
+  integrations, or public profiles.
