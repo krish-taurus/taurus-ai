@@ -13,13 +13,18 @@ import type { PoolClient } from "pg";
 import { getPool } from "@/lib/db/pool";
 import type { DataStore } from "@/lib/db/store";
 import type {
+  AiEmployee,
   AuditEvent,
   AuditEventInput,
+  CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
+  EmployeeStatus,
+  EmployeeVisibility,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  UpdateEmployeeInput,
   User,
 } from "@/lib/db/types";
 import { isRole, type Role } from "@/modules/organizations/roles";
@@ -59,6 +64,23 @@ function mapMembership(row: Row): OrganizationMember {
     userId: row.user_id,
     role,
     status: row.status,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapEmployee(row: Row): AiEmployee {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    roleTitle: row.role_title,
+    department: row.department,
+    description: row.description,
+    status: row.status as EmployeeStatus,
+    visibility: row.visibility as EmployeeVisibility,
+    avatarUrl: row.avatar_url,
+    createdBy: row.created_by,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -179,6 +201,76 @@ export class PostgresStore implements DataStore {
     } finally {
       client.release();
     }
+  }
+
+  async createEmployee(input: CreateEmployeeInput): Promise<AiEmployee> {
+    const { rows } = await this.query(
+      `insert into ai_employees
+         (organization_id, name, role_title, department, description, status, visibility, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning *`,
+      [
+        input.organizationId,
+        input.name,
+        input.roleTitle,
+        input.department ?? null,
+        input.description ?? null,
+        input.status ?? "draft",
+        input.visibility ?? "private",
+        input.createdBy ?? null,
+      ],
+    );
+    return mapEmployee(rows[0]);
+  }
+
+  async listEmployees(organizationId: string): Promise<AiEmployee[]> {
+    const { rows } = await this.query(
+      "select * from ai_employees where organization_id = $1 order by updated_at desc",
+      [organizationId],
+    );
+    return rows.map(mapEmployee);
+  }
+
+  async getEmployee(organizationId: string, employeeId: string): Promise<AiEmployee | null> {
+    // Organization scoping is part of the WHERE clause: an employee id from
+    // another organization simply returns no row.
+    const { rows } = await this.query(
+      "select * from ai_employees where id = $1 and organization_id = $2",
+      [employeeId, organizationId],
+    );
+    return rows[0] ? mapEmployee(rows[0]) : null;
+  }
+
+  async updateEmployee(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeInput,
+  ): Promise<AiEmployee | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (column: string, value: unknown) => {
+      sets.push(`${column} = $${i++}`);
+      values.push(value);
+    };
+
+    if (patch.name !== undefined) add("name", patch.name);
+    if (patch.roleTitle !== undefined) add("role_title", patch.roleTitle);
+    if ("department" in patch) add("department", patch.department ?? null);
+    if ("description" in patch) add("description", patch.description ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (patch.visibility !== undefined) add("visibility", patch.visibility);
+
+    if (sets.length === 0) return this.getEmployee(organizationId, employeeId);
+
+    sets.push("updated_at = now()");
+    values.push(employeeId, organizationId);
+    const { rows } = await this.query(
+      `update ai_employees set ${sets.join(", ")}
+       where id = $${i++} and organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapEmployee(rows[0]) : null;
   }
 
   async getEmployeeOrganizationId(employeeId: string): Promise<string | null> {

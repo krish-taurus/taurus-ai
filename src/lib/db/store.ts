@@ -11,13 +11,16 @@
  */
 
 import type {
+  AiEmployee,
   AuditEvent,
   AuditEventInput,
+  CreateEmployeeInput,
   CreateOrganizationInput,
   CreateUserInput,
   Organization,
   OrganizationMember,
   OrganizationMembershipView,
+  UpdateEmployeeInput,
   User,
 } from "@/lib/db/types";
 import type { Role } from "@/modules/organizations/roles";
@@ -46,7 +49,17 @@ export interface DataStore {
     ownerRole?: Role;
   }): Promise<OrganizationMembershipView>;
 
-  // Tenant-isolation seam for employees (no employees exist until Prompt 003).
+  // AI Employees (Prompt 003) — all reads/writes are organization-scoped.
+  createEmployee(input: CreateEmployeeInput): Promise<AiEmployee>;
+  listEmployees(organizationId: string): Promise<AiEmployee[]>;
+  getEmployee(organizationId: string, employeeId: string): Promise<AiEmployee | null>;
+  updateEmployee(
+    organizationId: string,
+    employeeId: string,
+    patch: UpdateEmployeeInput,
+  ): Promise<AiEmployee | null>;
+
+  /** Tenant-isolation seam: which organization owns this employee (or null). */
   getEmployeeOrganizationId(employeeId: string): Promise<string | null>;
 
   // Audit

@@ -265,4 +265,62 @@ The schema lives in [`db/migrations`](db/migrations) and is the source of truth.
 - The in-memory store is per-process and non-durable; production requires
   `DATABASE_URL`.
 - Member invitations and role management UIs are not built yet (later prompts).
-- The dashboard pages remain placeholders — no employee/knowledge features yet.
+
+---
+
+# AI Employees (Prompt 003)
+
+Prompt 003 adds AI Employee management inside an organization: create, list,
+view, edit, pause/activate, and archive. Everything is organization-scoped.
+
+## Routes
+
+| Route                                    | Purpose                                  |
+| ---------------------------------------- | ---------------------------------------- |
+| `/dashboard/employees`                   | List AI Employees in the current org     |
+| `/dashboard/employees/new`               | Hire (create) an AI Employee             |
+| `/dashboard/employees/:employeeId`       | Employee profile (Employee Card / detail)|
+| `/dashboard/employees/:employeeId/edit`  | Edit an AI Employee                       |
+
+The dashboard overview also shows an **AI Employees** section.
+
+## Model & flow
+
+- **Model** (`src/lib/db/types.ts` → `AiEmployee`): `id`, `organizationId`,
+  `name`, `roleTitle`, `department`, `description`, `status`, `visibility`,
+  `avatarUrl`, `createdBy`, `createdAt`, `updatedAt`.
+- **Status**: `draft`, `training`, `active`, `paused`, `archived`.
+- **Visibility**: `private`, `organization`, `network_ready`.
+- **Business logic** (`src/modules/employees/service.ts`) is pure and
+  organization-scoped; server actions (`.../actions.ts`) resolve the current
+  organization server-side and check role permissions before mutating.
+- **Archiving is the soft-delete** for employees (important business objects are
+  archived, never hard-deleted).
+- **Audit events**: `employee.created`, `employee.updated`, `employee.paused`,
+  `employee.archived`.
+
+## Permissions (least privilege)
+
+- Create → `employee.create` (owner, admin, builder).
+- View → `employee.view` (all roles).
+- Edit / pause / archive → `employee.manage` (owner, admin).
+
+Management controls are only shown to users who hold the permission, and are
+re-checked server-side.
+
+## Schema
+
+The `ai_employees` table is defined in `db/migrations/0001_init.sql`.
+`db/migrations/0002_employees.sql` adds a list-ordering index. `db/seed.sql`
+includes a sample AI Employee for the demo organization. No new environment
+variables are required for this prompt.
+
+## Known limitations (Prompt 003)
+
+- Archive is a soft-delete (status change); there is no hard-delete by design.
+- A `builder` can create employees but not edit/archive them (that requires
+  `employee.manage`), per the existing least-privilege role matrix.
+- Employee Card detail shows placeholders for Employee DNA, Knowledge Vault,
+  usage, and recent activity — those features arrive in later prompts.
+- No chat, RAG, voice, marketplace, collaboration, file uploads, or public
+  profiles (intentionally out of scope for this prompt).

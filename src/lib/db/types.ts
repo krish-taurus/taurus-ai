@@ -73,3 +73,50 @@ export interface CreateOrganizationInput {
   websiteUrl?: string | null;
   sizeRange?: string | null;
 }
+
+// --- AI Employees (Prompt 003) ---------------------------------------------
+
+export type EmployeeStatus = "draft" | "training" | "active" | "paused" | "archived";
+
+export type EmployeeVisibility = "private" | "organization" | "network_ready";
+
+/**
+ * An AI Employee: a persistent AI worker owned by an organization. Every
+ * employee is tenant-scoped via `organizationId`; there is no way to read an
+ * employee without an organization context (see DataStore.getEmployee).
+ */
+export interface AiEmployee {
+  id: string;
+  organizationId: string;
+  name: string;
+  roleTitle: string;
+  department: string | null;
+  description: string | null;
+  status: EmployeeStatus;
+  visibility: EmployeeVisibility;
+  avatarUrl: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateEmployeeInput {
+  organizationId: string;
+  name: string;
+  roleTitle: string;
+  department?: string | null;
+  description?: string | null;
+  status?: EmployeeStatus;
+  visibility?: EmployeeVisibility;
+  createdBy?: string | null;
+}
+
+/** Fields that may be patched on an existing employee. */
+export interface UpdateEmployeeInput {
+  name?: string;
+  roleTitle?: string;
+  department?: string | null;
+  description?: string | null;
+  status?: EmployeeStatus;
+  visibility?: EmployeeVisibility;
+}
