@@ -2,16 +2,22 @@ import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { InMemoryStore } from "@/lib/db/in-memory-store";
-import { saveProviderCredential } from "@/modules/model-gateway/service";
+import {
+  disableProviderCredential,
+  saveProviderCredential,
+  testProviderConnection,
+} from "@/modules/model-gateway/service";
 import { PROVIDER_SLUGS } from "@/modules/model-gateway/schema";
 import type { ProviderSlug } from "@/lib/db/types";
 
 /**
- * Regression coverage for the BYOK save bug: provider credentials + their audit
- * events are keyed by provider SLUG ("openai", "anthropic", …), never a UUID.
- * The audit_events.target_id column was uuid, so saving raised
- *   invalid input syntax for type uuid: "openai"
- * Migration 0013 widens target_id to text.
+ * Regression coverage for the BYOK slug/UUID bug: provider credentials are keyed
+ * by provider SLUG ("openai", "anthropic", …), never a UUID. Every credential
+ * store query uses organization_id + provider_slug, and the credential audit
+ * events carry the slug in metadata while leaving the uuid target_id column null
+ * — so no operation (save / metadata / test / remove) can push a slug into a
+ * uuid column. Migration 0013 additionally widens target_id to text as defense
+ * in depth.
  */
 
 const MASTER_KEY_VAR = "TAURUS_MODEL_CREDENTIALS_MASTER_KEY";
@@ -36,47 +42,87 @@ function inputFor(slug: ProviderSlug) {
     : { providerSlug: slug, apiKey: `sk-${slug}-plaintext-4242` };
 }
 
-describe("BYOK save by provider slug (hotfix)", () => {
-  it("saves an OpenAI key by slug — no UUID coercion, encrypted, slug-keyed", async () => {
+/** No audit event ever uses a provider slug as its (uuid) target_id. */
+function assertNoSlugTargetIds(store: InMemoryStore) {
+  const slugs = new Set<string>(PROVIDER_SLUGS);
+  for (const event of store._auditEvents()) {
+    if (event.targetId != null) {
+      expect(
+        slugs.has(event.targetId),
+        `target_id must not be a provider slug: ${event.targetId}`,
+      ).toBe(false);
+    }
+  }
+}
+
+describe("BYOK credential audit keying (hotfix)", () => {
+  it("records the provider by slug in metadata, never in the uuid target_id", async () => {
     withEncryption();
     const store = new InMemoryStore();
+    await saveProviderCredential(store, actor, inputFor("openai"));
 
-    const meta = await saveProviderCredential(store, actor, inputFor("openai"));
-
-    // Keyed by the provider SLUG, not a UUID.
-    expect(meta.providerSlug).toBe("openai");
-    expect(meta.credentialMode).toBe("bring_your_own_key");
-    expect(meta.status).toBe("active");
-    expect(meta.keyLastFour).toBe("4242");
-
-    // Metadata loads by slug and shows "configured".
-    const loaded = await store.getProviderCredentialMetadata("org-1", "openai");
-    expect(loaded?.credentialMode).toBe("bring_your_own_key");
-    expect(loaded?.status).toBe("active");
-
-    // Encrypted at rest; plaintext never stored or returned.
-    const encrypted = await store.getProviderEncryptedKey("org-1", "openai");
-    expect(encrypted).toBeTruthy();
-    expect(encrypted).not.toContain("sk-openai-plaintext-4242");
-    expect(JSON.stringify(meta)).not.toContain("sk-openai-plaintext-4242");
-    expect((meta as unknown as Record<string, unknown>).encryptedApiKey).toBeUndefined();
-
-    // The audit event targets the slug (not a UUID) and never carries the key.
     const audit = store._auditEvents().find((e) => e.action === "provider_credential.saved");
-    expect(audit?.targetId).toBe("openai");
-    expect(JSON.stringify(store._auditEvents())).not.toContain("sk-openai-plaintext-4242");
+    expect(audit?.targetType).toBe("provider");
+    expect(audit?.targetId).toBeNull();
+    expect(audit?.metadata?.providerSlug).toBe("openai");
+    assertNoSlugTargetIds(store);
   });
+});
 
-  it("saves an Anthropic key by slug", async () => {
-    withEncryption();
-    const store = new InMemoryStore();
-    const meta = await saveProviderCredential(store, actor, inputFor("anthropic"));
-    expect(meta.providerSlug).toBe("anthropic");
-    expect(meta.status).toBe("active");
-    const audit = store._auditEvents().find((e) => e.action === "provider_credential.saved");
-    expect(audit?.targetId).toBe("anthropic");
-  });
+describe("OpenAI + Anthropic full BYOK lifecycle", () => {
+  for (const slug of ["openai", "anthropic"] as ProviderSlug[]) {
+    it(`saves, reloads metadata, tests, and removes a ${slug} key without UUID errors`, async () => {
+      withEncryption();
+      const store = new InMemoryStore();
 
+      // 1. Save.
+      const meta = await saveProviderCredential(store, actor, inputFor(slug));
+      expect(meta.providerSlug).toBe(slug);
+      expect(meta.credentialMode).toBe("bring_your_own_key");
+      expect(meta.status).toBe("active");
+      expect(meta.keyLastFour).toBe("4242");
+      expect(JSON.stringify(meta)).not.toContain(`sk-${slug}-plaintext-4242`);
+      expect((meta as unknown as Record<string, unknown>).encryptedApiKey).toBeUndefined();
+
+      // 2. Metadata reload (queried by org + provider_slug).
+      const loaded = await store.getProviderCredentialMetadata("org-1", slug);
+      expect(loaded?.providerSlug).toBe(slug);
+      expect(loaded?.status).toBe("active");
+      const encrypted = await store.getProviderEncryptedKey("org-1", slug);
+      expect(encrypted).toBeTruthy();
+      expect(encrypted).not.toContain(`sk-${slug}-plaintext-4242`);
+
+      // 3. Test connection (injected probe — no network). Must not throw.
+      let probedKey: string | null = null;
+      const result = await testProviderConnection(store, actor, slug, {
+        probe: async (input) => {
+          probedKey = input.apiKey;
+        },
+      });
+      expect(result.ok).toBe(true);
+      expect(probedKey).toBe(`sk-${slug}-plaintext-4242`); // resolver decrypted the saved key
+      const tested = store._auditEvents().find((e) => e.action === "provider_credential.tested");
+      expect(tested?.metadata?.providerSlug).toBe(slug);
+
+      // 4. Remove / disable.
+      await disableProviderCredential(store, actor, slug);
+      const afterRemove = await store.getProviderCredentialMetadata("org-1", slug);
+      expect(afterRemove?.credentialMode).toBe("disabled");
+      expect(afterRemove?.status).toBe("disabled");
+      expect(afterRemove?.keyLastFour).toBeNull();
+      const disabled = store
+        ._auditEvents()
+        .find((e) => e.action === "provider_credential.disabled");
+      expect(disabled?.metadata?.providerSlug).toBe(slug);
+
+      // No step leaked a slug into a uuid target_id, and no plaintext was stored.
+      assertNoSlugTargetIds(store);
+      expect(JSON.stringify(store._auditEvents())).not.toContain(`sk-${slug}-plaintext-4242`);
+    });
+  }
+});
+
+describe("BYOK save by provider slug", () => {
   it("saves a key for every supported provider without UUID errors", async () => {
     withEncryption();
     for (const slug of PROVIDER_SLUGS) {
@@ -85,10 +131,10 @@ describe("BYOK save by provider slug (hotfix)", () => {
       expect(meta.providerSlug, `provider ${slug}`).toBe(slug);
       expect(meta.status).toBe("active");
       expect(meta.keyLastFour).toBe("4242");
-      // The audit target id is the slug string — a value a uuid column rejects.
       const audit = store._auditEvents().find((e) => e.action === "provider_credential.saved");
-      expect(audit?.targetId).toBe(slug);
-      expect(typeof audit?.targetId).toBe("string");
+      expect(audit?.metadata?.providerSlug).toBe(slug);
+      expect(audit?.targetId).toBeNull();
+      assertNoSlugTargetIds(store);
     }
     // Exactly the eight required providers are covered.
     expect(PROVIDER_SLUGS).toEqual([
@@ -105,15 +151,13 @@ describe("BYOK save by provider slug (hotfix)", () => {
 });
 
 describe("audit_events schema guard", () => {
-  it("stores target_id as text so provider slugs are valid", () => {
+  it("stores target_id as text so slug-shaped target ids are always valid (defense in depth)", () => {
     const dir = join(process.cwd(), "db", "migrations");
     const sql = readdirSync(dir)
       .filter((f) => f.endsWith(".sql"))
       .map((f) => readFileSync(join(dir, f), "utf8"))
       .join("\n")
       .toLowerCase();
-
-    // The hotfix migration widens the column to text.
     expect(sql).toMatch(/alter column target_id type text/);
   });
 });

@@ -213,7 +213,9 @@ export async function saveProviderCredential(
     actorId: actor.userId,
     action: "provider_credential.saved",
     targetType: "provider",
-    targetId: providerSlug,
+    // A provider is identified by its slug (kept in metadata), not a UUID.
+    // target_id is a uuid column, so it must stay null here.
+    targetId: null,
     metadata: {
       providerSlug,
       credentialMode: "bring_your_own_key",
@@ -311,7 +313,9 @@ export async function testProviderConnection(
     actorId: actor.userId,
     action: "provider_credential.tested",
     targetType: "provider",
-    targetId: providerSlug,
+    // A provider is identified by its slug (kept in metadata), not a UUID.
+    // target_id is a uuid column, so it must stay null here.
+    targetId: null,
     metadata: { providerSlug, mode: credential.mode, ok },
   });
 
@@ -333,7 +337,9 @@ export async function disableProviderCredential(
     actorId: actor.userId,
     action: "provider_credential.disabled",
     targetType: "provider",
-    targetId: providerSlug,
+    // A provider is identified by its slug (kept in metadata), not a UUID.
+    // target_id is a uuid column, so it must stay null here.
+    targetId: null,
     metadata: { providerSlug },
   });
 }

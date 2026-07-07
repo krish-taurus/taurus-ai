@@ -290,7 +290,9 @@ export async function saveVoiceProviderCredential(
     actorId: actor.userId,
     action: "channel_provider_credential.saved",
     targetType: "provider",
-    targetId: providerType,
+    // A provider is identified by its type (kept in metadata), not a UUID.
+    // target_id is a uuid column, so it must stay null here.
+    targetId: null,
     metadata: { providerType, credentialMode: "bring_your_own_key" },
   });
 }
