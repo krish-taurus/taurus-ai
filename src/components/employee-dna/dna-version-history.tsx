@@ -8,7 +8,7 @@
 
 import { formatDate } from "@/lib/format";
 import type { DnaStatus, EmployeeDnaVersion } from "@/lib/db/types";
-import { archiveDnaVersionAction } from "@/modules/employee-dna/actions";
+import { ArchiveVersionButton } from "@/components/employee-dna/archive-version-button";
 import { Badge, Card, StatusDot } from "@/components/ui";
 
 export const DNA_STATUS_LABELS: Record<DnaStatus, string> = {
@@ -68,16 +68,7 @@ export function DnaVersionHistory({
                 Updated {formatDate(version.updatedAt)}
               </span>
               {canManage && version.status !== "archived" ? (
-                <form action={archiveDnaVersionAction}>
-                  <input type="hidden" name="employeeId" value={employeeId} />
-                  <input type="hidden" name="versionId" value={version.id} />
-                  <button
-                    type="submit"
-                    className="text-xs font-medium text-taurus-faint transition-colors hover:text-taurus-text"
-                  >
-                    Archive
-                  </button>
-                </form>
+                <ArchiveVersionButton employeeId={employeeId} versionId={version.id} />
               ) : null}
             </div>
           </li>

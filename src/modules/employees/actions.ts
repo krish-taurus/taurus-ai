@@ -73,7 +73,13 @@ export async function updateEmployeeAction(
   redirect(`/dashboard/employees/${employeeId}`);
 }
 
-/** Quick lifecycle actions (buttons on the detail page). */
+const LIFECYCLE_DENIED = "You do not have permission to change this AI Employee.";
+
+/**
+ * Quick lifecycle actions (buttons on the detail page). These use the
+ * useFormState signature so a permission denial or a failed transition surfaces
+ * a clear message instead of a silent no-op. On success the action redirects.
+ */
 async function runLifecycle(
   formData: FormData,
   run: (
@@ -81,15 +87,15 @@ async function runLifecycle(
     actor: { organizationId: string; userId: string },
     employeeId: string,
   ) => Promise<unknown>,
-): Promise<void> {
+): Promise<EmployeeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
   const ctx = await requirePermission("employee.manage");
-  if (ctx.denied) redirect(`/dashboard/employees/${employeeId}`);
+  if (ctx.denied) return { error: LIFECYCLE_DENIED };
 
   try {
     await run(getStore(), { organizationId: ctx.organization.id, userId: ctx.user.id }, employeeId);
-  } catch {
-    // Fall through to a redirect; the detail page will reflect current state.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not update the AI Employee." };
   }
 
   revalidatePath("/dashboard/employees");
@@ -97,18 +103,27 @@ async function runLifecycle(
   redirect(`/dashboard/employees/${employeeId}`);
 }
 
-export async function pauseEmployeeAction(formData: FormData): Promise<void> {
-  await runLifecycle(formData, pauseEmployee);
+export async function pauseEmployeeAction(
+  _prevState: EmployeeActionState,
+  formData: FormData,
+): Promise<EmployeeActionState> {
+  return runLifecycle(formData, pauseEmployee);
 }
 
-export async function activateEmployeeAction(formData: FormData): Promise<void> {
-  await runLifecycle(formData, activateEmployee);
+export async function activateEmployeeAction(
+  _prevState: EmployeeActionState,
+  formData: FormData,
+): Promise<EmployeeActionState> {
+  return runLifecycle(formData, activateEmployee);
 }
 
-export async function archiveEmployeeAction(formData: FormData): Promise<void> {
+export async function archiveEmployeeAction(
+  _prevState: EmployeeActionState,
+  formData: FormData,
+): Promise<EmployeeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
   const ctx = await requirePermission("employee.manage");
-  if (ctx.denied) redirect(`/dashboard/employees/${employeeId}`);
+  if (ctx.denied) return { error: LIFECYCLE_DENIED };
 
   try {
     await archiveEmployee(
@@ -116,8 +131,8 @@ export async function archiveEmployeeAction(formData: FormData): Promise<void> {
       { organizationId: ctx.organization.id, userId: ctx.user.id },
       employeeId,
     );
-  } catch {
-    // Ignore and redirect to the list below.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not archive the AI Employee." };
   }
 
   revalidatePath("/dashboard/employees");

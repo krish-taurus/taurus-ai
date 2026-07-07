@@ -44,7 +44,7 @@ core loop:
 | 2 | ~~**Employee detail** "Usage" / "Recent activity" tiles are hardcoded placeholders~~ → **FIXED in Batch 3** (real org-scoped data) | ✅ Working | Core-loop screen |
 | 3 | ~~**Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon"~~ → **FIXED in Batch 2** (real links) | ✅ Working | Guided onboarding path |
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
-| 5 | Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback | Partial | UX; failures look like no-ops |
+| 5 | ~~Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback~~ → **FIXED in Batch 4** | ✅ Working | UX; failures now surface |
 | 6 | **Voice** credential Save lacks Zod; credential **Test**/**Disable** named but never implemented | Partial / Static | Inconsistent with messaging; voice is foundation |
 | 7 | **SendGrid / Telnyx / Vonage** webhook verification returns `true` on config-presence (no crypto check) | Security (foundation) | Must be real before those providers go live |
 | 8 | ~~"Collect visitor email" channel toggle is persisted but consumed by nothing~~ → **FIXED in Batch 2** (inert control removed) | ✅ Working | Inert control |
@@ -340,12 +340,12 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 - `connection-card.tsx:65-69` — "Test" link navigates to Configure, not a test.
 - Voice credential **Test**/**Disable** — named in scope, no implementation.
 
-**Mutations with dropped/ swallowed error UI (Partial)**
-- `employees/actions.ts:91,119` (pause/activate/archive), `employee-dna/actions.ts:122`
-  (archive version), `knowledge/actions.ts:155,171,186` (archive/assign/unassign) —
-  `catch {}` then redirect.
-- `voice-status-controls.tsx:50-52` — dropped `useFormState` error slot.
-- `prepare-knowledge-button.tsx:33` — discarded action state.
+**Mutations with dropped/ swallowed error UI (Partial)** — ✅ **ALL FIXED in Batch 4**
+- ~~`employees/actions.ts` (pause/activate/archive), `employee-dna/actions.ts`
+  (archive version), `knowledge/actions.ts` (archive/assign/unassign) — `catch {}`
+  then redirect.~~ Now return an error state surfaced inline.
+- ~~`voice-status-controls.tsx` — dropped `useFormState` error slot.~~ Now captured + shown.
+- ~~`prepare-knowledge-button.tsx` — discarded action state.~~ Now shows error + a success notice.
 
 **Missing/inconsistent validation**
 - `voice-runtime/actions.ts:148-169` — credential save has no Zod (manual cast).
@@ -425,16 +425,28 @@ Replaced the hardcoded tiles with org-scoped reads.
   `audit.view` boundary. Full suite **311 passing**; terminology green;
   `tsc`/`lint`/`next build` clean.
 
-### Batch 4 — **Error-surfacing hardening**
-Give failed mutations user-facing feedback.
-- **Files:** `employees/actions.ts` (pause/activate/archive), `employee-dna/actions.ts`
-  (archive version), `knowledge/actions.ts` (archive/assign/unassign),
-  `voice-status-controls.tsx` + `voice-runtime/actions.ts`,
-  `prepare-knowledge-button.tsx` — return/surface an error state instead of
-  `catch {}` / dropped slots. Preserve current happy-path behavior.
-- **Risk:** Low (adds feedback; does not change success flow or permissions).
-- **Proof:** permission-denied and forced-failure cases render an error; happy
-  path unchanged.
+### Batch 4 — **Error-surfacing hardening** ✅ **DONE**
+Gave failed mutations user-facing feedback (no permission/scoping/validation
+change — those were already enforced and tested).
+- **Files changed:** `employees/actions.ts` (pause/activate/archive → useFormState
+  signature, return error), `employee-dna/actions.ts` (archive version),
+  `knowledge/actions.ts` (archive/assign/unassign) — replaced `catch {}` /
+  silent redirects with returned `{ error }`. Clients updated to render it:
+  `employee-actions.tsx`, new `employee-dna/archive-version-button.tsx` +
+  `dna-version-history.tsx`, `knowledge-source-actions.tsx`, new
+  `knowledge/assign-knowledge-button.tsx` + `assign-knowledge-panel.tsx`,
+  `voice-status-controls.tsx` (captured the dropped slots),
+  `prepare-knowledge-button.tsx` (error + success notice). New client wrappers
+  keep the two panels server components. Tests: `src/tests/error-surfacing-ui.test.tsx`.
+- **Risk:** Low. Success flow (redirect/revalidate) and all server-side
+  permission/org checks are unchanged; only the failure path now returns a
+  message instead of a silent no-op.
+- **Proof:** `src/tests/error-surfacing-ui.test.tsx` injects an action state and
+  asserts each control renders the error (and the prepare button its success
+  notice) — proving the previously-discarded state is now surfaced. Permission
+  and cross-org behavior of these mutations is unchanged and already covered by
+  the service-layer suites (`employees`, `employee-dna`, `knowledge`). Full suite
+  **318 passing**; terminology green; `tsc`/`lint`/`next build` clean.
 
 ### Batch 5 — **Voice credential parity with messaging**
 - Add Zod validation to voice credential save; implement voice credential
