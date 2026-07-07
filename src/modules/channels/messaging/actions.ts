@@ -152,6 +152,8 @@ const SECRET_FIELDS = [
   "apiKey",
   "domain",
   "signingKey",
+  // SendGrid Signed Event Webhook verification key (ECDSA public key).
+  "verificationKey",
 ];
 
 export async function saveProviderCredentialAction(

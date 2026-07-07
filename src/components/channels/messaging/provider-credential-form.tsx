@@ -32,7 +32,10 @@ const FIELDS: Partial<
     { name: "appSecret", label: "App Secret", optional: true },
     { name: "verifyToken", label: "Verify Token", optional: true },
   ],
-  sendgrid: [{ name: "apiKey", label: "API Key" }],
+  sendgrid: [
+    { name: "apiKey", label: "API Key" },
+    { name: "verificationKey", label: "Event Webhook Verification Key", optional: true },
+  ],
   mailgun: [
     { name: "apiKey", label: "API Key" },
     { name: "domain", label: "Domain" },

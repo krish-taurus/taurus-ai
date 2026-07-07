@@ -46,7 +46,7 @@ core loop:
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
 | 5 | ~~Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback~~ → **FIXED in Batch 4** | ✅ Working | UX; failures now surface |
 | 6 | ~~**Voice** credential Save lacks Zod; credential **Disable** never implemented~~ → **FIXED in Batch 5** (Zod on save + Disable added). **Test** intentionally omitted — neither voice nor messaging providers do a live test (foundation) | ✅ Working | Now at parity with messaging |
-| 7 | **SendGrid / Telnyx / Vonage** webhook verification returns `true` on config-presence (no crypto check) | Security (foundation) | Must be real before those providers go live |
+| 7 | ~~**SendGrid / Telnyx / Vonage** webhook verification returns `true` on config-presence (no crypto check)~~ → **FIXED in Batch 6** (real Ed25519 / JWT-HS256 / ECDSA, fail-closed) | ✅ Working | Security |
 | 8 | ~~"Collect visitor email" channel toggle is persisted but consumed by nothing~~ → **FIXED in Batch 2** (inert control removed) | ✅ Working | Inert control |
 
 Everything else labeled below as **Simulated (by design)** — dev auth, simulated
@@ -221,7 +221,7 @@ of Zod.
 | Provider credential save / disable | Working | `provider-credential-form.tsx:99-126`; `service.ts:191-257` | Encryption gate; required-field checks |
 | Simulate incoming message | Simulated (by design) | `simulate-form.tsx`; `actions.ts:199-232`; `service.ts:269-304` | `channel.manage`; Zod; forces `mode:"simulated"` |
 | Inbound webhook POST | Working | `webhooks/channels/.../route.ts:39-103`; `webhook.ts:36-130` | Org from publicKey; sig verify; contact-block/opt-out enforced |
-| Signature verification | Working (Twilio/Meta/Mailgun); **Weak (SendGrid)** | `twilio.ts:82-98`, `meta-whatsapp.ts:94-102`, `mailgun-email.ts:77-86`; **`sendgrid-email.ts:84-85`** | SendGrid returns `verified:true` on apiKey presence — no crypto check |
+| Signature verification | Working (Twilio/Meta/Mailgun/**SendGrid**) | `twilio.ts`, `meta-whatsapp.ts`, `mailgun-email.ts`; **`sendgrid-email.ts` (Batch 6)** | SendGrid now does real ECDSA P-256 verification for signed Event Webhooks (verification key wired into the credential form); unsigned Inbound Parse is secret-URL authenticated (its actual model) |
 
 Summary: full messaging infrastructure (channels, encrypted credentials,
 webhooks, templates, opt-out) is built and org-scoped; live delivery is
@@ -240,7 +240,7 @@ verification is not real** and must be fixed before SendGrid goes live.
 | Status controls (activate/pause/archive) | **Partial** | `voice-status-controls.tsx:50-52` | Perm+org OK, but **action error state dropped** (`const [, activate]`) |
 | Simulate call (start/utterance/end) | Simulated (by design) | `actions.ts:173-262` | `channel.manage`; Zod; forces `mode:"simulated"` |
 | Voice webhook POST | Working | `webhooks/voice/.../route.ts:21-85` | Org from publicKey; sig verify in live mode |
-| Signature verification | Working (Twilio); **Weak (Telnyx/Vonage)** | `twilio-voice.ts:69-81`; **`telnyx-voice.ts:76-84`, `vonage-voice.ts:61-68`** | Telnyx/Vonage return `verified:true` on config-presence — no crypto check |
+| Signature verification | Working (Twilio/**Telnyx**/**Vonage**) | `twilio-voice.ts`; **`telnyx-voice.ts`, `vonage-voice.ts` (Batch 6)** | Telnyx now does real Ed25519 verification (configured public key); Vonage does real signed-webhook JWT (HS256) verification with payload-hash check. Both fail-closed |
 
 Summary: voice setup/credential/webhook infra is built and org-scoped; providers
 are foundation (no live calls; media-stream start/stop are no-ops by design).
@@ -355,10 +355,13 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 - `api/public/channels/[publicKey]/messages/route.ts:65-75` — manual type-guard
   validation (robust) rather than Zod.
 
-**Security (foundation providers — fix before go-live)**
-- `sendgrid-email.ts:84-85`, `telnyx-voice.ts:76-84`, `vonage-voice.ts:61-68` —
-  `verifyWebhook` returns `true` on config-presence, no cryptographic check.
-  (Twilio, Meta, Mailgun, and Stripe do real HMAC verification.)
+**Security (foundation providers)** — ✅ **FIXED in Batch 6**
+- ~~`sendgrid-email.ts`, `telnyx-voice.ts`, `vonage-voice.ts` — `verifyWebhook`
+  returns `true` on config-presence, no cryptographic check.~~ Now do real,
+  fail-closed verification: Telnyx **Ed25519**, Vonage **signed-webhook JWT
+  (HS256)** + payload-hash, SendGrid **ECDSA P-256** for signed Event Webhooks.
+  All in `signature-verify.ts` (node:crypto, no new deps). The webhook gate still
+  allows dev/simulated even when unverified, so local flows are unaffected.
 
 **Deferred by design (documented in UI — not defects)**
 - URL sources stored-not-fetched; PDF/DOCX stored-not-parsed; Model Hub budget
@@ -473,16 +476,33 @@ change — those were already enforced and tested).
   permission boundary. Full suite **328 passing**; terminology green;
   `tsc`/`lint`/`next build` clean.
 
-### Batch 6 — **Real webhook signature verification (pre-go-live, security)**
-For **SendGrid**, **Telnyx**, **Vonage**, replace config-presence checks with
-real signature verification (mirroring Twilio/Meta/Mailgun/Stripe). Keep the
-simulated/no-secret path intact for dev/tests.
-- **Files:** `channels/messaging/providers/sendgrid-email.ts`,
-  `voice-runtime/providers/telnyx-voice.ts`, `voice-runtime/providers/vonage-voice.ts`.
-- **Risk:** Medium (security-sensitive; only matters when those providers go
-  live — not launch-blocking while foundation/simulated).
-- **Proof:** valid-signature accepted, tampered/invalid rejected (unit tests with
-  known vectors); unsigned dev path still works.
+### Batch 6 — **Real webhook signature verification** ✅ **DONE**
+Replaced config-presence checks with real, fail-closed cryptographic verification.
+- **Approach:** new `src/modules/channels/messaging/signature-verify.ts`
+  (server-only, `node:crypto`, no new deps) with `verifyEd25519`,
+  `verifyEcdsaP256`, and `verifyJwtHs256` + `sha256Hex`. Verification keys come
+  from the per-org resolved credential secrets (never client input).
+  - **Telnyx** (`telnyx-voice.ts`): Ed25519 over `${timestamp}|${rawBody}` using
+    the configured public key.
+  - **Vonage** (`vonage-voice.ts`): Vonage Signed-Webhook JWT (HS256) in the
+    `Authorization: Bearer` header, verified against the signature secret, with a
+    `payload_hash` claim matched to the body.
+  - **SendGrid** (`sendgrid-email.ts`): ECDSA P-256 over `${timestamp}${rawBody}`
+    for signed Event Webhooks using a new `verificationKey` secret (wired into
+    the messaging credential form + `SECRET_FIELDS`). Unsigned Inbound Parse
+    stays secret-URL authenticated (its actual model — there is no signature).
+- **Safety:** the webhook gate is `verified || (mode !== "live" && !production)`,
+  so dev/simulated flows are **unaffected**; only live production now requires a
+  valid signature (previously it accepted any request once a key was configured).
+- **Risk:** Medium (security-sensitive) — but strictly safer than before. Because
+  these providers aren't wired to live accounts yet, the exact signed payloads
+  should still be validated against each provider's sandbox before go-live; the
+  crypto itself is unit-proven.
+- **Proof:** `src/tests/webhook-signatures.test.ts` (10 tests) generates real
+  Ed25519 / EC (P-256) / HS256 key material with `node:crypto`, and asserts valid
+  signatures verify while tampered bodies, forged secrets, mismatched
+  payload-hashes, and missing headers all fail-closed. Full suite **338 passing**;
+  terminology green; `tsc`/`lint`/`next build` clean.
 
 ### Product decisions (not auto-fix)
 - **Collaboration:** build a minimal real feature, hide the nav entry, or keep it
