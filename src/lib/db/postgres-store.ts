@@ -2696,6 +2696,31 @@ export class PostgresStore implements DataStore {
     };
   }
 
+  async listAuditEvents(organizationId: string, limit = 50): Promise<AuditEvent[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, actor_type, actor_id, action, target_type, target_id,
+              metadata, created_at
+       from audit_events
+       where organization_id = $1
+       order by created_at desc
+       limit $2`,
+      [organizationId, limit],
+    );
+    return rows.map(
+      (row: Row): AuditEvent => ({
+        id: row.id,
+        organizationId: row.organization_id,
+        actorType: row.actor_type,
+        actorId: row.actor_id ?? null,
+        action: row.action,
+        targetType: row.target_type ?? null,
+        targetId: row.target_id ?? null,
+        metadata: (row.metadata as Record<string, unknown>) ?? {},
+        createdAt: new Date(row.created_at).toISOString(),
+      }),
+    );
+  }
+
   // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
 
   async getBillingSubscription(organizationId: string): Promise<BillingSubscription | null> {

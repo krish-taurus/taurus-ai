@@ -40,7 +40,7 @@ core loop:
 
 | # | Gap | Status | Impact |
 |---|-----|--------|--------|
-| 1 | **Audit page** shows a hardcoded empty state; events are written at ~40 sites but there is no store read method and no `audit.view` check on the page | Static | Trust/compliance for SMB; whole page shows nothing real |
+| 1 | ~~**Audit page** shows a hardcoded empty state; events are written at ~40 sites but there is no store read method and no `audit.view` check~~ → **FIXED in Batch 1** (now **Working**) | ✅ Working | Trust/compliance for SMB |
 | 2 | **Employee detail** "Usage" / "Recent activity" tiles are hardcoded placeholders | Mock-only | Core-loop screen shows fake data |
 | 3 | **Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon" — **yet those routes exist** | Static (stale) | Breaks the guided onboarding path |
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
@@ -261,19 +261,20 @@ Summary: connections is a pure presentation/filter layer over channels
 deliberate navigator into the existing per-employee setup pages. The card "Test"
 label is misleading — it does not invoke a test.
 
-### audit — **Static (dead stub)**
+### audit — **Working** ✅ *(fixed in Batch 1)*
 
 | Element / View | Status | Evidence | Notes |
 |---|---|---|---|
-| Audit page | **Static** | `audit/page.tsx:3-15` | Hardcoded `EmptyState "No audit events yet."` — **no `requireCurrentOrganization`, no `audit.view` check, no store read, no pagination/filters** |
+| Audit page | **Working** | `audit/page.tsx` | `requireCurrentOrganization` + `hasPermission("audit.view")` redirect; org-scoped `listAuditEvents`; friendly labels; actor-name resolution; empty + loading states |
+| Store read path | **Working** | `store.ts` `listAuditEvents`; `in-memory-store.ts` + `postgres-store.ts` | Org-scoped, most-recent-first, identical in both backends |
+| Friendly labels | **Working** | `modules/audit/metadata.ts` | Taurus terminology; humanized fallback for unknown codes |
 
-Summary: audit **events are written** org-scoped at ~40 call sites
-(`store.createAuditEvent`) and persisted, but there is **no `listAuditEvents`
-read method** on the store (only `createAuditEvent`), and the page renders a
-constant empty state. The `audit.view` permission is defined (`roles.ts:35,75`)
-but checked nowhere. The `audit_events` table (`0001_init.sql`) and an in-memory
-`_auditEvents()` helper already exist. **This is the single highest-value real
-gap.**
+Summary: **FIXED in Batch 1.** Audit events (written org-scoped at ~40 sites) are
+now read via the new `store.listAuditEvents(orgId, limit)` (both backends) and
+rendered on an owner/admin-only page with friendly labels, actor names, and
+empty/loading states. Covered by `src/tests/audit.test.ts` (org scoping,
+cross-org isolation, permissions, label mapping). No migration needed
+(`audit_events` table already existed).
 
 ### usage — **Server-side metering only (no dedicated UI, by design)**
 
@@ -323,8 +324,8 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 ## Consolidated failure-pattern findings
 
 **Dead/static data views**
-- `audit/page.tsx:3-15` — constant empty state, no store read, no permission/org
-  guard. (No `listAuditEvents` store method exists.)
+- ~~`audit/page.tsx` — constant empty state, no store read, no permission/org
+  guard.~~ ✅ **FIXED in Batch 1** (now Working; `listAuditEvents` added to both backends).
 - `[employeeId]/page.tsx:308-312` — hardcoded "Usage"/"Recent activity" tiles.
 - `collaboration/page.tsx:3-16` — placeholder page; module is a lone README.
 
@@ -373,19 +374,21 @@ Ranked by impact for a self-serve SMB launch. The **core loop is already
 Working**, so priority goes to the highest-value real gaps that are safely
 shippable. Each batch: files touched · risk · proof.
 
-### Batch 1 — Make the **Audit trail** real *(highest-value real gap)*
-Wire the emitted audit events to the page.
-- **Files:** `src/lib/db/store.ts` (+`listAuditEvents(orgId, limit)` on the
-  interface), `in-memory-store.ts` + `postgres-store.ts` (implement identically;
-  in-memory already has `_auditEvents()`), `src/app/dashboard/audit/page.tsx`
-  (add `requireCurrentOrganization` + `hasPermission("audit.view")` + org-scoped
-  read + empty/loading state; render action/actor/target/time; optional simple
-  paging). Optional: a small `audit/metadata.ts` for friendly action labels
-  (Taurus terminology). **No migration** (`audit_events` table exists).
-- **Risk:** Low (additive read path; no mutation, no schema change).
-- **Proof:** store parity test for `listAuditEvents`; page shows real events;
-  permission-denied (viewer without `audit.view`) hidden; cross-org isolation
-  (org A cannot see org B's events); terminology test stays green.
+### Batch 1 — Make the **Audit trail** real ✅ **DONE**
+Wired the emitted audit events to the page.
+- **Files changed:** `src/lib/db/store.ts` (+`listAuditEvents(orgId, limit)`),
+  `in-memory-store.ts` + `postgres-store.ts` (identical org-scoped, most-recent-first
+  reads), `src/modules/audit/metadata.ts` (new — friendly Taurus labels + humanized
+  fallback), `src/app/dashboard/audit/page.tsx` (rewritten: `audit.view` check +
+  org-scoped read + actor-name resolution + empty state), `src/app/dashboard/audit/loading.tsx`
+  (new), `src/modules/audit/README.md`, `src/tests/audit.test.ts` (new). **No migration**
+  (`audit_events` table already existed).
+- **Risk:** Low (additive read path; no mutation, no schema change). Preserved all
+  Working behavior.
+- **Proof:** `src/tests/audit.test.ts` — most-recent-first ordering + limit,
+  cross-org isolation, `audit.view` owner/admin-only, label mapping + humanized
+  fallback + no forbidden terminology. Full suite **305 passing**, terminology
+  green, `tsc`/`lint`/`next build` clean; `/dashboard/audit` compiles.
 
 ### Batch 2 — **Onboarding path polish** *(core-loop UX, near-zero risk)*
 - Convert `hire/success` "Coming soon" tiles into real links to the existing

@@ -2104,6 +2104,14 @@ export class InMemoryStore implements DataStore {
     return event;
   }
 
+  async listAuditEvents(organizationId: string, limit = 50): Promise<AuditEvent[]> {
+    return this.auditEvents
+      .filter((e) => e.organizationId === organizationId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
   // --- Test/dev helpers (not part of DataStore) -----------------------------
 
   /** Directly insert a user (test convenience). */

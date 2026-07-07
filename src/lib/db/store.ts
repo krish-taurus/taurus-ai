@@ -492,8 +492,10 @@ export interface DataStore {
   /** Count billable AI Employee interactions since a timestamp (derived quota). */
   countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number>;
 
-  // Audit
+  // Audit — organization-scoped. Events are written at mutation sites; this is
+  // the read path for the Audit dashboard (metadata only, most recent first).
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
+  listAuditEvents(organizationId: string, limit?: number): Promise<AuditEvent[]>;
 }
 
 /**
