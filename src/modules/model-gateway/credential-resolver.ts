@@ -14,7 +14,7 @@
 import type { DataStore } from "@/lib/db/store";
 import type { ProviderSlug } from "@/lib/db/types";
 import type { CredentialResolver, ResolvedCredential } from "@/modules/model-gateway/types";
-import { getProvider } from "@/modules/model-gateway/catalog";
+import { getProvider, MODEL_PROVIDERS } from "@/modules/model-gateway/catalog";
 import { decryptApiKey, isEncryptionConfigured } from "@/modules/model-gateway/credentials";
 import { DEFAULT_PROVIDERS } from "@/modules/model-gateway/providers";
 import { LlmGateway } from "@/modules/model-gateway/gateway";
@@ -26,6 +26,65 @@ export function isPlatformKeyAvailable(providerSlug: ProviderSlug): boolean {
   if (!provider?.platformKeyEnvVar) return false;
   const value = process.env[provider.platformKeyEnvVar];
   return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Whether an organization has a *usable* credential for a provider — either an
+ * active bring-your-own-key credential (whose encrypted key is stored and
+ * encryption is configured so it can be decrypted at runtime), or a
+ * Taurus-managed env key. An active BYOK credential always has an encrypted key
+ * (save sets it; disabling clears it and flips the mode), so the metadata alone
+ * is authoritative — no plaintext or encrypted value is ever read here.
+ */
+export async function isProviderConfigured(
+  store: DataStore,
+  organizationId: string,
+  providerSlug: ProviderSlug,
+): Promise<boolean> {
+  const meta = await store.getProviderCredentialMetadata(organizationId, providerSlug);
+  if (
+    meta &&
+    meta.credentialMode === "bring_your_own_key" &&
+    meta.status === "active" &&
+    isEncryptionConfigured()
+  ) {
+    return true;
+  }
+  // An org that explicitly disabled a provider opts out of the managed env key.
+  if (meta?.credentialMode === "disabled") return false;
+  return isPlatformKeyAvailable(providerSlug);
+}
+
+/**
+ * All provider slugs the organization has a usable credential for. Used to make
+ * model routing credential-aware, so automatic modes only pick a model whose
+ * provider can actually run. One credential query; no key material is read.
+ */
+export async function listConfiguredProviderSlugs(
+  store: DataStore,
+  organizationId: string,
+): Promise<ProviderSlug[]> {
+  const metas = await store.listProviderCredentialMetadata(organizationId);
+  const activeByok = new Set(
+    metas
+      .filter((m) => m.credentialMode === "bring_your_own_key" && m.status === "active")
+      .map((m) => m.providerSlug),
+  );
+  const disabled = new Set(
+    metas.filter((m) => m.credentialMode === "disabled").map((m) => m.providerSlug),
+  );
+
+  const configured: ProviderSlug[] = [];
+  for (const provider of MODEL_PROVIDERS) {
+    if (activeByok.has(provider.slug) && isEncryptionConfigured()) {
+      configured.push(provider.slug);
+      continue;
+    }
+    if (!disabled.has(provider.slug) && isPlatformKeyAvailable(provider.slug)) {
+      configured.push(provider.slug);
+    }
+  }
+  return configured;
 }
 
 export function createDefaultCredentialResolver(store: DataStore): CredentialResolver {
@@ -82,6 +141,9 @@ export function createLlmGateway(store: DataStore): LlmGateway {
     store,
     providers: DEFAULT_PROVIDERS,
     resolveCredential: createDefaultCredentialResolver(store),
+    // Credential-aware routing: automatic modes only pick a model whose provider
+    // the organization actually has a usable key for (BYOK or Taurus-managed).
+    listAvailableProviders: (organizationId) => listConfiguredProviderSlugs(store, organizationId),
     // Local Demo Brain is allowed everywhere EXCEPT production.
     demo: { allowed: !isProductionRuntime(), generate: generateLocalDemoAnswer },
   });

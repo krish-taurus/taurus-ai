@@ -31,6 +31,13 @@ export interface ResolveInput {
   requiredCapabilities?: ModelCapability[];
   /** Catalog override for tests; defaults to the code catalog. */
   catalog?: AiModel[];
+  /**
+   * Providers the organization has a usable credential for. When provided and
+   * non-empty, routing is restricted to these providers so an automatic mode
+   * never picks a model whose provider has no key. An empty array is treated as
+   * "no restriction" (e.g. dev/demo with no keys) so the demo brain still works.
+   */
+  availableProviderSlugs?: ProviderSlug[];
 }
 
 const CAPABILITY_FLAG: Record<ModelCapability, keyof AiModel> = {
@@ -71,11 +78,16 @@ export function providerAllowed(
 export function eligibleModels(input: ResolveInput): AiModel[] {
   const catalog = input.catalog ?? AI_MODELS;
   const { allowedProviderSlugs, blockedProviderSlugs } = input.orgSettings;
+  // Restrict to credentialed providers only when at least one is available; an
+  // empty list means "no restriction" so dev/demo without keys still resolves.
+  const available = input.availableProviderSlugs;
+  const restrictToAvailable = Array.isArray(available) && available.length > 0;
   return catalog.filter(
     (m) =>
       m.status === "available" &&
       providerAllowed(m.providerSlug, allowedProviderSlugs, blockedProviderSlugs) &&
-      modelSupportsCapabilities(m, input.requiredCapabilities),
+      modelSupportsCapabilities(m, input.requiredCapabilities) &&
+      (!restrictToAvailable || available.includes(m.providerSlug)),
   );
 }
 

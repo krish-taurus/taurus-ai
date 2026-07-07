@@ -21,10 +21,11 @@ const GATES: Record<
     href: (id) => `/dashboard/employees/${id}/dna`,
   },
   needs_model_hub: {
-    title: "Configure Model Hub before running this AI Employee.",
-    description: "Connect a model provider so this AI Employee can respond.",
-    cta: "Open Model Hub",
-    href: () => `/dashboard/settings/models`,
+    title: "Connect a model provider.",
+    description:
+      "Add a provider key in Model Hub (bring your own key) so this AI Employee can respond.",
+    cta: "Open Model Hub providers",
+    href: () => `/dashboard/settings/models/providers`,
   },
   archived: {
     title: "This AI Employee is archived.",
@@ -33,8 +34,9 @@ const GATES: Record<
     href: (id) => `/dashboard/employees/${id}`,
   },
   no_model: {
-    title: "No Employee Brain is available yet.",
-    description: "Check your Model Hub settings to make a model available.",
+    title: "Choose a default Employee Brain in Model Hub.",
+    description:
+      "Select an Employee Brain (or organization default model) so this AI Employee can respond.",
     cta: "Open Model Hub",
     href: () => `/dashboard/settings/models`,
   },
