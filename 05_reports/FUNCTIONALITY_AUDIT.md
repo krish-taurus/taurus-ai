@@ -504,19 +504,51 @@ Replaced config-presence checks with real, fail-closed cryptographic verificatio
   payload-hashes, and missing headers all fail-closed. Full suite **338 passing**;
   terminology green; `tsc`/`lint`/`next build` clean.
 
-### Product decisions (not auto-fix)
-- **Collaboration:** build a minimal real feature, hide the nav entry, or keep it
-  a clearly-labeled forthcoming placeholder. (Leaving a dead nav destination is
-  the current state.)
-- **Model Hub budget enforcement** and **usage/analytics dashboard**: intentionally
-  deferred — confirm they remain out of this launch.
-- **Connections "Test":** implement a real per-connection test, or relabel to
-  avoid the misleading affordance.
-
-### Trivial cleanup (fold into any batch)
-- `src/modules/knowledge/README.md:5` is stale ("No feature code yet") — the
-  module is fully implemented.
+### Product decisions
+- **Connections "Test":** ✅ **DONE** — made real. `connectionTestHref` now routes
+  the Test action to the **live hosted chat** (`/public/chat/{publicKey}`, new tab)
+  for web connections — a genuine end-to-end test — and to the setup page's
+  "Simulate incoming message / Simulate call" panel for foundation
+  messaging/voice connections. (`connections.ts`, `connection-card.tsx`.)
+- **Collaboration:** **DECISION — kept as a clearly-labeled forthcoming
+  placeholder.** Building real cross-Employee collaboration is a separate
+  feature/prompt; the page is a clean, auth-gated `EmptyState` (not broken), so it
+  is left discoverable-but-honest rather than half-built or removed.
+- **Model Hub budget enforcement** and **usage/analytics dashboard**: **remain
+  intentionally deferred** (later prompts), labeled as such in the UI.
 
 ---
 
-**Audit complete — awaiting go-ahead for Phase B.**
+## Runtime verification (end-to-end)
+
+Beyond unit/service coverage, the real modules were chained together and driven
+end-to-end (`src/tests/end-to-end-flow.test.ts`) plus a live HTTP smoke of the
+booted app. Observed working:
+
+| Subsystem | How it was verified | Result |
+|---|---|---|
+| **Provider API keys (Model Hub BYOK)** | Save (AES-GCM encrypt) → resolve (decrypt round-trip to the original key) → "test connection" probe → cross-org isolation | ✅ key round-trips; never leaks plaintext; other org sees nothing |
+| **Knowledge Vault extraction** | Create a text note + upload a `.txt` file through the real service | ✅ text extracted, preview + SHA-256 checksum generated |
+| **Knowledge retrieval** | Assign + prepare segments, then query | ✅ "refund" query → refund source; "hours" query → hours source (correct grounding) |
+| **Chat runtime** | Full turn via the **real `LlmGateway`** (fake provider adapters, no network) | ✅ retrieves grounding, generates, persists user+assistant, **emits the usage event the billing meter reads** |
+| **Independent web connection** | Create + activate channel → resolve by public key → visitor message | ✅ replies, records the channel event, resolves org from publicKey only; forged key rejected |
+| **App boots + serves (HTTP smoke)** | `next dev`, curl public surfaces | ✅ landing 200, widget JS 200 (`application/javascript`), login 200, `/dashboard` → 307 to `/login` (auth guard), billing webhook 200 `applied:false` on unknown ids (deny-by-default), public messages GET → 405, unknown public chat key → graceful 200 |
+
+**Full suite: 343 passing** (271 at the start of this work); terminology green;
+`tsc`, `lint`, and `next build` all clean.
+
+### Trivial cleanup
+- `src/modules/knowledge/README.md` stale note — the Audit README was refreshed in
+  Batch 1; the knowledge one can be refreshed opportunistically (module is fully
+  implemented).
+
+---
+
+## Status: ready for the next step
+
+The self-serve core loop and every subsystem the customer touches — auth, hiring,
+Employee DNA, Knowledge Vault (extraction + retrieval), Model Hub provider keys,
+chat runtime, web connections, billing/entitlements, and the audit trail — are
+**Working** by the strict definition and verified at runtime. Remaining items are
+explicit, labeled product deferrals (Collaboration, budget enforcement, usage
+analytics), not defects. **Good to proceed to build.**

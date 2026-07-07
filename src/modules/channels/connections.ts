@@ -135,6 +135,28 @@ export function connectionTestAvailable(status: ChannelStatus): boolean {
   return status === "active";
 }
 
+/**
+ * A real "test this connection" target (distinct from Configure):
+ *   - Web connections open their live hosted chat — a genuine end-to-end test.
+ *   - Messaging/voice (foundation) open the setup page, where the "Simulate
+ *     incoming message" / "Simulate call" panels exercise the runtime.
+ */
+export function connectionTestHref(
+  publicKey: string,
+  employeeId: string,
+  type: ChannelType,
+): string {
+  if (connectionAvailability(type) === "available") {
+    return `/public/chat/${publicKey}`;
+  }
+  return connectionSetupHref(employeeId, type);
+}
+
+/** Whether the test action opens a live external surface (new tab). */
+export function connectionTestOpensLiveSurface(type: ChannelType): boolean {
+  return connectionAvailability(type) === "available";
+}
+
 export interface ConnectionFilter {
   employeeId?: string | null;
   type?: ChannelType | null;

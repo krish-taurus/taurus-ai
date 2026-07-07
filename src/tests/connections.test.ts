@@ -10,6 +10,8 @@ import {
   connectionAvailability,
   connectionSetupHref,
   connectionTestAvailable,
+  connectionTestHref,
+  connectionTestOpensLiveSurface,
   filterConnections,
   isConfigurableType,
   providerLabel,
@@ -186,6 +188,17 @@ describe("filterConnections + labels", () => {
     expect(connectionTestAvailable("active")).toBe(true);
     expect(connectionTestAvailable("draft")).toBe(false);
     expect(connectionTestAvailable("paused")).toBe(false);
+  });
+
+  it("routes the Test action to a real surface (hosted chat for web, setup page otherwise)", () => {
+    // Web connections open the live hosted chat — a genuine end-to-end test.
+    expect(connectionTestHref("pk_123", "emp-1", "website_widget")).toBe("/public/chat/pk_123");
+    expect(connectionTestOpensLiveSurface("website_widget")).toBe(true);
+    // Foundation connections open the setup page, where the simulate panel lives.
+    expect(connectionTestHref("pk_123", "emp-1", "whatsapp")).toBe(
+      "/dashboard/employees/emp-1/channels/messaging/whatsapp",
+    );
+    expect(connectionTestOpensLiveSurface("whatsapp")).toBe(false);
   });
 });
 
