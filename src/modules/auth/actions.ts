@@ -14,6 +14,8 @@ import { getStore } from "@/lib/db/store";
 import { createSessionToken, SESSION_COOKIE } from "@/lib/security/session";
 import { ORG_COOKIE } from "@/lib/security/guards";
 import { emailSchema, fullNameSchema, getAuthProvider } from "@/modules/auth/provider";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface AuthActionState {
   error?: string;
@@ -83,6 +85,15 @@ export async function signIn(
 }
 
 export async function signOut(): Promise<void> {
+  // Clear the Supabase session (production auth) when configured.
+  if (isSupabaseConfigured()) {
+    try {
+      await createSupabaseServerClient().auth.signOut();
+    } catch {
+      // Best-effort: still clear local cookies below.
+    }
+  }
+  // Clear the dev session + selected-organization cookies.
   cookies().delete(SESSION_COOKIE);
   cookies().delete(ORG_COOKIE);
   redirect("/login");

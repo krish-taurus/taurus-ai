@@ -147,6 +147,7 @@ function mapUser(row: Row): User {
     email: row.email,
     fullName: row.full_name,
     avatarUrl: row.avatar_url,
+    supabaseAuthUserId: row.supabase_auth_user_id ?? null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -650,11 +651,33 @@ export class PostgresStore implements DataStore {
     return rows[0] ? mapUser(rows[0]) : null;
   }
 
+  async getUserBySupabaseAuthId(supabaseAuthUserId: string): Promise<User | null> {
+    const { rows } = await this.query("select * from users where supabase_auth_user_id = $1", [
+      supabaseAuthUserId,
+    ]);
+    return rows[0] ? mapUser(rows[0]) : null;
+  }
+
   async createUser(input: CreateUserInput): Promise<User> {
     const { rows } = await this.query(
-      "insert into users (email, full_name) values ($1, $2) returning *",
-      [input.email.trim().toLowerCase(), input.fullName?.trim() || null],
+      "insert into users (email, full_name, avatar_url, supabase_auth_user_id) " +
+        "values ($1, $2, $3, $4) returning *",
+      [
+        input.email.trim().toLowerCase(),
+        input.fullName?.trim() || null,
+        input.avatarUrl?.trim() || null,
+        input.supabaseAuthUserId ?? null,
+      ],
     );
+    return mapUser(rows[0]);
+  }
+
+  async linkUserToSupabaseAuth(userId: string, supabaseAuthUserId: string): Promise<User> {
+    const { rows } = await this.query(
+      "update users set supabase_auth_user_id = $2, updated_at = now() where id = $1 returning *",
+      [userId, supabaseAuthUserId],
+    );
+    if (!rows[0]) throw new Error(`User ${userId} not found.`);
     return mapUser(rows[0]);
   }
 

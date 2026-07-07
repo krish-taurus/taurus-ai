@@ -27,6 +27,16 @@ const serverSchema = z
     AUTH_SECRET: z.string().optional().or(z.literal("")),
     // Explicit opt-in required to use the passwordless dev auth in production.
     TAURUS_ALLOW_DEV_AUTH: z.enum(["true", "false"]).optional().or(z.literal("")),
+    // Supabase Auth (Sprint 012). Production authentication provider. The URL and
+    // anon key are public (NEXT_PUBLIC_*) and safe for the browser. All optional
+    // so local dev / tests can fall back to the passwordless dev auth flow; in
+    // production Supabase must be configured unless dev auth is explicitly allowed.
+    NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().or(z.literal("")),
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().or(z.literal("")),
+    // Service role key — SERVER ONLY, never exposed to the browser. Optional and
+    // not required for the auth flows in this sprint; present only for future
+    // privileged server tasks. It must never be imported into client code.
+    SUPABASE_SERVICE_ROLE_KEY: z.string().optional().or(z.literal("")),
     // Local directory for Knowledge Vault uploads (server-only). Defaults to
     // "storage/uploads" (gitignored). Files are never served publicly.
     TAURUS_UPLOAD_DIR: z.string().optional().or(z.literal("")),
@@ -82,10 +92,28 @@ const serverSchema = z
         message: "AUTH_SECRET is required in production and must be a strong secret.",
       });
     }
+    // Production must use a real auth provider by default. Supabase Auth is
+    // required in production unless dev auth is explicitly opted into.
+    const supabaseConfigured =
+      !!env.NEXT_PUBLIC_SUPABASE_URL && !!env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const devAuthAllowed = env.TAURUS_ALLOW_DEV_AUTH === "true";
+    if (env.NODE_ENV === "production" && !supabaseConfigured && !devAuthAllowed) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["NEXT_PUBLIC_SUPABASE_URL"],
+        message:
+          "Production authentication requires Supabase: set NEXT_PUBLIC_SUPABASE_URL and " +
+          "NEXT_PUBLIC_SUPABASE_ANON_KEY (or set TAURUS_ALLOW_DEV_AUTH=true to override).",
+      });
+    }
   });
 
 const clientSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
+  // Public Supabase config — safe to expose to the browser. Optional so the app
+  // still builds/runs without Supabase configured (dev auth fallback).
+  NEXT_PUBLIC_SUPABASE_URL: z.string().url().optional().or(z.literal("")),
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().optional().or(z.literal("")),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;
@@ -123,6 +151,9 @@ export function getServerEnv(): ServerEnv {
       DATABASE_URL: process.env.DATABASE_URL,
       AUTH_SECRET: process.env.AUTH_SECRET,
       TAURUS_ALLOW_DEV_AUTH: process.env.TAURUS_ALLOW_DEV_AUTH,
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
       TAURUS_UPLOAD_DIR: process.env.TAURUS_UPLOAD_DIR,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -159,6 +190,8 @@ export function getClientEnv(): ClientEnv {
   if (!cachedClientEnv) {
     cachedClientEnv = validate(clientSchema, {
       NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
+      NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     });
   }
   return cachedClientEnv;
