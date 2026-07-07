@@ -17,6 +17,7 @@ import type {
   WebhookRequest,
 } from "@/modules/channels/messaging/types";
 import { preferPlainText } from "@/modules/channels/messaging/html";
+import { verifyEcdsaP256 } from "@/modules/channels/messaging/signature-verify";
 
 function extractEmail(value: string): string {
   const match = value.match(/<([^>]+)>/);
@@ -75,14 +76,29 @@ export const sendgridProvider: MessagingProvider = {
   },
 
   async verifyWebhook(
-    _request: WebhookRequest,
+    request: WebhookRequest,
     config: MessagingProviderConfig,
   ): Promise<VerifyResult> {
-    void _request;
-    // Inbound Parse is not signed by default; live setups rely on a secret URL /
-    // basic auth. Only accept once an API key is configured for this org.
+    // Signed Event Webhook: verify the real ECDSA (P-256) signature against the
+    // configured verification key. Signed payload is `${timestamp}${rawBody}`.
+    const signature = request.headers["x-twilio-email-event-webhook-signature"];
+    const timestamp = request.headers["x-twilio-email-event-webhook-timestamp"];
+    if (signature && timestamp) {
+      const verificationKey = config.secrets.verificationKey;
+      if (!verificationKey) return { verified: false, reason: "not_configured" };
+      const signed = `${timestamp}${request.rawBody}`;
+      return {
+        verified: verifyEcdsaP256(verificationKey, signed, signature),
+        reason: "signature_checked",
+      };
+    }
+
+    // Inbound Parse is unsigned by design — SendGrid secures it with the secret
+    // webhook URL, which the route already resolves from the channel public key
+    // (never client input). Accept only once the channel is configured; there is
+    // no signature to check for this endpoint.
     if (!config.secrets.apiKey) return { verified: false, reason: "not_configured" };
-    return { verified: true, reason: "api_key_present" };
+    return { verified: true, reason: "unsigned_inbound_parse" };
   },
 
   async sendMessage(

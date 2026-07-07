@@ -106,11 +106,21 @@ export async function publishDnaAction(
   redirect(`/dashboard/employees/${employeeId}/dna?published=1`);
 }
 
-export async function archiveDnaVersionAction(formData: FormData): Promise<void> {
+export async function archiveDnaVersionAction(
+  _prevState: DnaActionState,
+  formData: FormData,
+): Promise<DnaActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
   const versionId = String(formData.get("versionId") ?? "");
   const ctx = await resolveDnaContext(employeeId, "employee.manage");
-  if (!ctx.ok) redirect(`/dashboard/employees/${employeeId}/dna`);
+  if (!ctx.ok) {
+    return {
+      error:
+        ctx.reason === "not_found"
+          ? "This AI Employee could not be found."
+          : "You do not have permission to archive Employee DNA versions.",
+    };
+  }
 
   try {
     await archiveDnaVersion(
@@ -119,8 +129,8 @@ export async function archiveDnaVersionAction(formData: FormData): Promise<void>
       employeeId,
       versionId,
     );
-  } catch {
-    // Ignore and re-render; the page reflects the current state.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not archive this version." };
   }
 
   revalidatePath(`/dashboard/employees/${employeeId}/dna`);

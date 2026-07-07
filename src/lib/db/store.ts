@@ -16,6 +16,13 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  BillingSubscription,
+  BillingCustomer,
+  BillingEvent,
+  CreateBillingSubscriptionInput,
+  UpdateBillingSubscriptionInput,
+  UpsertBillingCustomerInput,
+  CreateBillingEventInput,
   CreateEmployeeInput,
   ChannelOverview,
   ChannelProviderCredentialMetadata,
@@ -235,6 +242,8 @@ export interface DataStore {
   // Usage events — metadata only (never message contents).
   listLlmUsageEvents(organizationId: string, limit?: number): Promise<LlmUsageEvent[]>;
   createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent>;
+  /** Billable AI Employee interactions handled by one employee (all-time). */
+  countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number>;
 
   getModelHubOverview(organizationId: string): Promise<ModelHubOverview>;
 
@@ -460,8 +469,41 @@ export interface DataStore {
     employeeId: string,
   ): Promise<VoiceChannelOverview>;
 
-  // Audit
+  // Billing, Plans & Subscriptions (Prompt 011) — organization-scoped. Exactly
+  // one active subscription per organization; a Starter subscription is created
+  // implicitly when the organization is created.
+  getBillingSubscription(organizationId: string): Promise<BillingSubscription | null>;
+  createBillingSubscription(input: CreateBillingSubscriptionInput): Promise<BillingSubscription>;
+  updateBillingSubscription(
+    organizationId: string,
+    patch: UpdateBillingSubscriptionInput,
+  ): Promise<BillingSubscription | null>;
+
+  getBillingCustomer(organizationId: string): Promise<BillingCustomer | null>;
+  /** Resolve the organization from a stored external customer id (webhook path). */
+  getBillingCustomerByExternalId(externalCustomerId: string): Promise<BillingCustomer | null>;
+  /** Resolve the organization from a stored external subscription id (webhook path). */
+  getBillingSubscriptionByExternalId(
+    externalSubscriptionId: string,
+  ): Promise<BillingSubscription | null>;
+  upsertBillingCustomer(input: UpsertBillingCustomerInput): Promise<BillingCustomer>;
+
+  createBillingEvent(input: CreateBillingEventInput): Promise<BillingEvent>;
+  listBillingEvents(organizationId: string, limit?: number): Promise<BillingEvent[]>;
+
+  /** Count billable AI Employee interactions since a timestamp (derived quota). */
+  countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number>;
+
+  // Audit — organization-scoped. Events are written at mutation sites; this is
+  // the read path for the Audit dashboard (metadata only, most recent first).
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
+  listAuditEvents(organizationId: string, limit?: number): Promise<AuditEvent[]>;
+  /** Recent audit events involving one employee (as target or via metadata.employeeId). */
+  listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit?: number,
+  ): Promise<AuditEvent[]>;
 }
 
 /**

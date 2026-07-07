@@ -19,6 +19,7 @@ import {
   activateVoiceChannel,
   archiveVoiceChannel,
   createVoiceChannel,
+  disableVoiceProviderCredential,
   pauseVoiceChannel,
   saveVoiceProviderCredential,
   updateVoiceChannel,
@@ -29,7 +30,12 @@ import {
   sendSimulatedUtterance,
   startSimulatedCall,
 } from "@/modules/voice-runtime/simulated-call";
-import { simulateStartSchema, simulateUtteranceSchema } from "@/modules/voice-runtime/schema";
+import {
+  disableVoiceCredentialSchema,
+  saveVoiceCredentialSchema,
+  simulateStartSchema,
+  simulateUtteranceSchema,
+} from "@/modules/voice-runtime/schema";
 
 export interface VoiceActionState {
   error?: string;
@@ -151,18 +157,57 @@ export async function saveVoiceCredentialAction(
 ): Promise<VoiceActionState> {
   const ctx = await requireManage();
   if (!ctx.ok) return { error: DENIED };
-  const providerType = String(formData.get("providerType") ?? "") as ChannelProviderType;
+
+  // Validate the provider + label with Zod; the provider-specific secret fields
+  // are validated (required-field checks) in the service.
+  const parsed = saveVoiceCredentialSchema.safeParse({
+    providerType: formData.get("providerType") ?? "",
+    label: formData.get("credentialLabel") ? String(formData.get("credentialLabel")) : undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please check the credential details." };
+  }
+
   const employeeId = String(formData.get("employeeId") ?? "");
   const secrets: Record<string, string> = {};
   for (const field of SECRET_FIELDS) {
     const value = formData.get(field);
     if (typeof value === "string" && value.trim()) secrets[field] = value.trim();
   }
-  const label = formData.get("credentialLabel") ? String(formData.get("credentialLabel")) : null;
   try {
-    await saveVoiceProviderCredential(getStore(), ctx.actor, providerType, secrets, label);
+    await saveVoiceProviderCredential(
+      getStore(),
+      ctx.actor,
+      parsed.data.providerType,
+      secrets,
+      parsed.data.label ?? null,
+    );
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save the credential." };
+  }
+  revalidate(employeeId);
+  return { ok: true };
+}
+
+export async function disableVoiceCredentialAction(
+  _p: VoiceActionState,
+  formData: FormData,
+): Promise<VoiceActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+
+  const parsed = disableVoiceCredentialSchema.safeParse({
+    providerType: formData.get("providerType") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: "Unknown voice provider." };
+  }
+
+  const employeeId = String(formData.get("employeeId") ?? "");
+  try {
+    await disableVoiceProviderCredential(getStore(), ctx.actor, parsed.data.providerType);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not remove the credential." };
   }
   revalidate(employeeId);
   return { ok: true };

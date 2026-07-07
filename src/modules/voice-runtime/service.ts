@@ -21,6 +21,7 @@ import {
   lastFour,
 } from "@/modules/channels/credentials";
 import { createVoiceChannelSchema, updateVoiceChannelSchema } from "@/modules/voice-runtime/schema";
+import { assertCanAddConnection } from "@/modules/billing/service";
 import { defaultVoiceConfig, type VoiceChannelConfig } from "@/modules/voice-runtime/catalog";
 
 export interface VoiceActor {
@@ -101,6 +102,9 @@ export async function createVoiceChannel(
     );
   }
   const values = parsed.data;
+
+  // Entitlement gate (Prompt 011): block past the plan's connection cap.
+  await assertCanAddConnection(store, actor.organizationId);
 
   const channel = await store.createEmployeeChannel({
     organizationId: actor.organizationId,
@@ -294,5 +298,24 @@ export async function saveVoiceProviderCredential(
     // target_id is a uuid column, so it must stay null here.
     targetId: null,
     metadata: { providerType, credentialMode: "bring_your_own_key" },
+  });
+}
+
+/** Disable + drop a saved voice provider credential (mirrors the messaging path). */
+export async function disableVoiceProviderCredential(
+  store: DataStore,
+  actor: VoiceActor,
+  providerType: ChannelProviderType,
+): Promise<void> {
+  await store.disableChannelProviderCredential(actor.organizationId, providerType, actor.userId);
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "channel_provider_credential.disabled",
+    targetType: "provider",
+    // A provider is identified by its type (kept in metadata), not a UUID.
+    targetId: null,
+    metadata: { providerType },
   });
 }

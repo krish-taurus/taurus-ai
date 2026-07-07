@@ -5,9 +5,9 @@
 
 import Link from "next/link";
 import type { KnowledgeSource } from "@/lib/db/types";
-import { buttonClasses, Card } from "@/components/ui";
+import { Card } from "@/components/ui";
 import { KnowledgeStatusBadge, KnowledgeTypeBadge } from "@/components/knowledge/knowledge-badges";
-import { assignKnowledgeAction, unassignKnowledgeAction } from "@/modules/knowledge/actions";
+import { AssignKnowledgeButton } from "@/components/knowledge/assign-knowledge-button";
 
 export function AssignKnowledgePanel({
   employeeId,
@@ -59,23 +59,11 @@ export function AssignKnowledgePanel({
               </div>
 
               {canManage ? (
-                assigned ? (
-                  <form action={unassignKnowledgeAction}>
-                    <input type="hidden" name="employeeId" value={employeeId} />
-                    <input type="hidden" name="knowledgeSourceId" value={source.id} />
-                    <button type="submit" className={buttonClasses("outline", "sm")}>
-                      Remove
-                    </button>
-                  </form>
-                ) : (
-                  <form action={assignKnowledgeAction}>
-                    <input type="hidden" name="employeeId" value={employeeId} />
-                    <input type="hidden" name="knowledgeSourceId" value={source.id} />
-                    <button type="submit" className={buttonClasses("secondary", "sm")}>
-                      Assign
-                    </button>
-                  </form>
-                )
+                <AssignKnowledgeButton
+                  employeeId={employeeId}
+                  knowledgeSourceId={source.id}
+                  assigned={assigned}
+                />
               ) : (
                 <span className="text-xs text-taurus-faint">
                   {assigned ? "Assigned" : "Not assigned"}

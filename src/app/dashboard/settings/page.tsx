@@ -6,6 +6,7 @@ import { buttonClasses, Card, EmptyState, PageHeader } from "@/components/ui";
 export default async function SettingsPage() {
   const { membership } = await requireCurrentOrganization();
   const canViewModelHub = hasPermission(membership.role, "model_hub.view");
+  const canViewBilling = hasPermission(membership.role, "billing.view");
 
   return (
     <div>
@@ -25,6 +26,22 @@ export default async function SettingsPage() {
             </div>
             <Link href="/dashboard/settings/models" className={buttonClasses("secondary")}>
               Open Model Hub
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+
+      {canViewBilling ? (
+        <Card className="mb-6 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-taurus-text">Billing</h2>
+              <p className="mt-1.5 text-sm text-taurus-sub">
+                See your plan, usage, and subscription — and upgrade when you&apos;re ready.
+              </p>
+            </div>
+            <Link href="/dashboard/settings/billing" className={buttonClasses("secondary")}>
+              Open Billing
             </Link>
           </div>
         </Card>

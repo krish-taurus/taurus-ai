@@ -119,14 +119,13 @@ export function ChannelSettingsForm({
           <input type="checkbox" name="showSources" defaultChecked={a.showSources} />
           Show the sources used in answers
         </label>
-        <label className="flex items-center gap-2 text-sm text-taurus-faint">
-          <input
-            type="checkbox"
-            name="collectVisitorEmail"
-            defaultChecked={a.collectVisitorEmail}
-          />
-          Collect visitor email (coming soon — not active yet)
-        </label>
+        {/*
+          "Collect visitor email" is not implemented yet (no code consumes it), so
+          the inert toggle is not shown. The stored value is round-tripped
+          unchanged via this hidden field so a save never silently flips it,
+          keeping the data ready for when the feature lands.
+        */}
+        <input type="hidden" name="collectVisitorEmail" value={a.collectVisitorEmail ? "on" : ""} />
       </FormSection>
 
       <FormSection title="Rate limits" description="Protect against abuse.">

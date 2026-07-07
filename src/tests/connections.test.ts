@@ -10,6 +10,8 @@ import {
   connectionAvailability,
   connectionSetupHref,
   connectionTestAvailable,
+  connectionTestHref,
+  connectionTestOpensLiveSurface,
   filterConnections,
   isConfigurableType,
   providerLabel,
@@ -31,11 +33,23 @@ function seedEmployee(
   });
 }
 
+/**
+ * Put a bare (directly-seeded) org on a paid plan so its connection cap allows
+ * multiple channels. Orgs created via the normal flow start on Starter (1
+ * connection); these fixtures seed the store directly, so we grant a higher plan
+ * explicitly to exercise multi-connection filtering (Prompt 011).
+ */
+function seedScalePlan(store: InMemoryStore, organizationId: string): Promise<unknown> {
+  return store.createBillingSubscription({ organizationId, planId: "scale", status: "active" });
+}
+
 // --- Org-wide channel listing (store) --------------------------------------
 
 describe("listEmployeeChannelsForOrganization", () => {
   it("returns every channel across all employees, organization-scoped", async () => {
     const store = new InMemoryStore();
+    await seedScalePlan(store, "org-1");
+    await seedScalePlan(store, "org-2");
     const maya = await seedEmployee(store, "org-1", "Maya");
     const atlas = await seedEmployee(store, "org-1", "Atlas");
     const other = await seedEmployee(store, "org-2", "Nova");
@@ -144,6 +158,7 @@ describe("connectionSetupHref", () => {
 describe("filterConnections + labels", () => {
   it("filters by AI Employee, type, and status", async () => {
     const store = new InMemoryStore();
+    await seedScalePlan(store, "org-1");
     const maya = await seedEmployee(store, "org-1", "Maya");
     const atlas = await seedEmployee(store, "org-1", "Atlas");
     await createWebChannel(store, { organizationId: "org-1", userId: "u1" }, maya, {
@@ -173,6 +188,17 @@ describe("filterConnections + labels", () => {
     expect(connectionTestAvailable("active")).toBe(true);
     expect(connectionTestAvailable("draft")).toBe(false);
     expect(connectionTestAvailable("paused")).toBe(false);
+  });
+
+  it("routes the Test action to a real surface (hosted chat for web, setup page otherwise)", () => {
+    // Web connections open the live hosted chat — a genuine end-to-end test.
+    expect(connectionTestHref("pk_123", "emp-1", "website_widget")).toBe("/public/chat/pk_123");
+    expect(connectionTestOpensLiveSurface("website_widget")).toBe(true);
+    // Foundation connections open the setup page, where the simulate panel lives.
+    expect(connectionTestHref("pk_123", "emp-1", "whatsapp")).toBe(
+      "/dashboard/employees/emp-1/channels/messaging/whatsapp",
+    );
+    expect(connectionTestOpensLiveSurface("whatsapp")).toBe(false);
   });
 });
 

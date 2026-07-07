@@ -12,11 +12,18 @@ describe("roles and permissions", () => {
     expect(hasPermission("owner", "member.manage_roles")).toBe(true);
   });
 
-  it("restricts admin from organization deletion and billing", () => {
+  it("restricts admin from organization deletion but allows billing (Prompt 011)", () => {
     expect(hasPermission("admin", "member.invite")).toBe(true);
     expect(hasPermission("admin", "audit.view")).toBe(true);
     expect(hasPermission("admin", "organization.delete")).toBe(false);
-    expect(hasPermission("admin", "billing.manage")).toBe(false);
+    // Billing management is owner/admin only (Prompt 011).
+    expect(hasPermission("admin", "billing.view")).toBe(true);
+    expect(hasPermission("admin", "billing.manage")).toBe(true);
+    // A builder/viewer can view billing but never manage it.
+    expect(hasPermission("builder", "billing.view")).toBe(true);
+    expect(hasPermission("builder", "billing.manage")).toBe(false);
+    expect(hasPermission("viewer", "billing.view")).toBe(true);
+    expect(hasPermission("viewer", "billing.manage")).toBe(false);
   });
 
   it("lets a builder create employees but not invite members", () => {

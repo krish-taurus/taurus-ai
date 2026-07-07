@@ -16,6 +16,7 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { createLlmGateway } from "@/modules/model-gateway/credential-resolver";
 import { sendChatMessage, ChatBlockedError } from "@/modules/employee-chat/service";
+import { EntitlementError } from "@/modules/billing/service";
 import { rebuildKnowledgeRetrievalSegmentsForEmployee } from "@/modules/employee-chat/preparation";
 import { chatMessageSchema } from "@/modules/employee-chat/schema";
 import type { ChatBlockReason } from "@/modules/employee-chat/metadata";
@@ -69,6 +70,8 @@ export async function sendChatMessageAction(
     );
   } catch (err) {
     if (err instanceof ChatBlockedError) return { error: BLOCK_MESSAGES[err.reason] };
+    // Entitlement blocks carry a clear, upgrade-oriented message — surface it.
+    if (err instanceof EntitlementError) return { error: err.message };
     return { error: "Sorry — your message could not be sent. Please try again." };
   }
 

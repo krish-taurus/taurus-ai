@@ -75,6 +75,13 @@ const serverSchema = z
     VONAGE_API_SECRET: z.string().optional().or(z.literal("")),
     DEEPGRAM_API_KEY: z.string().optional().or(z.literal("")),
     ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
+    // Billing, Plans & Subscriptions (Prompt 011). All optional and SERVER-ONLY
+    // (never NEXT_PUBLIC_*). When STRIPE_SECRET_KEY is absent, billing runs in
+    // simulated mode — local dev and tests never touch the network or charge.
+    STRIPE_SECRET_KEY: z.string().optional().or(z.literal("")),
+    STRIPE_WEBHOOK_SECRET: z.string().optional().or(z.literal("")),
+    STRIPE_PRICE_GROWTH: z.string().optional().or(z.literal("")),
+    STRIPE_PRICE_SCALE: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
     const secret = env.AUTH_SECRET;
@@ -180,6 +187,10 @@ export function getServerEnv(): ServerEnv {
       VONAGE_API_SECRET: process.env.VONAGE_API_SECRET,
       DEEPGRAM_API_KEY: process.env.DEEPGRAM_API_KEY,
       ELEVENLABS_API_KEY: process.env.ELEVENLABS_API_KEY,
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+      STRIPE_PRICE_GROWTH: process.env.STRIPE_PRICE_GROWTH,
+      STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE,
     });
   }
   return cachedServerEnv;

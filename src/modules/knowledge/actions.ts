@@ -145,31 +145,37 @@ export async function updateSourceAction(
   redirect(`/dashboard/knowledge/${sourceId}`);
 }
 
-export async function archiveSourceAction(formData: FormData): Promise<void> {
+export async function archiveSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
   const sourceId = String(formData.get("sourceId") ?? "");
   const ctx = await requireManage();
-  if (!ctx.ok) redirect(`/dashboard/knowledge/${sourceId}`);
+  if (!ctx.ok) return { error: DENIED };
 
   try {
     await archiveSource(getStore(), ctx.actor, sourceId);
-  } catch {
-    // Ignore and redirect to the list below.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not archive this knowledge." };
   }
 
   revalidatePath("/dashboard/knowledge");
   redirect("/dashboard/knowledge");
 }
 
-export async function assignKnowledgeAction(formData: FormData): Promise<void> {
+export async function assignKnowledgeAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
   const knowledgeSourceId = String(formData.get("knowledgeSourceId") ?? "");
   const ctx = await requireManage();
-  if (!ctx.ok) redirect(`/dashboard/employees/${employeeId}/knowledge`);
+  if (!ctx.ok) return { error: DENIED };
 
   try {
     await assignKnowledgeToEmployee(getStore(), ctx.actor, { employeeId, knowledgeSourceId });
-  } catch {
-    // Ignore and re-render current state.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not assign this knowledge." };
   }
 
   revalidatePath(`/dashboard/employees/${employeeId}`);
@@ -177,16 +183,19 @@ export async function assignKnowledgeAction(formData: FormData): Promise<void> {
   redirect(`/dashboard/employees/${employeeId}/knowledge`);
 }
 
-export async function unassignKnowledgeAction(formData: FormData): Promise<void> {
+export async function unassignKnowledgeAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
   const knowledgeSourceId = String(formData.get("knowledgeSourceId") ?? "");
   const ctx = await requireManage();
-  if (!ctx.ok) redirect(`/dashboard/employees/${employeeId}/knowledge`);
+  if (!ctx.ok) return { error: DENIED };
 
   try {
     await unassignKnowledgeFromEmployee(getStore(), ctx.actor, { employeeId, knowledgeSourceId });
-  } catch {
-    // Ignore and re-render current state.
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not remove this knowledge." };
   }
 
   revalidatePath(`/dashboard/employees/${employeeId}`);

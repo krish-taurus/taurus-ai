@@ -16,21 +16,13 @@ import {
 import { getModel } from "@/modules/model-gateway/catalog";
 import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
 import { computeChatReadiness } from "@/modules/employee-chat/readiness";
+import { describeAuditAction } from "@/modules/audit/metadata";
 import { ReadinessChecklist } from "@/components/employee-chat/readiness-checklist";
 import { buttonClasses, Card } from "@/components/ui";
 
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((p) => p[0]?.toUpperCase() ?? "").join("") || "AI";
-}
-
-function Placeholder({ label, value }: { label: string; value: string }) {
-  return (
-    <Card className="p-4">
-      <p className="text-xs font-medium uppercase tracking-wide text-taurus-faint">{label}</p>
-      <p className="mt-1 text-sm text-taurus-sub">{value}</p>
-    </Card>
-  );
 }
 
 function StyleRow({ label, value }: { label: string; value: string }) {
@@ -90,6 +82,15 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         (c) => c.status !== "archived",
       ).length
     : 0;
+
+  // Usage + recent activity for this AI Employee. Usage (interaction count) is
+  // operational and shown to all roles; the activity trail reuses the audit-view
+  // permission (owner/admin) so it isn't exposed more widely than the Audit page.
+  const interactionCount = await store.countInteractionsForEmployee(organization.id, employee.id);
+  const canViewActivity = hasPermission(membership.role, "audit.view");
+  const recentActivity = canViewActivity
+    ? await store.listAuditEventsForEmployee(organization.id, employee.id, 4)
+    : [];
 
   return (
     <div className="max-w-3xl">
@@ -305,10 +306,41 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         </Card>
       ) : null}
 
-      {/* Placeholders for capabilities delivered in later prompts. */}
+      {/* Usage + recent activity — real, organization-scoped data. */}
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Placeholder label="Usage" value="No activity recorded yet" />
-        <Placeholder label="Recent activity" value="Nothing to show yet" />
+        <Card className="p-4">
+          <p className="text-xs font-medium uppercase tracking-wide text-taurus-faint">Usage</p>
+          <p className="mt-1 text-2xl font-semibold tracking-tight text-taurus-text">
+            {interactionCount.toLocaleString()}
+          </p>
+          <p className="mt-0.5 text-xs text-taurus-faint">
+            {interactionCount === 1 ? "AI Employee interaction" : "AI Employee interactions"}
+          </p>
+        </Card>
+
+        {canViewActivity ? (
+          <Card className="p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-taurus-faint">
+              Recent activity
+            </p>
+            {recentActivity.length === 0 ? (
+              <p className="mt-1 text-sm text-taurus-sub">Nothing to show yet</p>
+            ) : (
+              <ul className="mt-2 space-y-1.5">
+                {recentActivity.map((event) => (
+                  <li key={event.id} className="flex items-center justify-between gap-3 text-sm">
+                    <span className="truncate text-taurus-sub">
+                      {describeAuditAction(event.action)}
+                    </span>
+                    <time dateTime={event.createdAt} className="shrink-0 text-xs text-taurus-faint">
+                      {formatDate(event.createdAt)}
+                    </time>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : null}
       </div>
 
       <p className="mt-6 text-xs text-taurus-faint">

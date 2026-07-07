@@ -2,12 +2,13 @@
  * Telnyx voice provider (Prompt 010) — foundation.
  *
  * Parses Telnyx Call Control JSON webhooks (call.initiated + status events) and
- * returns a JSON call-response payload. Signature verification is foundation
- * (accepted when a public key is configured; full Ed25519 verification is a later
- * sprint). No real outbound calls in this sprint.
+ * returns a JSON call-response payload. Webhook authenticity is verified with a
+ * real Ed25519 signature check against the configured Telnyx public key
+ * (fail-closed). No real outbound calls in this sprint.
  */
 
 import type { WebhookRequest } from "@/modules/channels/messaging/types";
+import { verifyEd25519 } from "@/modules/channels/messaging/signature-verify";
 import type {
   CreateCallResponseInput,
   NormalizedCallStatus,
@@ -74,13 +75,21 @@ export const telnyxVoiceProvider: VoiceProvider = {
   },
 
   async verifyWebhook(
-    _request: WebhookRequest,
+    request: WebhookRequest,
     config: VoiceProviderConfig,
   ): Promise<VoiceVerifyResult> {
-    void _request;
-    // Foundation: full Ed25519 signature verification lands in a later sprint.
-    if (!config.secrets.publicKey) return { verified: false, reason: "not_configured" };
-    return { verified: true, reason: "foundation" };
+    // Real Ed25519 verification against the org's configured Telnyx public key.
+    // Signed payload is `${timestamp}|${rawBody}` (Telnyx Call Control scheme).
+    const publicKey = config.secrets.publicKey;
+    if (!publicKey) return { verified: false, reason: "not_configured" };
+    const signature = request.headers["telnyx-signature-ed25519"];
+    const timestamp = request.headers["telnyx-timestamp"];
+    if (!signature || !timestamp) return { verified: false, reason: "missing_signature" };
+    const signed = `${timestamp}|${request.rawBody}`;
+    return {
+      verified: verifyEd25519(publicKey, signed, signature),
+      reason: "signature_checked",
+    };
   },
 
   createCallResponse(input: CreateCallResponseInput): VoiceCallResponse {

@@ -12,6 +12,7 @@ import { generatePublicKey } from "@/modules/channels/keys";
 import { defaultAppearance } from "@/modules/channels/appearance";
 import { WEB_CHANNEL_TYPE } from "@/modules/channels/catalog";
 import { createWebChannelSchema, updateChannelSchema } from "@/modules/channels/schema";
+import { assertCanAddConnection } from "@/modules/billing/service";
 
 export interface ChannelActor {
   organizationId: string;
@@ -73,6 +74,9 @@ export async function createWebChannel(
       parsed.error.issues[0]?.message ?? "Please check the channel details.",
     );
   }
+
+  // Entitlement gate (Prompt 011): block past the plan's connection cap.
+  await assertCanAddConnection(store, actor.organizationId);
 
   const channel = await store.createEmployeeChannel({
     organizationId: actor.organizationId,

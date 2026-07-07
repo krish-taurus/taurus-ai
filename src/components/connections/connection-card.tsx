@@ -14,6 +14,8 @@ import {
   CONNECTION_STATUS_LABELS,
   connectionSetupHref,
   connectionTestAvailable,
+  connectionTestHref,
+  connectionTestOpensLiveSurface,
   connectionTypeLabel,
   providerLabel,
 } from "@/modules/channels/connections";
@@ -39,6 +41,8 @@ export function ConnectionCard({
 }) {
   const href = connectionSetupHref(channel.employeeId, channel.channelType);
   const testable = connectionTestAvailable(channel.status);
+  const testHref = connectionTestHref(channel.publicKey, channel.employeeId, channel.channelType);
+  const testOpensLive = connectionTestOpensLiveSurface(channel.channelType);
 
   return (
     <Card className="flex h-full flex-col p-5">
@@ -63,7 +67,11 @@ export function ConnectionCard({
           {canManage ? "Configure" : "View"}
         </Link>
         {testable ? (
-          <Link href={href} className={buttonClasses("ghost", "sm")}>
+          <Link
+            href={testHref}
+            className={buttonClasses("ghost", "sm")}
+            {...(testOpensLive ? { target: "_blank", rel: "noreferrer" } : {})}
+          >
             Test
           </Link>
         ) : null}

@@ -12,7 +12,7 @@ import {
   prepareEmployeeKnowledgeAction,
   type ChatActionState,
 } from "@/modules/employee-chat/actions";
-import { buttonClasses } from "@/components/ui";
+import { buttonClasses, FieldError, Notice } from "@/components/ui";
 
 function Button({ hasPrepared }: { hasPrepared: boolean }) {
   const { pending } = useFormStatus();
@@ -30,11 +30,13 @@ export function PrepareKnowledgeButton({
   employeeId: string;
   hasPrepared: boolean;
 }) {
-  const [, formAction] = useFormState(prepareEmployeeKnowledgeAction, {} as ChatActionState);
+  const [state, formAction] = useFormState(prepareEmployeeKnowledgeAction, {} as ChatActionState);
   return (
-    <form action={formAction}>
+    <form action={formAction} className="flex flex-col gap-1">
       <input type="hidden" name="employeeId" value={employeeId} />
       <Button hasPrepared={hasPrepared} />
+      {state?.error ? <FieldError>{state.error}</FieldError> : null}
+      {state?.ok ? <Notice>Knowledge prepared.</Notice> : null}
     </form>
   );
 }

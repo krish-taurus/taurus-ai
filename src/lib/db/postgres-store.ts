@@ -125,6 +125,14 @@ import type {
   UpdateOrganizationModelSettingsInput,
   User,
   WorkingStyle,
+  BillingSubscription,
+  BillingSubscriptionStatus,
+  BillingCustomer,
+  BillingEvent,
+  CreateBillingSubscriptionInput,
+  UpdateBillingSubscriptionInput,
+  UpsertBillingCustomerInput,
+  CreateBillingEventInput,
 } from "@/lib/db/types";
 import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
 import {
@@ -134,6 +142,8 @@ import {
   modelsByProvider,
 } from "@/modules/model-gateway/catalog";
 import { rankSegments } from "@/modules/employee-chat/scoring";
+import { DEFAULT_PLAN_ID } from "@/modules/billing/plans";
+import { addOneMonthIso, BILLABLE_INTERACTION_TASK_TYPES } from "@/modules/billing/metadata";
 import { isRole, type Role } from "@/modules/organizations/roles";
 import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
 import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
@@ -163,6 +173,61 @@ function mapOrganization(row: Row): Organization {
     sizeRange: row.size_range,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapBillingSubscription(row: Row): BillingSubscription {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    planId: row.plan_id,
+    status: row.status as BillingSubscriptionStatus,
+    currentPeriodStart: new Date(row.current_period_start).toISOString(),
+    currentPeriodEnd: new Date(row.current_period_end).toISOString(),
+    cancelAtPeriodEnd: Boolean(row.cancel_at_period_end),
+    externalSubscriptionId: row.external_subscription_id ?? null,
+    externalCustomerId: row.external_customer_id ?? null,
+    provider: row.provider,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapBillingCustomer(row: Row): BillingCustomer {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    externalCustomerId: row.external_customer_id,
+    provider: row.provider,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapAuditEvent(row: Row): AuditEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    actorType: row.actor_type,
+    actorId: row.actor_id ?? null,
+    action: row.action,
+    targetType: row.target_type ?? null,
+    targetId: row.target_id ?? null,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapBillingEvent(row: Row): BillingEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    eventType: row.event_type,
+    planId: row.plan_id ?? null,
+    status: (row.status as BillingSubscriptionStatus | null) ?? null,
+    provider: row.provider,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -764,6 +829,15 @@ export class PostgresStore implements DataStore {
         [organization.id, input.ownerUserId, input.ownerRole ?? "owner"],
       );
       const membership = mapMembership(memberResult.rows[0]);
+
+      // Every organization starts on Starter (Free) implicitly (Prompt 011).
+      const periodStart = new Date().toISOString();
+      await client.query(
+        `insert into billing_subscriptions
+           (organization_id, plan_id, status, current_period_start, current_period_end, provider)
+         values ($1, $2, 'active', $3, $4, 'simulated')`,
+        [organization.id, DEFAULT_PLAN_ID, periodStart, addOneMonthIso(periodStart)],
+      );
 
       await client.query("commit");
       return { organization, membership };
@@ -1471,6 +1545,18 @@ export class PostgresStore implements DataStore {
       [organizationId, limit],
     );
     return rows.map(mapUsageEvent);
+  }
+
+  async countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number> {
+    const { rows } = await this.query(
+      `select count(*)::int as count from llm_usage_events
+       where organization_id = $1
+         and employee_id = $2
+         and status <> 'blocked'
+         and task_type = any($3::text[])`,
+      [organizationId, employeeId, BILLABLE_INTERACTION_TASK_TYPES as unknown as string[]],
+    );
+    return rows[0]?.count ?? 0;
   }
 
   async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
@@ -2634,5 +2720,189 @@ export class PostgresStore implements DataStore {
       id: rows[0].id,
       createdAt: new Date(rows[0].created_at).toISOString(),
     };
+  }
+
+  async listAuditEvents(organizationId: string, limit = 50): Promise<AuditEvent[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, actor_type, actor_id, action, target_type, target_id,
+              metadata, created_at
+       from audit_events
+       where organization_id = $1
+       order by created_at desc
+       limit $2`,
+      [organizationId, limit],
+    );
+    return rows.map(mapAuditEvent);
+  }
+
+  async listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 20,
+  ): Promise<AuditEvent[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, actor_type, actor_id, action, target_type, target_id,
+              metadata, created_at
+       from audit_events
+       where organization_id = $1
+         and (
+           (target_type = 'employee' and target_id = $2)
+           or metadata->>'employeeId' = $2
+         )
+       order by created_at desc
+       limit $3`,
+      [organizationId, employeeId, limit],
+    );
+    return rows.map(mapAuditEvent);
+  }
+
+  // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
+
+  async getBillingSubscription(organizationId: string): Promise<BillingSubscription | null> {
+    const { rows } = await this.query(
+      "select * from billing_subscriptions where organization_id = $1",
+      [organizationId],
+    );
+    return rows[0] ? mapBillingSubscription(rows[0]) : null;
+  }
+
+  async createBillingSubscription(
+    input: CreateBillingSubscriptionInput,
+  ): Promise<BillingSubscription> {
+    const start = input.currentPeriodStart ?? new Date().toISOString();
+    const end = input.currentPeriodEnd ?? addOneMonthIso(start);
+    const { rows } = await this.query(
+      `insert into billing_subscriptions
+         (organization_id, plan_id, status, current_period_start, current_period_end,
+          cancel_at_period_end, external_subscription_id, external_customer_id, provider)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       returning *`,
+      [
+        input.organizationId,
+        input.planId,
+        input.status ?? "active",
+        start,
+        end,
+        input.cancelAtPeriodEnd ?? false,
+        input.externalSubscriptionId ?? null,
+        input.externalCustomerId ?? null,
+        input.provider ?? "simulated",
+      ],
+    );
+    return mapBillingSubscription(rows[0]);
+  }
+
+  async updateBillingSubscription(
+    organizationId: string,
+    patch: UpdateBillingSubscriptionInput,
+  ): Promise<BillingSubscription | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (column: string, value: unknown) => {
+      sets.push(`${column} = $${i++}`);
+      values.push(value);
+    };
+    if (patch.planId !== undefined) add("plan_id", patch.planId);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (patch.currentPeriodStart !== undefined)
+      add("current_period_start", patch.currentPeriodStart);
+    if (patch.currentPeriodEnd !== undefined) add("current_period_end", patch.currentPeriodEnd);
+    if (patch.cancelAtPeriodEnd !== undefined) add("cancel_at_period_end", patch.cancelAtPeriodEnd);
+    if ("externalSubscriptionId" in patch)
+      add("external_subscription_id", patch.externalSubscriptionId ?? null);
+    if ("externalCustomerId" in patch)
+      add("external_customer_id", patch.externalCustomerId ?? null);
+    if (patch.provider !== undefined) add("provider", patch.provider);
+    if (sets.length === 0) return this.getBillingSubscription(organizationId);
+    sets.push("updated_at = now()");
+    values.push(organizationId);
+    const { rows } = await this.query(
+      `update billing_subscriptions set ${sets.join(", ")}
+       where organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapBillingSubscription(rows[0]) : null;
+  }
+
+  async getBillingSubscriptionByExternalId(
+    externalSubscriptionId: string,
+  ): Promise<BillingSubscription | null> {
+    const { rows } = await this.query(
+      "select * from billing_subscriptions where external_subscription_id = $1",
+      [externalSubscriptionId],
+    );
+    return rows[0] ? mapBillingSubscription(rows[0]) : null;
+  }
+
+  async getBillingCustomer(organizationId: string): Promise<BillingCustomer | null> {
+    const { rows } = await this.query(
+      "select * from billing_customers where organization_id = $1",
+      [organizationId],
+    );
+    return rows[0] ? mapBillingCustomer(rows[0]) : null;
+  }
+
+  async getBillingCustomerByExternalId(
+    externalCustomerId: string,
+  ): Promise<BillingCustomer | null> {
+    const { rows } = await this.query(
+      "select * from billing_customers where external_customer_id = $1",
+      [externalCustomerId],
+    );
+    return rows[0] ? mapBillingCustomer(rows[0]) : null;
+  }
+
+  async upsertBillingCustomer(input: UpsertBillingCustomerInput): Promise<BillingCustomer> {
+    const { rows } = await this.query(
+      `insert into billing_customers (organization_id, external_customer_id, provider)
+       values ($1, $2, $3)
+       on conflict (organization_id) do update
+         set external_customer_id = excluded.external_customer_id,
+             provider = excluded.provider,
+             updated_at = now()
+       returning *`,
+      [input.organizationId, input.externalCustomerId, input.provider],
+    );
+    return mapBillingCustomer(rows[0]);
+  }
+
+  async createBillingEvent(input: CreateBillingEventInput): Promise<BillingEvent> {
+    const { rows } = await this.query(
+      `insert into billing_events
+         (organization_id, event_type, plan_id, status, provider, metadata)
+       values ($1, $2, $3, $4, $5, $6)
+       returning *`,
+      [
+        input.organizationId,
+        input.eventType,
+        input.planId ?? null,
+        input.status ?? null,
+        input.provider,
+        JSON.stringify(input.metadata ?? {}),
+      ],
+    );
+    return mapBillingEvent(rows[0]);
+  }
+
+  async listBillingEvents(organizationId: string, limit = 50): Promise<BillingEvent[]> {
+    const { rows } = await this.query(
+      `select * from billing_events where organization_id = $1
+       order by created_at desc limit $2`,
+      [organizationId, limit],
+    );
+    return rows.map(mapBillingEvent);
+  }
+
+  async countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number> {
+    const { rows } = await this.query(
+      `select count(*)::int as count from llm_usage_events
+       where organization_id = $1
+         and status <> 'blocked'
+         and task_type = any($2::text[])
+         and created_at >= $3`,
+      [organizationId, BILLABLE_INTERACTION_TASK_TYPES as unknown as string[], sinceIso],
+    );
+    return rows[0]?.count ?? 0;
   }
 }

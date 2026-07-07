@@ -1192,3 +1192,93 @@ export interface VoiceChannelOverview {
   lastCallAt: string | null;
   recentCalls: VoiceCallSession[];
 }
+
+// ===========================================================================
+// Billing, Plans & Subscriptions (Prompt 011)
+//
+// Plan prices/entitlements are authoritative in code (modules/billing/plans.ts);
+// only DYNAMIC state lives here: one subscription per organization, the mapping
+// to an external billing customer, and a metadata-only audit of state changes.
+// No card data, customer email, or raw provider payloads are ever stored.
+// ===========================================================================
+
+export type BillingSubscriptionStatus = "active" | "trialing" | "past_due" | "canceled";
+
+/** One organization's current subscription. Exactly one active row per org. */
+export interface BillingSubscription {
+  id: string;
+  organizationId: string;
+  /** PlanId from the code catalog (validated on write). */
+  planId: string;
+  status: BillingSubscriptionStatus;
+  currentPeriodStart: string;
+  currentPeriodEnd: string;
+  cancelAtPeriodEnd: boolean;
+  /** External provider ids (Stripe), or null in simulated mode. */
+  externalSubscriptionId: string | null;
+  externalCustomerId: string | null;
+  /** "stripe" | "simulated" — which provider produced this state. */
+  provider: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateBillingSubscriptionInput {
+  organizationId: string;
+  planId: string;
+  status?: BillingSubscriptionStatus;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+  externalSubscriptionId?: string | null;
+  externalCustomerId?: string | null;
+  provider?: string;
+}
+
+export interface UpdateBillingSubscriptionInput {
+  planId?: string;
+  status?: BillingSubscriptionStatus;
+  currentPeriodStart?: string;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+  externalSubscriptionId?: string | null;
+  externalCustomerId?: string | null;
+  provider?: string;
+}
+
+/** Organization ↔ external billing customer mapping (never client-supplied). */
+export interface BillingCustomer {
+  id: string;
+  organizationId: string;
+  externalCustomerId: string;
+  provider: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertBillingCustomerInput {
+  organizationId: string;
+  externalCustomerId: string;
+  provider: string;
+}
+
+/** Metadata-only audit of a billing state change. Never raw provider payloads. */
+export interface BillingEvent {
+  id: string;
+  organizationId: string;
+  eventType: string;
+  planId: string | null;
+  status: BillingSubscriptionStatus | null;
+  provider: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface CreateBillingEventInput {
+  organizationId: string;
+  eventType: string;
+  planId?: string | null;
+  status?: BillingSubscriptionStatus | null;
+  provider: string;
+  metadata?: Record<string, unknown>;
+}

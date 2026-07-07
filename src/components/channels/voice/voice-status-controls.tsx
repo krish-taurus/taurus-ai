@@ -10,7 +10,7 @@ import {
   pauseVoiceChannelAction,
   type VoiceActionState,
 } from "@/modules/voice-runtime/actions";
-import { buttonClasses } from "@/components/ui";
+import { buttonClasses, FieldError } from "@/components/ui";
 
 function Btn({
   label,
@@ -47,9 +47,14 @@ export function VoiceStatusControls({
   channelId: string;
   status: ChannelStatus;
 }) {
-  const [, activate] = useFormState(activateVoiceChannelAction, {} as VoiceActionState);
-  const [, pause] = useFormState(pauseVoiceChannelAction, {} as VoiceActionState);
-  const [, archive] = useFormState(archiveVoiceChannelAction, {} as VoiceActionState);
+  const [activateState, activate] = useFormState(
+    activateVoiceChannelAction,
+    {} as VoiceActionState,
+  );
+  const [pauseState, pause] = useFormState(pauseVoiceChannelAction, {} as VoiceActionState);
+  const [archiveState, archive] = useFormState(archiveVoiceChannelAction, {} as VoiceActionState);
+
+  const error = activateState?.error ?? pauseState?.error ?? archiveState?.error;
 
   const hidden = (
     <>
@@ -59,30 +64,33 @@ export function VoiceStatusControls({
   );
 
   return (
-    <div className="flex flex-wrap gap-2">
-      {status !== "active" && status !== "archived" ? (
-        <form action={activate}>
-          {hidden}
-          <Btn label="Activate" pendingLabel="Activating…" variant="primary" />
-        </form>
-      ) : null}
-      {status === "active" ? (
-        <form action={pause}>
-          {hidden}
-          <Btn label="Pause" pendingLabel="Pausing…" variant="secondary" />
-        </form>
-      ) : null}
-      {status !== "archived" ? (
-        <form action={archive}>
-          {hidden}
-          <Btn
-            label="Revoke"
-            pendingLabel="Revoking…"
-            variant="danger"
-            confirm="Revoke this Voice Channel? Incoming calls will stop being answered."
-          />
-        </form>
-      ) : null}
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-wrap gap-2">
+        {status !== "active" && status !== "archived" ? (
+          <form action={activate}>
+            {hidden}
+            <Btn label="Activate" pendingLabel="Activating…" variant="primary" />
+          </form>
+        ) : null}
+        {status === "active" ? (
+          <form action={pause}>
+            {hidden}
+            <Btn label="Pause" pendingLabel="Pausing…" variant="secondary" />
+          </form>
+        ) : null}
+        {status !== "archived" ? (
+          <form action={archive}>
+            {hidden}
+            <Btn
+              label="Revoke"
+              pendingLabel="Revoking…"
+              variant="danger"
+              confirm="Revoke this Voice Channel? Incoming calls will stop being answered."
+            />
+          </form>
+        ) : null}
+      </div>
+      {error ? <FieldError>{error}</FieldError> : null}
     </div>
   );
 }

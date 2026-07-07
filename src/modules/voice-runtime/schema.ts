@@ -11,6 +11,25 @@ export const voiceProviderSchema = z.enum([
   "vonage_voice",
 ]);
 
+/** Voice providers that accept bring-your-own-key credentials. */
+export const voiceCredentialProviderSchema = z.enum([
+  "twilio_voice",
+  "telnyx_voice",
+  "vonage_voice",
+]);
+
+/** Validated inputs for saving / disabling a voice provider credential. The
+ * secret fields themselves are provider-specific and validated in the service
+ * (required-field checks); here we validate the provider and label. */
+export const saveVoiceCredentialSchema = z.object({
+  providerType: voiceCredentialProviderSchema,
+  label: z.string().trim().max(80, "Keep the label under 80 characters.").optional(),
+});
+
+export const disableVoiceCredentialSchema = z.object({
+  providerType: voiceCredentialProviderSchema,
+});
+
 const voiceConfigFields = {
   voiceStyle: z.enum(["Professional", "Warm", "Direct", "Luxury", "Friendly"]),
   sttProvider: z.string().trim().max(40),

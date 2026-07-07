@@ -10,7 +10,11 @@
 
 import { useFormState, useFormStatus } from "react-dom";
 import type { ChannelProviderType } from "@/lib/db/types";
-import { saveVoiceCredentialAction, type VoiceActionState } from "@/modules/voice-runtime/actions";
+import {
+  disableVoiceCredentialAction,
+  saveVoiceCredentialAction,
+  type VoiceActionState,
+} from "@/modules/voice-runtime/actions";
 import { VOICE_PROVIDER_LABELS } from "@/modules/voice-runtime/catalog";
 import type { VoiceProviderType } from "@/lib/db/types";
 import { buttonClasses, Card, Field, FieldError, Input, Notice } from "@/components/ui";
@@ -41,6 +45,15 @@ function SaveButton() {
   );
 }
 
+function DisableButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={buttonClasses("outline", "sm")}>
+      {pending ? "Removing…" : "Remove your key"}
+    </button>
+  );
+}
+
 export function VoiceCredentialForm({
   employeeId,
   providerType,
@@ -57,6 +70,10 @@ export function VoiceCredentialForm({
   envAvailable: boolean;
 }) {
   const [saveState, saveAction] = useFormState(saveVoiceCredentialAction, {} as VoiceActionState);
+  const [disableState, disableAction] = useFormState(
+    disableVoiceCredentialAction,
+    {} as VoiceActionState,
+  );
   const fields = FIELDS[providerType] ?? [];
   const providerLabel = VOICE_PROVIDER_LABELS[providerType as VoiceProviderType] ?? providerType;
 
@@ -105,6 +122,19 @@ export function VoiceCredentialForm({
           <SaveButton />
         </form>
       )}
+
+      {encryptionConfigured && hasCredential ? (
+        <form
+          action={disableAction}
+          className="mt-3 flex flex-col gap-1 border-t border-taurus-line pt-3"
+        >
+          <input type="hidden" name="employeeId" value={employeeId} />
+          <input type="hidden" name="providerType" value={providerType} />
+          <DisableButton />
+          {disableState?.error ? <FieldError>{disableState.error}</FieldError> : null}
+          {disableState?.ok ? <Notice>Your key was removed.</Notice> : null}
+        </form>
+      ) : null}
     </Card>
   );
 }

@@ -12,6 +12,13 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  BillingSubscription,
+  BillingCustomer,
+  BillingEvent,
+  CreateBillingSubscriptionInput,
+  UpdateBillingSubscriptionInput,
+  UpsertBillingCustomerInput,
+  CreateBillingEventInput,
   CreateEmployeeInput,
   ChannelOverview,
   ChannelProviderCredentialMetadata,
@@ -94,6 +101,8 @@ import {
   modelsByProvider,
 } from "@/modules/model-gateway/catalog";
 import { rankSegments } from "@/modules/employee-chat/scoring";
+import { DEFAULT_PLAN_ID } from "@/modules/billing/plans";
+import { addOneMonthIso, isBillableInteraction } from "@/modules/billing/metadata";
 
 function uuid(): string {
   return globalThis.crypto.randomUUID();
@@ -144,6 +153,10 @@ export class InMemoryStore implements DataStore {
   private voiceCallSessions = new Map<string, VoiceCallSession>();
   private voiceTranscriptMessages = new Map<string, VoiceTranscriptMessage>();
   private voiceStreamEvents = new Map<string, VoiceStreamEvent>();
+  // Billing (Prompt 011). One subscription + one customer mapping per org.
+  private billingSubscriptions = new Map<string, BillingSubscription>();
+  private billingCustomers = new Map<string, BillingCustomer>();
+  private billingEvents: BillingEvent[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -257,6 +270,15 @@ export class InMemoryStore implements DataStore {
       updatedAt: timestamp,
     };
     this.members.set(membership.id, membership);
+
+    // Every organization starts on Starter (Free) implicitly so the product is
+    // usable immediately — no card required (Prompt 011).
+    await this.createBillingSubscription({
+      organizationId: organization.id,
+      planId: DEFAULT_PLAN_ID,
+      status: "active",
+      provider: "simulated",
+    });
 
     return { organization, membership };
   }
@@ -867,6 +889,16 @@ export class InMemoryStore implements DataStore {
       .slice()
       .reverse()
       .slice(0, limit);
+  }
+
+  async countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number> {
+    return this.llmUsageEvents.filter(
+      (e) =>
+        e.organizationId === organizationId &&
+        e.employeeId === employeeId &&
+        e.status !== "blocked" &&
+        isBillableInteraction(e.taskType),
+    ).length;
   }
 
   async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
@@ -1937,6 +1969,138 @@ export class InMemoryStore implements DataStore {
     };
   }
 
+  // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
+
+  async getBillingSubscription(organizationId: string): Promise<BillingSubscription | null> {
+    return this.billingSubscriptions.get(organizationId) ?? null;
+  }
+
+  async createBillingSubscription(
+    input: CreateBillingSubscriptionInput,
+  ): Promise<BillingSubscription> {
+    const timestamp = now();
+    const start = input.currentPeriodStart ?? timestamp;
+    const subscription: BillingSubscription = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      planId: input.planId,
+      status: input.status ?? "active",
+      currentPeriodStart: start,
+      currentPeriodEnd: input.currentPeriodEnd ?? addOneMonthIso(start),
+      cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
+      externalSubscriptionId: input.externalSubscriptionId ?? null,
+      externalCustomerId: input.externalCustomerId ?? null,
+      provider: input.provider ?? "simulated",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    // Exactly one subscription per organization (keyed by org id).
+    this.billingSubscriptions.set(subscription.organizationId, subscription);
+    return subscription;
+  }
+
+  async updateBillingSubscription(
+    organizationId: string,
+    patch: UpdateBillingSubscriptionInput,
+  ): Promise<BillingSubscription | null> {
+    const existing = this.billingSubscriptions.get(organizationId);
+    if (!existing) return null;
+    const updated: BillingSubscription = {
+      ...existing,
+      ...("planId" in patch && patch.planId !== undefined ? { planId: patch.planId } : {}),
+      ...("status" in patch && patch.status !== undefined ? { status: patch.status } : {}),
+      ...("currentPeriodStart" in patch && patch.currentPeriodStart !== undefined
+        ? { currentPeriodStart: patch.currentPeriodStart }
+        : {}),
+      ...("currentPeriodEnd" in patch && patch.currentPeriodEnd !== undefined
+        ? { currentPeriodEnd: patch.currentPeriodEnd }
+        : {}),
+      ...("cancelAtPeriodEnd" in patch && patch.cancelAtPeriodEnd !== undefined
+        ? { cancelAtPeriodEnd: patch.cancelAtPeriodEnd }
+        : {}),
+      ...("externalSubscriptionId" in patch
+        ? { externalSubscriptionId: patch.externalSubscriptionId ?? null }
+        : {}),
+      ...("externalCustomerId" in patch
+        ? { externalCustomerId: patch.externalCustomerId ?? null }
+        : {}),
+      ...("provider" in patch && patch.provider !== undefined ? { provider: patch.provider } : {}),
+      updatedAt: now(),
+    };
+    this.billingSubscriptions.set(organizationId, updated);
+    return updated;
+  }
+
+  async getBillingSubscriptionByExternalId(
+    externalSubscriptionId: string,
+  ): Promise<BillingSubscription | null> {
+    for (const sub of this.billingSubscriptions.values()) {
+      if (sub.externalSubscriptionId === externalSubscriptionId) return sub;
+    }
+    return null;
+  }
+
+  async getBillingCustomer(organizationId: string): Promise<BillingCustomer | null> {
+    return this.billingCustomers.get(organizationId) ?? null;
+  }
+
+  async getBillingCustomerByExternalId(
+    externalCustomerId: string,
+  ): Promise<BillingCustomer | null> {
+    for (const customer of this.billingCustomers.values()) {
+      if (customer.externalCustomerId === externalCustomerId) return customer;
+    }
+    return null;
+  }
+
+  async upsertBillingCustomer(input: UpsertBillingCustomerInput): Promise<BillingCustomer> {
+    const existing = this.billingCustomers.get(input.organizationId);
+    const timestamp = now();
+    const customer: BillingCustomer = {
+      id: existing?.id ?? uuid(),
+      organizationId: input.organizationId,
+      externalCustomerId: input.externalCustomerId,
+      provider: input.provider,
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp,
+    };
+    this.billingCustomers.set(input.organizationId, customer);
+    return customer;
+  }
+
+  async createBillingEvent(input: CreateBillingEventInput): Promise<BillingEvent> {
+    const event: BillingEvent = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      eventType: input.eventType,
+      planId: input.planId ?? null,
+      status: input.status ?? null,
+      provider: input.provider,
+      metadata: input.metadata ?? {},
+      createdAt: now(),
+    };
+    this.billingEvents.push(event);
+    return event;
+  }
+
+  async listBillingEvents(organizationId: string, limit = 50): Promise<BillingEvent[]> {
+    return this.billingEvents
+      .filter((e) => e.organizationId === organizationId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number> {
+    return this.llmUsageEvents.filter(
+      (e) =>
+        e.organizationId === organizationId &&
+        e.status !== "blocked" &&
+        isBillableInteraction(e.taskType) &&
+        e.createdAt >= sinceIso,
+    ).length;
+  }
+
   async createAuditEvent(input: AuditEventInput): Promise<AuditEvent> {
     const event: AuditEvent = {
       ...input,
@@ -1948,6 +2112,31 @@ export class InMemoryStore implements DataStore {
     };
     this.auditEvents.push(event);
     return event;
+  }
+
+  async listAuditEvents(organizationId: string, limit = 50): Promise<AuditEvent[]> {
+    return this.auditEvents
+      .filter((e) => e.organizationId === organizationId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 20,
+  ): Promise<AuditEvent[]> {
+    return this.auditEvents
+      .filter(
+        (e) =>
+          e.organizationId === organizationId &&
+          ((e.targetType === "employee" && e.targetId === employeeId) ||
+            (e.metadata as { employeeId?: unknown }).employeeId === employeeId),
+      )
+      .slice()
+      .reverse()
+      .slice(0, limit);
   }
 
   // --- Test/dev helpers (not part of DataStore) -----------------------------

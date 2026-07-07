@@ -26,6 +26,9 @@ export function isRole(value: unknown): value is Role {
 export const PERMISSIONS = [
   "organization.manage",
   "organization.delete",
+  // Billing, Plans & Subscriptions (Prompt 011). view = see plan + usage (all
+  // roles); manage = upgrade/downgrade/cancel/open portal (owner/admin only).
+  "billing.view",
   "billing.manage",
   "member.invite",
   "member.manage_roles",
@@ -66,6 +69,8 @@ export type Permission = (typeof PERMISSIONS)[number];
 const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   owner: new Set(PERMISSIONS),
   admin: new Set<Permission>([
+    "billing.view",
+    "billing.manage",
     "member.invite",
     "audit.view",
     "employee.create",
@@ -85,6 +90,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "dashboard.view",
   ]),
   builder: new Set<Permission>([
+    "billing.view",
     "employee.create",
     "employee_dna.edit",
     "knowledge.view",
@@ -99,6 +105,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "dashboard.view",
   ]),
   viewer: new Set<Permission>([
+    "billing.view",
     "employee.view",
     "employee.test",
     "knowledge.view",
