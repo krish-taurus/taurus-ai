@@ -30,6 +30,10 @@ export const PERMISSIONS = [
   // roles); manage = upgrade/downgrade/cancel/open portal (owner/admin only).
   "billing.view",
   "billing.manage",
+  // Usage & Limits dashboard (Sprint 016). Every role in an org may see its own
+  // organization's usage vs. plan quota. (Taurus cost/margin is NOT a tenant
+  // permission — it is gated by the separate platform-operator allowlist.)
+  "usage.view",
   "member.invite",
   "member.manage_roles",
   "audit.view",
@@ -71,6 +75,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   admin: new Set<Permission>([
     "billing.view",
     "billing.manage",
+    "usage.view",
     "member.invite",
     "audit.view",
     "employee.create",
@@ -91,6 +96,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   ]),
   builder: new Set<Permission>([
     "billing.view",
+    "usage.view",
     "employee.create",
     "employee_dna.edit",
     "knowledge.view",
@@ -106,6 +112,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   ]),
   viewer: new Set<Permission>([
     "billing.view",
+    "usage.view",
     "employee.view",
     "employee.test",
     "knowledge.view",

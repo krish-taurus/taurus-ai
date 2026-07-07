@@ -12,6 +12,7 @@
 
 import type {
   AiEmployee,
+  ChannelType,
   ChatSourceReference,
   EmployeeChatMessage,
   EmployeeChatThread,
@@ -60,6 +61,8 @@ export interface SendChatMessageParams {
   employee: AiEmployee;
   threadId?: string | null;
   message: string;
+  /** The channel this interaction came through, for usage breakdowns (Sprint 016). */
+  channelType?: ChannelType | null;
 }
 
 export interface ChatServiceDeps {
@@ -226,6 +229,7 @@ export async function sendChatMessage(
       taskType: "employee_chat",
       messages: context.messages,
       createdByUserId: actor.userId,
+      channelType: params.channelType ?? null,
     });
     const brainMode: "live" | "local_demo" = response.demo ? "local_demo" : "live";
 

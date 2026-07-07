@@ -16,11 +16,13 @@
 import type { AiModel, ModelCapability, ModelResolution } from "@/modules/model-gateway/types";
 import type {
   EmployeeModelSettings,
+  ModelAccessMode,
   OrganizationModelSettings,
   ProviderSlug,
   RoutingMode,
 } from "@/lib/db/types";
 import { AI_MODELS, getModel } from "@/modules/model-gateway/catalog";
+import { isManagedAllowedModelId } from "@/modules/usage/model-pricing";
 import { ROUTING_MODE_LABELS, TIER_FALLBACK_ORDER } from "@/modules/model-gateway/metadata";
 import type { ModelTier } from "@/lib/db/types";
 
@@ -38,6 +40,13 @@ export interface ResolveInput {
    * "no restriction" (e.g. dev/demo with no keys) so the demo brain still works.
    */
   availableProviderSlugs?: ProviderSlug[];
+  /**
+   * The organization's model access mode (Sprint 016). In "managed" mode,
+   * frontier-tier models are excluded (BYOK-only) so a flat managed plan can
+   * never run a high-cost frontier interaction. Undefined = no restriction
+   * (preserves the pure router's default behavior).
+   */
+  modelAccessMode?: ModelAccessMode;
 }
 
 const CAPABILITY_FLAG: Record<ModelCapability, keyof AiModel> = {
@@ -82,12 +91,15 @@ export function eligibleModels(input: ResolveInput): AiModel[] {
   // empty list means "no restriction" so dev/demo without keys still resolves.
   const available = input.availableProviderSlugs;
   const restrictToAvailable = Array.isArray(available) && available.length > 0;
+  // Managed mode is budget + mid only; frontier models require BYOK.
+  const managed = input.modelAccessMode === "managed";
   return catalog.filter(
     (m) =>
       m.status === "available" &&
       providerAllowed(m.providerSlug, allowedProviderSlugs, blockedProviderSlugs) &&
       modelSupportsCapabilities(m, input.requiredCapabilities) &&
-      (!restrictToAvailable || available.includes(m.providerSlug)),
+      (!restrictToAvailable || available.includes(m.providerSlug)) &&
+      (!managed || isManagedAllowedModelId(m.modelId)),
   );
 }
 

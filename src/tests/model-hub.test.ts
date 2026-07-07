@@ -500,11 +500,13 @@ describe("Employee Brain service", () => {
     expect(updated.routingMode).toBe("quality_first");
     expect(updated.modelId).toBeNull();
 
+    // A Standard-tier model (frontier models are BYOK-only in managed mode — see
+    // the dedicated access-mode tests in usage-cost-margin.test.ts).
     const advanced = await updateEmployeeBrain(store, actor, "emp-1", {
       selection: "advanced",
-      modelId: "claude-opus-4-8",
+      modelId: "claude-sonnet-5",
     });
-    expect(advanced.modelId).toBe("claude-opus-4-8");
+    expect(advanced.modelId).toBe("claude-sonnet-5");
     expect(advanced.routingMode).toBe("manual");
 
     const inherited = await updateEmployeeBrain(store, actor, "emp-1", { selection: "inherit" });

@@ -265,6 +265,7 @@ export async function handleVoiceTurn(
         employee,
         threadId,
         message: callerText,
+        channelType: "phone_call",
       },
     );
     replyText = result.assistantMessage.content;

@@ -28,6 +28,7 @@ import {
   isEncryptionConfigured,
   lastFour,
 } from "@/modules/model-gateway/credentials";
+import { costTierForModelId } from "@/modules/usage/model-pricing";
 
 export interface ModelHubActor {
   organizationId: string;
@@ -135,6 +136,19 @@ export async function updateEmployeeBrain(
     patch = { modelId: null, routingMode: null, updatedByUserId: actor.userId };
   } else if (selection === "advanced") {
     assertKnownModel(modelId);
+    // Margin guardrail (Sprint 016): frontier-tier models are BYOK-only. A
+    // managed org cannot pin an AI Employee to a frontier model — it must switch
+    // to its own key first. Budget + Standard models remain fully selectable.
+    if (costTierForModelId(modelId) === "frontier") {
+      const org = await store.getOrganizationById(actor.organizationId);
+      if ((org?.modelAccessMode ?? "managed") === "managed") {
+        throw new ModelHubValidationError(
+          "Premium models require your own API key. Switch this organization to " +
+            "bring-your-own-key in the Model Hub to use a premium model, or choose a " +
+            "Budget or Standard model.",
+        );
+      }
+    }
     patch = { modelId, routingMode: "manual", updatedByUserId: actor.userId };
   } else {
     const mode = BRAIN_MODES_BY_ID[selection as BrainMode];

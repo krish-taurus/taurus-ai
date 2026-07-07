@@ -106,9 +106,11 @@ import type {
   LlmTaskType,
   LlmUsageEvent,
   LlmUsageStatus,
+  ModelAccessMode,
   ModelHubOverview,
   Organization,
   OrganizationMember,
+  UsageCostAggregateRow,
   OrganizationMembershipView,
   OrganizationModelSettings,
   ProviderCredentialMetadata,
@@ -171,6 +173,7 @@ function mapOrganization(row: Row): Organization {
     industry: row.industry,
     websiteUrl: row.website_url,
     sizeRange: row.size_range,
+    modelAccessMode: (row.model_access_mode as ModelAccessMode) ?? "managed",
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -401,6 +404,11 @@ function mapUsageEvent(row: Row): LlmUsageEvent {
     cachedInputTokens: row.cached_input_tokens,
     outputTokens: row.output_tokens,
     estimatedCostUsd: num(row.estimated_cost_usd),
+    costUsd: num(row.cost_usd),
+    unitInputPrice: num(row.unit_input_price),
+    unitOutputPrice: num(row.unit_output_price),
+    byok: row.byok ?? false,
+    channelType: (row.channel_type as ChannelType | null) ?? null,
     latencyMs: row.latency_ms,
     status: row.status as LlmUsageStatus,
     errorCode: row.error_code,
@@ -762,7 +770,7 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `select
          o.id as o_id, o.name, o.slug, o.industry, o.website_url, o.size_range,
-         o.created_at as o_created_at, o.updated_at as o_updated_at,
+         o.model_access_mode, o.created_at as o_created_at, o.updated_at as o_updated_at,
          m.id as m_id, m.organization_id, m.user_id, m.role, m.status,
          m.created_at as m_created_at, m.updated_at as m_updated_at
        from organization_members m
@@ -779,6 +787,7 @@ export class PostgresStore implements DataStore {
         industry: row.industry,
         website_url: row.website_url,
         size_range: row.size_range,
+        model_access_mode: row.model_access_mode,
         created_at: row.o_created_at,
         updated_at: row.o_updated_at,
       }),
@@ -847,6 +856,19 @@ export class PostgresStore implements DataStore {
     } finally {
       client.release();
     }
+  }
+
+  async updateOrganizationModelAccessMode(
+    organizationId: string,
+    mode: ModelAccessMode,
+  ): Promise<Organization> {
+    const { rows } = await this.query(
+      `update organizations set model_access_mode = $2, updated_at = now()
+       where id = $1 returning *`,
+      [organizationId, mode],
+    );
+    if (!rows[0]) throw new Error(`Organization ${organizationId} not found.`);
+    return mapOrganization(rows[0]);
   }
 
   async createEmployee(input: CreateEmployeeInput): Promise<AiEmployee> {
@@ -1563,9 +1585,10 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `insert into llm_usage_events
          (organization_id, employee_id, provider_slug, model_id, task_type, input_tokens,
-          cached_input_tokens, output_tokens, estimated_cost_usd, latency_ms, status,
+          cached_input_tokens, output_tokens, estimated_cost_usd, cost_usd, unit_input_price,
+          unit_output_price, byok, channel_type, latency_ms, status,
           error_code, request_id_hash, created_by_user_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        returning *`,
       [
         input.organizationId,
@@ -1577,6 +1600,11 @@ export class PostgresStore implements DataStore {
         input.cachedInputTokens ?? 0,
         input.outputTokens,
         input.estimatedCostUsd ?? null,
+        input.costUsd ?? null,
+        input.unitInputPrice ?? null,
+        input.unitOutputPrice ?? null,
+        input.byok ?? false,
+        input.channelType ?? null,
         input.latencyMs ?? null,
         input.status,
         input.errorCode ?? null,
@@ -1585,6 +1613,55 @@ export class PostgresStore implements DataStore {
       ],
     );
     return mapUsageEvent(rows[0]);
+  }
+
+  // --- Usage & cost aggregates (Sprint 016) ---------------------------------
+
+  async listBillableUsageEventsSince(
+    organizationId: string,
+    sinceIso: string,
+  ): Promise<LlmUsageEvent[]> {
+    const { rows } = await this.query(
+      `select * from llm_usage_events
+       where organization_id = $1
+         and status <> 'blocked'
+         and task_type = any($2::text[])
+         and created_at >= $3
+       order by created_at asc`,
+      [organizationId, BILLABLE_INTERACTION_TASK_TYPES as unknown as string[], sinceIso],
+    );
+    return rows.map(mapUsageEvent);
+  }
+
+  async aggregateUsageCostsSince(sinceIso: string): Promise<UsageCostAggregateRow[]> {
+    // OPERATOR-ONLY: deliberately cross-tenant (no organization filter). Only
+    // reachable behind the platform-operator gate.
+    const { rows } = await this.query(
+      `select organization_id,
+              count(*)::int as interaction_count,
+              count(*) filter (where byok)::int as byok_interaction_count,
+              count(*) filter (where not byok)::int as managed_interaction_count,
+              coalesce(sum(cost_usd), 0) as total_cost_usd
+       from llm_usage_events
+       where status <> 'blocked'
+         and task_type = any($1::text[])
+         and created_at >= $2
+       group by organization_id`,
+      [BILLABLE_INTERACTION_TASK_TYPES as unknown as string[], sinceIso],
+    );
+    return rows.map((row: Row) => ({
+      organizationId: row.organization_id,
+      interactionCount: row.interaction_count,
+      managedInteractionCount: row.managed_interaction_count,
+      byokInteractionCount: row.byok_interaction_count,
+      totalCostUsd: num(row.total_cost_usd) ?? 0,
+    }));
+  }
+
+  async listAllBillingSubscriptions(): Promise<BillingSubscription[]> {
+    // OPERATOR-ONLY: cross-tenant list of every organization's subscription.
+    const { rows } = await this.query("select * from billing_subscriptions");
+    return rows.map(mapBillingSubscription);
   }
 
   async getModelHubOverview(organizationId: string): Promise<ModelHubOverview> {

@@ -1,5 +1,28 @@
 # Changelog
 
+## Sprint 016 - Usage & Limits Dashboard + Cost/Margin Tracking — 2026-07-07
+
+Added:
+
+- **Cost capture on every interaction** — a code-authoritative model pricing
+  layer (`src/modules/usage/model-pricing.ts`: cost tier + managed sell price on
+  top of the Model Hub token prices) and a write-time `cost_usd` + price snapshot
+  + `byok` flag on each `llm_usage_events` row (migration `0015_usage_costs.sql`).
+  BYOK interactions cost Taurus 0; the prompt-cache discount is applied.
+- **Customer Usage dashboard** (`/dashboard/usage`, `usage.view` for all roles)
+  — interactions vs. plan quota for the period, breakdowns by AI Employee and by
+  channel, a daily trend, and 80% / 100% quota banners. Never shows Taurus cost.
+- **Operator cost/margin view** (`/operator/margin`) — revenue, serving cost,
+  gross margin %, and markup per plan and per organization, with a "margin at
+  risk" flag, gated by a server-only platform-operator allowlist
+  (`PLATFORM_OPERATOR_USER_IDS`). A normal user (any org role) gets 404.
+- **Model access mode** per organization (`managed` | `byok`, default `managed`)
+  — changeable by owner/admin only, audited. Frontier-tier models are BYOK-only
+  (blocked for an AI Employee in managed mode; filtered from automatic routing).
+- **Margin guardrail** — new AI Employees default to a budget-tier model; the
+  Model Hub catalog labels each model's cost tier. A managed per-interaction sell
+  price is defined and displayed (metered charging is Sprint 017).
+
 ## Sprint 015 - Billing, Plans & Subscriptions + Functionality Audit — 2026-07-07
 
 Added:

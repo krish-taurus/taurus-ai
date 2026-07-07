@@ -16,6 +16,7 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { getOrganizationPlan } from "@/modules/billing/service";
 import { planIncludesFeature } from "@/modules/billing/entitlements";
+import { setModelAccessMode } from "@/modules/usage/access-mode";
 import type { ProviderSlug } from "@/lib/db/types";
 import {
   disableProviderCredential,
@@ -127,6 +128,23 @@ export async function saveProviderCredentialAction(
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save the provider key." };
+  }
+
+  revalidatePath("/dashboard/settings/models/providers");
+  redirect("/dashboard/settings/models/providers");
+}
+
+export async function updateModelAccessModeAction(
+  _prevState: ModelHubActionState,
+  formData: FormData,
+): Promise<ModelHubActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+
+  try {
+    await setModelAccessMode(getStore(), ctx.actor, formData.get("modelAccessMode"));
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not update the access mode." };
   }
 
   revalidatePath("/dashboard/settings/models/providers");

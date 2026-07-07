@@ -27,6 +27,7 @@ import type {
 } from "@/modules/model-gateway/types";
 import { getModel } from "@/modules/model-gateway/catalog";
 import { estimateCost } from "@/modules/model-gateway/pricing";
+import { computeInteractionCost } from "@/modules/usage/model-pricing";
 import { modelSupportsCapabilities, resolveModelForTask } from "@/modules/model-gateway/router";
 
 /** Raised when the gateway cannot serve a request (config/credential issues). */
@@ -117,6 +118,8 @@ export class LlmGateway {
     const availableProviderSlugs = this.deps.listAvailableProviders
       ? await this.deps.listAvailableProviders(request.organizationId)
       : undefined;
+    // Managed orgs are capped to budget + mid models (frontier is BYOK-only).
+    const organization = await this.deps.store.getOrganizationById(request.organizationId);
 
     return resolveModelForTask({
       orgSettings,
@@ -124,6 +127,7 @@ export class LlmGateway {
       desiredRoutingMode: request.desiredRoutingMode ?? null,
       requiredCapabilities: request.requiredCapabilities,
       availableProviderSlugs,
+      modelAccessMode: organization?.modelAccessMode,
     });
   }
 
@@ -183,6 +187,11 @@ export class LlmGateway {
       throw new GatewayError(`No adapter for provider ${providerSlug}.`, "no_adapter");
     }
 
+    // Did this interaction run on the customer's own key? If so, the token cost
+    // is borne by the customer and Taurus's serving cost is 0 (Sprint 016).
+    const byok = credential.mode === "bring_your_own_key";
+    const channelType = request.channelType ?? null;
+
     const start = this.now();
     try {
       const result = await provider.generateText({
@@ -202,6 +211,14 @@ export class LlmGateway {
       const outputTokens = result.outputTokens ?? estimateTokens(result.text);
 
       const cost = estimateCost(model, { inputTokens, cachedInputTokens, outputTokens });
+      // Authoritative serving cost + price snapshot for margin (0 for BYOK).
+      const snapshot = computeInteractionCost({
+        modelId: model.modelId,
+        inputTokens,
+        cachedInputTokens,
+        outputTokens,
+        byok,
+      });
 
       // Metadata only — message contents are NEVER persisted.
       await this.deps.store.createLlmUsageEvent({
@@ -214,6 +231,11 @@ export class LlmGateway {
         cachedInputTokens,
         outputTokens,
         estimatedCostUsd: cost.totalUsd,
+        costUsd: snapshot.costUsd,
+        unitInputPrice: snapshot.unitInputPrice,
+        unitOutputPrice: snapshot.unitOutputPrice,
+        byok,
+        channelType,
         latencyMs,
         status: "success",
         errorCode: null,
@@ -247,6 +269,11 @@ export class LlmGateway {
         cachedInputTokens: 0,
         outputTokens: 0,
         estimatedCostUsd: null,
+        costUsd: 0,
+        unitInputPrice: null,
+        unitOutputPrice: null,
+        byok,
+        channelType,
         latencyMs,
         status: "error",
         errorCode: code,
@@ -291,6 +318,12 @@ export class LlmGateway {
       cachedInputTokens: 0,
       outputTokens,
       estimatedCostUsd: 0,
+      // The Local Demo Brain is free and runs on no customer key.
+      costUsd: 0,
+      unitInputPrice: null,
+      unitOutputPrice: null,
+      byok: false,
+      channelType: request.channelType ?? null,
       latencyMs,
       status: "success",
       errorCode: null,

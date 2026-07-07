@@ -8,6 +8,7 @@
  */
 
 import type {
+  ChannelType,
   LlmTaskType,
   ModelTier,
   ProviderSlug,
@@ -100,6 +101,8 @@ export interface GatewayRequest {
   requiredCapabilities?: ModelCapability[];
   maxOutputTokens?: number | null;
   createdByUserId?: string | null;
+  /** Deployment channel this interaction came through (for usage breakdowns). */
+  channelType?: ChannelType | null;
   metadata?: Record<string, string | number | boolean | null>;
 }
 

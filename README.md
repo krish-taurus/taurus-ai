@@ -1186,6 +1186,57 @@ onboarding.
 Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
 this sprint.
 
+# Usage & Limits + Cost/Margin (Sprint 016)
+
+Makes usage visible to customers and serving **cost/margin** measurable for the
+operator, from real usage events (`llm_usage_events`) — not estimates. Margin
+depends on which model an interaction runs on, so the model **cost tier** is now
+first-class.
+
+## What landed
+
+- **Cost on every interaction** — the model gateway computes `cost_usd` and a
+  price snapshot at write time (`src/modules/usage/model-pricing.ts` layers a
+  `budget | mid | frontier` cost tier + managed sell price on top of the Model
+  Hub token prices — prices stay in one place). BYOK interactions cost Taurus 0;
+  the prompt-cache discount is applied. Columns added in
+  `db/migrations/0015_usage_costs.sql`.
+- **Customer Usage dashboard** — `/dashboard/usage` (`usage.view`, all roles):
+  interactions vs. plan quota for the current period with the reset date,
+  breakdowns by **AI Employee** and **channel** (web / WhatsApp-SMS / email /
+  voice), a daily trend, and 80% / 100% quota banners linking to plans. Quota is
+  read from the plan; usage is derived from events (no parallel counter). Never
+  shows Taurus cost or margin.
+- **Operator cost/margin** — `/operator/margin`: revenue, serving cost, gross
+  margin %, and markup per plan and per organization, with a **margin-at-risk**
+  flag (managed serving cost above a configurable share of plan price, default
+  33%). Gated by a **server-only** platform-operator allowlist
+  (`PLATFORM_OPERATOR_USER_IDS`) — NOT an org role; a normal user (any role) gets
+  404. The cross-tenant aggregation lives only behind this gate; all tenant
+  queries stay organization-scoped.
+- **Model access mode** — per-organization `managed` (default) or `byok`.
+  Managed runs on Taurus keys (Taurus bears token cost, margin = subscription +
+  spread); BYOK runs on the customer's key (cost 0, ~100% margin). Owner/admin
+  only, audited. **Frontier models are BYOK-only**: blocked when pinned to an AI
+  Employee in managed mode (clear upgrade message) and filtered from automatic
+  routing — a flat managed plan can never run a high-cost frontier interaction.
+- **Margin guardrail** — new AI Employees default to a **budget-tier** model; the
+  Model Hub catalog shows each model's cost tier. A managed per-interaction sell
+  price is defined and displayed (metered overage charging is Sprint 017).
+
+## Security
+
+- The operator allowlist is server-only (never `NEXT_PUBLIC_*`); customers can
+  never see Taurus cost/margin or another tenant's usage.
+- Usage/cost events are metadata only — no message content, no card data. The org
+  is resolved from the session for every tenant route.
+
+## Not in this sprint
+
+Metered overage charging, automated model routing by query complexity,
+margin-risk alerting/emails, per-token customer-facing cost display, and a full
+operator console (user management, refunds). See Sprint 017+.
+
 # Billing, Plans & Subscriptions (Sprint 015)
 
 Self-serve subscription billing and plan entitlements. An organization can pick a

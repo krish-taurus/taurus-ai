@@ -77,9 +77,11 @@ import type {
   KnowledgeSource,
   KnowledgeVaultOverview,
   LlmUsageEvent,
+  ModelAccessMode,
   ModelHubOverview,
   Organization,
   OrganizationMember,
+  UsageCostAggregateRow,
   OrganizationMembershipView,
   OrganizationModelSettings,
   ProviderCredentialMetadata,
@@ -123,6 +125,12 @@ export interface DataStore {
     ownerUserId: string;
     ownerRole?: Role;
   }): Promise<OrganizationMembershipView>;
+
+  /** Change an organization's model access mode (managed | byok). Owner/admin only (enforced above the store). */
+  updateOrganizationModelAccessMode(
+    organizationId: string,
+    mode: ModelAccessMode,
+  ): Promise<Organization>;
 
   // AI Employees (Prompt 003) — all reads/writes are organization-scoped.
   createEmployee(input: CreateEmployeeInput): Promise<AiEmployee>;
@@ -244,6 +252,21 @@ export interface DataStore {
   createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent>;
   /** Billable AI Employee interactions handled by one employee (all-time). */
   countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number>;
+
+  // Usage & cost aggregates (Sprint 016).
+  /** Billable usage events for an organization since a timestamp (tenant-scoped). */
+  listBillableUsageEventsSince(
+    organizationId: string,
+    sinceIso: string,
+  ): Promise<LlmUsageEvent[]>;
+  /**
+   * Cross-tenant per-organization usage-cost aggregate since a timestamp.
+   * OPERATOR-ONLY: not organization-scoped — only ever called behind the
+   * platform-operator gate, never from a customer route.
+   */
+  aggregateUsageCostsSince(sinceIso: string): Promise<UsageCostAggregateRow[]>;
+  /** Every organization's subscription (OPERATOR-ONLY, cross-tenant) — for margin revenue. */
+  listAllBillingSubscriptions(): Promise<BillingSubscription[]>;
 
   getModelHubOverview(organizationId: string): Promise<ModelHubOverview>;
 

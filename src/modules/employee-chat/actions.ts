@@ -66,6 +66,8 @@ export async function sendChatMessageAction(
         employee,
         threadId: formData.get("threadId") ? String(formData.get("threadId")) : null,
         message: parsed.data.message,
+        // Dashboard "test chat" is the hosted chat surface.
+        channelType: "hosted_chat",
       },
     );
   } catch (err) {

@@ -20,6 +20,21 @@ export interface User {
   updatedAt: string;
 }
 
+/**
+ * How an organization's AI Employee interactions are served (Sprint 016):
+ *   - "managed" : run on Taurus's provider keys; Taurus bears the token cost and
+ *                 earns the subscription + token spread. Zero-setup default.
+ *   - "byok"    : run on the customer's own encrypted key; cost to Taurus is 0
+ *                 and margin is subscription-only (~100%).
+ * Frontier-tier models are only selectable in "byok" mode (margin guardrail).
+ */
+export const MODEL_ACCESS_MODES = ["managed", "byok"] as const;
+export type ModelAccessMode = (typeof MODEL_ACCESS_MODES)[number];
+
+export function isModelAccessMode(value: unknown): value is ModelAccessMode {
+  return typeof value === "string" && (MODEL_ACCESS_MODES as readonly string[]).includes(value);
+}
+
 export interface Organization {
   id: string;
   name: string;
@@ -27,6 +42,8 @@ export interface Organization {
   industry: string | null;
   websiteUrl: string | null;
   sizeRange: string | null;
+  /** How interactions are served + billed (Sprint 016). Defaults to "managed". */
+  modelAccessMode: ModelAccessMode;
   createdAt: string;
   updatedAt: string;
 }
@@ -473,6 +490,19 @@ export interface LlmUsageEvent {
   cachedInputTokens: number;
   outputTokens: number;
   estimatedCostUsd: number | null;
+  /**
+   * Serving cost to Taurus for this interaction, computed at write time from the
+   * price snapshot below (Sprint 016). 0 when `byok` (customer bears the cost).
+   */
+  costUsd: number | null;
+  /** $ / 1M input tokens used at write time (price snapshot; stays historically accurate). */
+  unitInputPrice: number | null;
+  /** $ / 1M output tokens used at write time (price snapshot). */
+  unitOutputPrice: number | null;
+  /** True when the interaction ran on the customer's own key (cost 0 to Taurus). */
+  byok: boolean;
+  /** Deployment channel the interaction came through, for usage breakdowns. */
+  channelType: ChannelType | null;
   latencyMs: number | null;
   status: LlmUsageStatus;
   errorCode: string | null;
@@ -491,11 +521,31 @@ export interface CreateLlmUsageEventInput {
   cachedInputTokens?: number;
   outputTokens: number;
   estimatedCostUsd?: number | null;
+  costUsd?: number | null;
+  unitInputPrice?: number | null;
+  unitOutputPrice?: number | null;
+  byok?: boolean;
+  channelType?: ChannelType | null;
   latencyMs?: number | null;
   status: LlmUsageStatus;
   errorCode?: string | null;
   requestIdHash?: string | null;
   createdByUserId?: string | null;
+}
+
+/**
+ * Cross-tenant per-organization usage-cost aggregate for the operator margin
+ * view (Sprint 016). NOT tenant-scoped — only ever queried behind the
+ * platform-operator gate, never from a customer route.
+ */
+export interface UsageCostAggregateRow {
+  organizationId: string;
+  /** Billable interactions in the period. */
+  interactionCount: number;
+  managedInteractionCount: number;
+  byokInteractionCount: number;
+  /** Sum of cost_usd in the period (BYOK contributes 0). */
+  totalCostUsd: number;
 }
 
 /** Aggregate data for the Model Hub overview cards. */
