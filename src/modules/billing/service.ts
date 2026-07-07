@@ -1,5 +1,5 @@
 /**
- * Billing domain service (Prompt 011) — server only.
+ * Billing domain service (Sprint 015) — server only.
  *
  * Orchestrates plan resolution, entitlement enforcement, plan changes, the
  * billing portal, and webhook application over a DataStore + a BillingProvider.

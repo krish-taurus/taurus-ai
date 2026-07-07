@@ -1,5 +1,5 @@
 /**
- * Simulated billing provider (Prompt 011).
+ * Simulated billing provider (Sprint 015).
  *
  * The default provider whenever STRIPE_SECRET_KEY is absent (local dev + tests).
  * Never touches the network and never charges: "Upgrade" resolves to an instant

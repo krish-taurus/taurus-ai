@@ -1,5 +1,5 @@
 /**
- * Usage-vs-quota meter (Prompt 011). Server component — renders a labeled
+ * Usage-vs-quota meter (Sprint 015). Server component — renders a labeled
  * progress bar for one entitlement. At or over the limit it reads "Limit
  * reached" so the state is clear without relying on color.
  */

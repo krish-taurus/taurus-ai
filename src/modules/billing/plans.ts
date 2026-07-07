@@ -1,5 +1,5 @@
 /**
- * Plans catalog (Prompt 011) — code-authoritative, like the Model Hub catalog.
+ * Plans catalog (Sprint 015) — code-authoritative, like the Model Hub catalog.
  *
  * This is the ONE place plan prices and entitlements live. No price is hard-coded
  * anywhere else in the codebase. Every organization is on exactly one of these

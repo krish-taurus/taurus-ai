@@ -1,5 +1,5 @@
 /**
- * Billing webhook processing (Prompt 011) — server only.
+ * Billing webhook processing (Sprint 015) — server only.
  *
  * Verifies the signature (when configured), parses the provider payload into a
  * normalized event, and applies it. The organization is always resolved from

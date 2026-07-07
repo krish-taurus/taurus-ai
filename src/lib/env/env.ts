@@ -75,7 +75,7 @@ const serverSchema = z
     VONAGE_API_SECRET: z.string().optional().or(z.literal("")),
     DEEPGRAM_API_KEY: z.string().optional().or(z.literal("")),
     ELEVENLABS_API_KEY: z.string().optional().or(z.literal("")),
-    // Billing, Plans & Subscriptions (Prompt 011). All optional and SERVER-ONLY
+    // Billing, Plans & Subscriptions (Sprint 015). All optional and SERVER-ONLY
     // (never NEXT_PUBLIC_*). When STRIPE_SECRET_KEY is absent, billing runs in
     // simulated mode — local dev and tests never touch the network or charge.
     STRIPE_SECRET_KEY: z.string().optional().or(z.literal("")),

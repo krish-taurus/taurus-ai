@@ -153,7 +153,7 @@ export class InMemoryStore implements DataStore {
   private voiceCallSessions = new Map<string, VoiceCallSession>();
   private voiceTranscriptMessages = new Map<string, VoiceTranscriptMessage>();
   private voiceStreamEvents = new Map<string, VoiceStreamEvent>();
-  // Billing (Prompt 011). One subscription + one customer mapping per org.
+  // Billing (Sprint 015). One subscription + one customer mapping per org.
   private billingSubscriptions = new Map<string, BillingSubscription>();
   private billingCustomers = new Map<string, BillingCustomer>();
   private billingEvents: BillingEvent[] = [];
@@ -272,7 +272,7 @@ export class InMemoryStore implements DataStore {
     this.members.set(membership.id, membership);
 
     // Every organization starts on Starter (Free) implicitly so the product is
-    // usable immediately — no card required (Prompt 011).
+    // usable immediately — no card required (Sprint 015).
     await this.createBillingSubscription({
       organizationId: organization.id,
       planId: DEFAULT_PLAN_ID,
@@ -1969,7 +1969,7 @@ export class InMemoryStore implements DataStore {
     };
   }
 
-  // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
+  // --- Billing, Plans & Subscriptions (Sprint 015) --------------------------
 
   async getBillingSubscription(organizationId: string): Promise<BillingSubscription | null> {
     return this.billingSubscriptions.get(organizationId) ?? null;

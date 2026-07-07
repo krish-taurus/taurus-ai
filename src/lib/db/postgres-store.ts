@@ -830,7 +830,7 @@ export class PostgresStore implements DataStore {
       );
       const membership = mapMembership(memberResult.rows[0]);
 
-      // Every organization starts on Starter (Free) implicitly (Prompt 011).
+      // Every organization starts on Starter (Free) implicitly (Sprint 015).
       const periodStart = new Date().toISOString();
       await client.query(
         `insert into billing_subscriptions
@@ -2756,7 +2756,7 @@ export class PostgresStore implements DataStore {
     return rows.map(mapAuditEvent);
   }
 
-  // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
+  // --- Billing, Plans & Subscriptions (Sprint 015) --------------------------
 
   async getBillingSubscription(organizationId: string): Promise<BillingSubscription | null> {
     const { rows } = await this.query(

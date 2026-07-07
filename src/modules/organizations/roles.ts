@@ -26,7 +26,7 @@ export function isRole(value: unknown): value is Role {
 export const PERMISSIONS = [
   "organization.manage",
   "organization.delete",
-  // Billing, Plans & Subscriptions (Prompt 011). view = see plan + usage (all
+  // Billing, Plans & Subscriptions (Sprint 015). view = see plan + usage (all
   // roles); manage = upgrade/downgrade/cancel/open portal (owner/admin only).
   "billing.view",
   "billing.manage",

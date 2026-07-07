@@ -1,5 +1,5 @@
 /**
- * Entitlement enforcement math (Prompt 011) — pure.
+ * Entitlement enforcement math (Sprint 015) — pure.
  *
  * These functions decide whether an organization may take an action given its
  * current plan and current usage. They are pure (no DataStore, no Next.js) so the

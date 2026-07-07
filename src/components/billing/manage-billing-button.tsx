@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "Manage plan" button (Prompt 011). Opens the Stripe billing portal, or in
+ * "Manage plan" button (Sprint 015). Opens the Stripe billing portal, or in
  * simulated mode returns to the billing page with a notice. Owner/admin only —
  * re-checked server-side.
  */

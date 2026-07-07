@@ -126,7 +126,7 @@ export async function sendChatMessage(
   const liveAvailable = await isLiveProviderConfigured(store, orgId, resolution.providerSlug);
   if (!liveAvailable && isProduction()) throw new ChatBlockedError("needs_model_hub");
 
-  // --- Interaction quota gate (Prompt 011) ---------------------------------
+  // --- Interaction quota gate (Sprint 015) ---------------------------------
   // A billable AI Employee interaction is about to happen. Re-check the plan's
   // monthly quota server-side BEFORE generating a reply. On a "block" plan this
   // throws an upgrade-oriented EntitlementError; a "soft_cap" plan passes.

@@ -469,7 +469,7 @@ export interface DataStore {
     employeeId: string,
   ): Promise<VoiceChannelOverview>;
 
-  // Billing, Plans & Subscriptions (Prompt 011) — organization-scoped. Exactly
+  // Billing, Plans & Subscriptions (Sprint 015) — organization-scoped. Exactly
   // one active subscription per organization; a Starter subscription is created
   // implicitly when the organization is created.
   getBillingSubscription(organizationId: string): Promise<BillingSubscription | null>;

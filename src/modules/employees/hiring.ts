@@ -73,7 +73,7 @@ export async function hireEmployee(
 ): Promise<AiEmployee> {
   const values = hireEmployeeSchema.parse(input);
 
-  // Entitlement gate (Prompt 011): block hiring past the plan's AI Employee cap.
+  // Entitlement gate (Sprint 015): block hiring past the plan's AI Employee cap.
   // Re-checked server-side; a clear upgrade message surfaces on limit.
   await assertCanHireEmployee(store, actor.organizationId);
 

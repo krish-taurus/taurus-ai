@@ -1,5 +1,5 @@
 /**
- * Billing provider selection (Prompt 011) — server only.
+ * Billing provider selection (Sprint 015) — server only.
  *
  * Simulated mode is the default: unless STRIPE_SECRET_KEY is set we use the
  * SimulatedBillingProvider, so local dev and tests never make a network call and

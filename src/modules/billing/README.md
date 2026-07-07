@@ -1,4 +1,4 @@
-# Billing module (Prompt 011)
+# Billing module (Sprint 015)
 
 Subscription billing and plan entitlements for the self-serve SMB product. Builds
 directly on `llm_usage_events` (the interaction quota is derived from usage

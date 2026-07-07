@@ -92,7 +92,7 @@ export async function createMessagingChannel(
     throw new MessagingValidationError("That provider does not support this channel.");
   }
 
-  // Entitlement gate (Prompt 011): block past the plan's connection cap.
+  // Entitlement gate (Sprint 015): block past the plan's connection cap.
   await assertCanAddConnection(store, actor.organizationId);
 
   const channel = await store.createEmployeeChannel({
