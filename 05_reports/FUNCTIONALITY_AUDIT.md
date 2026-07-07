@@ -42,12 +42,12 @@ core loop:
 |---|-----|--------|--------|
 | 1 | ~~**Audit page** shows a hardcoded empty state; events are written at ~40 sites but there is no store read method and no `audit.view` check~~ → **FIXED in Batch 1** (now **Working**) | ✅ Working | Trust/compliance for SMB |
 | 2 | **Employee detail** "Usage" / "Recent activity" tiles are hardcoded placeholders | Mock-only | Core-loop screen shows fake data |
-| 3 | **Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon" — **yet those routes exist** | Static (stale) | Breaks the guided onboarding path |
+| 3 | ~~**Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon"~~ → **FIXED in Batch 2** (real links) | ✅ Working | Guided onboarding path |
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
 | 5 | Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback | Partial | UX; failures look like no-ops |
 | 6 | **Voice** credential Save lacks Zod; credential **Test**/**Disable** named but never implemented | Partial / Static | Inconsistent with messaging; voice is foundation |
 | 7 | **SendGrid / Telnyx / Vonage** webhook verification returns `true` on config-presence (no crypto check) | Security (foundation) | Must be real before those providers go live |
-| 8 | "Collect visitor email" channel toggle is persisted but consumed by nothing | Static | Inert control |
+| 8 | ~~"Collect visitor email" channel toggle is persisted but consumed by nothing~~ → **FIXED in Batch 2** (inert control removed) | ✅ Working | Inert control |
 
 Everything else labeled below as **Simulated (by design)** — dev auth, simulated
 billing/messaging/voice providers, in-memory rate limiting, local-demo brain,
@@ -200,7 +200,7 @@ surfaced.
 | Create web channel | Working | `create-channel-button.tsx:18-28`; `channels/actions.ts:39-62`; `service.ts:65-100` | `requireManage`; Zod; connection-entitlement gate |
 | Activate / Pause / Revoke | Working | `channel-status-controls.tsx`; `actions.ts:100-141` | Org-scoped transitions; confirm on revoke |
 | Settings (name/welcome/domains/appearance/rate-limit) | Working | `channel-settings-form.tsx`; `service.ts:103-129` | Zod `updateChannelSchema`; domain normalization |
-| **"Collect visitor email" toggle** | **Static** | `channel-settings-form.tsx:122-129` | Labeled "coming soon"; persisted but no consumer |
+| ~~**"Collect visitor email" toggle**~~ | ✅ Working (Batch 2) | `channel-settings-form.tsx` | Inert control removed; stored value round-tripped via hidden field (no silent data change) |
 | Install snippets + copy | Working | `install-snippets.tsx`; `copy-button.tsx:19-27` | Real URLs from `NEXT_PUBLIC_APP_URL`+publicKey |
 | Public hosted chat / embed / widget | Working | `public/chat/[publicKey]/page.tsx`, `embed/[publicKey]/page.tsx`, `widget/.../route.ts` | Org resolved from publicKey only; no secret/PII leak |
 | Public message API | Working (manual validation) | `api/public/channels/[publicKey]/messages/route.ts:60-124` | Org from publicKey; origin allowlist; **validation is manual type-guards, not Zod** (`:65-75`) |
@@ -330,10 +330,11 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 - `collaboration/page.tsx:3-16` — placeholder page; module is a lone README.
 
 **Static / stale controls**
-- `hire/success/[employeeId]/page.tsx:17-19,72-85` — "Knowledge / Test Chat /
-  Voice" tiles rendered inert with "Coming soon" **though the routes exist**.
-- `channel-settings-form.tsx:122-129` — "Collect visitor email" toggle persisted
-  but consumed by nothing.
+- ~~`hire/success/...` "Knowledge / Test Chat / Voice" tiles inert "Coming soon"~~
+  ✅ **FIXED in Batch 2** — now real links to `/knowledge`, `/chat`, `/channels/voice`.
+- ~~`channel-settings-form.tsx` "Collect visitor email" toggle persisted but
+  consumed by nothing~~ ✅ **FIXED in Batch 2** — inert control removed; stored
+  value round-tripped via a hidden field (no silent data change).
 - `connection-card.tsx:65-69` — "Test" link navigates to Configure, not a test.
 - Voice credential **Test**/**Disable** — named in scope, no implementation.
 
@@ -390,14 +391,19 @@ Wired the emitted audit events to the page.
   fallback + no forbidden terminology. Full suite **305 passing**, terminology
   green, `tsc`/`lint`/`next build` clean; `/dashboard/audit` compiles.
 
-### Batch 2 — **Onboarding path polish** *(core-loop UX, near-zero risk)*
-- Convert `hire/success` "Coming soon" tiles into real links to the existing
-  `/knowledge`, `/chat`, `/channels/voice` routes (they exist).
-- Resolve the "Collect visitor email" toggle: hide it (recommended) or mark it
-  clearly forthcoming, since nothing consumes it.
-- **Files:** `hire/success/[employeeId]/page.tsx`, `channel-settings-form.tsx`.
-- **Risk:** Very low (UI links/labels only; no store/permission change).
-- **Proof:** links resolve; terminology test green; existing tests unchanged.
+### Batch 2 — **Onboarding path polish** ✅ **DONE**
+- Converted `hire/success` "Coming soon" tiles into real links to the existing
+  `/knowledge`, `/chat`, `/channels/voice` routes (each destination enforces its
+  own permission server-side).
+- Removed the inert "Collect visitor email" toggle; the stored value is
+  round-tripped via a hidden field so a save never silently flips it.
+- **Files changed:** `hire/success/[employeeId]/page.tsx`, `channel-settings-form.tsx`.
+- **Risk:** Very low (UI navigation/label only; no store/permission/schema change).
+  Preserved all Working behavior.
+- **Proof:** destination routes exist and keep their own permission + cross-org
+  tests (chat/knowledge/voice/channels suites); full suite **305 passing**,
+  terminology green, `tsc`/`lint`/`next build` clean. No new server logic to unit
+  test in this batch.
 
 ### Batch 3 — **Employee detail activity/usage tiles** → real data
 Replace the hardcoded tiles with org-scoped reads.

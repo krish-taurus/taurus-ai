@@ -5,18 +5,23 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { buttonClasses } from "@/components/ui";
 
 /**
- * Suggested next steps. "Add Employee DNA" is live (Prompt 005); the rest are
- * placeholders that arrive in later prompts.
+ * Suggested next steps in the onboarding path. Each links to the AI Employee's
+ * relevant setup page (`path` is appended to `/dashboard/employees/{id}`). The
+ * destination pages each enforce their own permission checks server-side.
  */
-const NEXT_STEPS: readonly { title: string; hint: string; live?: boolean }[] = [
+const NEXT_STEPS: readonly { title: string; hint: string; path: string }[] = [
   {
     title: "Add Employee DNA",
     hint: "Define working style, responsibilities, and boundaries.",
-    live: true,
+    path: "/dna",
   },
-  { title: "Add Knowledge Vault", hint: "Give your AI Employee approved company knowledge." },
-  { title: "Test Chat", hint: "Try a conversation before going live." },
-  { title: "Configure Voice", hint: "Let your AI Employee answer calls." },
+  {
+    title: "Add Knowledge Vault",
+    hint: "Give your AI Employee approved company knowledge.",
+    path: "/knowledge",
+  },
+  { title: "Test Chat", hint: "Try a conversation before going live.", path: "/chat" },
+  { title: "Configure Voice", hint: "Let your AI Employee answer calls.", path: "/channels/voice" },
 ];
 
 export default async function HireSuccessPage({ params }: { params: { employeeId: string } }) {
@@ -55,35 +60,20 @@ export default async function HireSuccessPage({ params }: { params: { employeeId
       <div className="mt-10 text-left">
         <h2 className="text-sm font-semibold text-taurus-text">Suggested next steps</h2>
         <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {NEXT_STEPS.map((step) =>
-            step.live ? (
-              <li key={step.title}>
-                <Link
-                  href={`/dashboard/employees/${employee.id}/dna`}
-                  className="block rounded-lg border border-taurus-line bg-taurus-surface p-4 transition-colors hover:border-taurus-strong hover:bg-taurus-primary/[0.06]"
-                >
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium text-taurus-text">{step.title}</p>
-                    <span className="text-sm font-medium text-taurus-text">Start →</span>
-                  </div>
-                  <p className="mt-1 text-sm text-taurus-faint">{step.hint}</p>
-                </Link>
-              </li>
-            ) : (
-              <li
-                key={step.title}
-                className="cursor-not-allowed rounded-lg border border-dashed border-taurus-line bg-taurus-app p-4"
+          {NEXT_STEPS.map((step) => (
+            <li key={step.title}>
+              <Link
+                href={`/dashboard/employees/${employee.id}${step.path}`}
+                className="block rounded-lg border border-taurus-line bg-taurus-surface p-4 transition-colors hover:border-taurus-strong hover:bg-taurus-primary/[0.06]"
               >
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-taurus-sub">{step.title}</p>
-                  <span className="rounded-full bg-taurus-muted px-2 py-0.5 text-xs font-medium text-taurus-faint">
-                    Coming soon
-                  </span>
+                  <p className="font-medium text-taurus-text">{step.title}</p>
+                  <span className="text-sm font-medium text-taurus-text">Start →</span>
                 </div>
                 <p className="mt-1 text-sm text-taurus-faint">{step.hint}</p>
-              </li>
-            ),
-          )}
+              </Link>
+            </li>
+          ))}
         </ul>
       </div>
     </div>
