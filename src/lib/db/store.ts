@@ -242,6 +242,8 @@ export interface DataStore {
   // Usage events — metadata only (never message contents).
   listLlmUsageEvents(organizationId: string, limit?: number): Promise<LlmUsageEvent[]>;
   createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent>;
+  /** Billable AI Employee interactions handled by one employee (all-time). */
+  countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number>;
 
   getModelHubOverview(organizationId: string): Promise<ModelHubOverview>;
 
@@ -496,6 +498,12 @@ export interface DataStore {
   // the read path for the Audit dashboard (metadata only, most recent first).
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
   listAuditEvents(organizationId: string, limit?: number): Promise<AuditEvent[]>;
+  /** Recent audit events involving one employee (as target or via metadata.employeeId). */
+  listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit?: number,
+  ): Promise<AuditEvent[]>;
 }
 
 /**

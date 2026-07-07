@@ -41,7 +41,7 @@ core loop:
 | # | Gap | Status | Impact |
 |---|-----|--------|--------|
 | 1 | ~~**Audit page** shows a hardcoded empty state; events are written at ~40 sites but there is no store read method and no `audit.view` check~~ → **FIXED in Batch 1** (now **Working**) | ✅ Working | Trust/compliance for SMB |
-| 2 | **Employee detail** "Usage" / "Recent activity" tiles are hardcoded placeholders | Mock-only | Core-loop screen shows fake data |
+| 2 | ~~**Employee detail** "Usage" / "Recent activity" tiles are hardcoded placeholders~~ → **FIXED in Batch 3** (real org-scoped data) | ✅ Working | Core-loop screen |
 | 3 | ~~**Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon"~~ → **FIXED in Batch 2** (real links) | ✅ Working | Guided onboarding path |
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
 | 5 | Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback | Partial | UX; failures look like no-ops |
@@ -119,7 +119,7 @@ Summary: org creation, ownership, switching, and tenant validation are correct.
 |---|---|---|---|
 | List + cards, empty/loading/error | Working | `employees/page.tsx:10,43-45`; `loading.tsx`+`error.tsx` | Org-scoped `listEmployees` |
 | Detail profile + section cards | Working | `[employeeId]/page.tsx:46-92` | Org-scoped `getEmployee`→`notFound()`; each section permission-gated |
-| Detail **Usage / Recent activity** tiles | **Mock-only** | `[employeeId]/page.tsx:308-312` | Hardcoded "No activity recorded yet" — no data source |
+| Detail **Usage / Recent activity** tiles | ✅ Working (Batch 3) | `[employeeId]/page.tsx` | Usage = real billable interaction count for the employee; Recent activity = org-scoped audit events (owner/admin only, reusing `audit.view`) |
 | Edit form → `updateEmployeeAction` | Working | `edit-employee-form.tsx:33-36`; `employees/actions.ts:38-74`; `service.ts:98-135` | `employee.manage`, org-scoped, Zod, audit |
 | Pause / Activate / Archive | Working (error swallowed) | `employee-actions.tsx:33-65`; `actions.ts:77-125` | Perm+org+audit; `catch {}` hides failures (`actions.ts:91,119`) |
 | `/employees/new` | Working (by design) | `new/page.tsx:8-10` | Permanent redirect to `/dashboard/hire` |
@@ -326,7 +326,9 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 **Dead/static data views**
 - ~~`audit/page.tsx` — constant empty state, no store read, no permission/org
   guard.~~ ✅ **FIXED in Batch 1** (now Working; `listAuditEvents` added to both backends).
-- `[employeeId]/page.tsx:308-312` — hardcoded "Usage"/"Recent activity" tiles.
+- ~~`[employeeId]/page.tsx` — hardcoded "Usage"/"Recent activity" tiles.~~
+  ✅ **FIXED in Batch 3** (real org-scoped reads: `countInteractionsForEmployee`,
+  `listAuditEventsForEmployee` in both backends).
 - `collaboration/page.tsx:3-16` — placeholder page; module is a lone README.
 
 **Static / stale controls**
@@ -405,15 +407,23 @@ Wired the emitted audit events to the page.
   terminology green, `tsc`/`lint`/`next build` clean. No new server logic to unit
   test in this batch.
 
-### Batch 3 — **Employee detail activity/usage tiles** → real data
-Replace the hardcoded tiles with org-scoped reads.
-- **Files:** `[employeeId]/page.tsx` reading real data via `listLlmUsageEvents`
-  (already org-scoped) filtered to the employee, plus recent audit events for the
-  employee (reuse Batch 1's `listAuditEvents`; add an employee filter if needed).
-  Add an employee-scoped store read if required, in both backends.
-- **Risk:** Low–Medium (depends on Batch 1; read-only).
-- **Proof:** tile shows real counts/events; empty state when none; cross-org
-  isolation test.
+### Batch 3 — **Employee detail activity/usage tiles** → real data ✅ **DONE**
+Replaced the hardcoded tiles with org-scoped reads.
+- **Files changed:** `src/lib/db/store.ts` (+`countInteractionsForEmployee`,
+  +`listAuditEventsForEmployee`), `in-memory-store.ts` + `postgres-store.ts`
+  (identical implementations; extracted a shared `mapAuditEvent`),
+  `src/app/dashboard/employees/[employeeId]/page.tsx` (Usage = real billable
+  interaction count; Recent activity = org-scoped audit events, owner/admin only
+  via `audit.view`, with an empty state; removed the `Placeholder` helper),
+  `src/tests/employee-activity.test.ts` (new). **No migration.**
+- **Risk:** Low (read-only additions; no mutation/permission weakening). Usage is
+  operational (shown to all roles); the activity trail reuses the existing
+  `audit.view` boundary so it is not exposed more widely than the Audit page.
+- **Proof:** `src/tests/employee-activity.test.ts` — interaction counting
+  (billable-only, non-blocked, per-employee), audit match by target **and**
+  `metadata.employeeId`, ordering + limit, cross-org isolation, and the
+  `audit.view` boundary. Full suite **311 passing**; terminology green;
+  `tsc`/`lint`/`next build` clean.
 
 ### Batch 4 — **Error-surfacing hardening**
 Give failed mutations user-facing feedback.

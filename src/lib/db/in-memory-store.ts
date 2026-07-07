@@ -891,6 +891,16 @@ export class InMemoryStore implements DataStore {
       .slice(0, limit);
   }
 
+  async countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number> {
+    return this.llmUsageEvents.filter(
+      (e) =>
+        e.organizationId === organizationId &&
+        e.employeeId === employeeId &&
+        e.status !== "blocked" &&
+        isBillableInteraction(e.taskType),
+    ).length;
+  }
+
   async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
     const event: LlmUsageEvent = {
       id: uuid(),
@@ -2107,6 +2117,23 @@ export class InMemoryStore implements DataStore {
   async listAuditEvents(organizationId: string, limit = 50): Promise<AuditEvent[]> {
     return this.auditEvents
       .filter((e) => e.organizationId === organizationId)
+      .slice()
+      .reverse()
+      .slice(0, limit);
+  }
+
+  async listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 20,
+  ): Promise<AuditEvent[]> {
+    return this.auditEvents
+      .filter(
+        (e) =>
+          e.organizationId === organizationId &&
+          ((e.targetType === "employee" && e.targetId === employeeId) ||
+            (e.metadata as { employeeId?: unknown }).employeeId === employeeId),
+      )
       .slice()
       .reverse()
       .slice(0, limit);

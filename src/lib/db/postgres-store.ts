@@ -204,6 +204,20 @@ function mapBillingCustomer(row: Row): BillingCustomer {
   };
 }
 
+function mapAuditEvent(row: Row): AuditEvent {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    actorType: row.actor_type,
+    actorId: row.actor_id ?? null,
+    action: row.action,
+    targetType: row.target_type ?? null,
+    targetId: row.target_id ?? null,
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
 function mapBillingEvent(row: Row): BillingEvent {
   return {
     id: row.id,
@@ -1533,6 +1547,18 @@ export class PostgresStore implements DataStore {
     return rows.map(mapUsageEvent);
   }
 
+  async countInteractionsForEmployee(organizationId: string, employeeId: string): Promise<number> {
+    const { rows } = await this.query(
+      `select count(*)::int as count from llm_usage_events
+       where organization_id = $1
+         and employee_id = $2
+         and status <> 'blocked'
+         and task_type = any($3::text[])`,
+      [organizationId, employeeId, BILLABLE_INTERACTION_TASK_TYPES as unknown as string[]],
+    );
+    return rows[0]?.count ?? 0;
+  }
+
   async createLlmUsageEvent(input: CreateLlmUsageEventInput): Promise<LlmUsageEvent> {
     const { rows } = await this.query(
       `insert into llm_usage_events
@@ -2706,19 +2732,28 @@ export class PostgresStore implements DataStore {
        limit $2`,
       [organizationId, limit],
     );
-    return rows.map(
-      (row: Row): AuditEvent => ({
-        id: row.id,
-        organizationId: row.organization_id,
-        actorType: row.actor_type,
-        actorId: row.actor_id ?? null,
-        action: row.action,
-        targetType: row.target_type ?? null,
-        targetId: row.target_id ?? null,
-        metadata: (row.metadata as Record<string, unknown>) ?? {},
-        createdAt: new Date(row.created_at).toISOString(),
-      }),
+    return rows.map(mapAuditEvent);
+  }
+
+  async listAuditEventsForEmployee(
+    organizationId: string,
+    employeeId: string,
+    limit = 20,
+  ): Promise<AuditEvent[]> {
+    const { rows } = await this.query(
+      `select id, organization_id, actor_type, actor_id, action, target_type, target_id,
+              metadata, created_at
+       from audit_events
+       where organization_id = $1
+         and (
+           (target_type = 'employee' and target_id = $2)
+           or metadata->>'employeeId' = $2
+         )
+       order by created_at desc
+       limit $3`,
+      [organizationId, employeeId, limit],
     );
+    return rows.map(mapAuditEvent);
   }
 
   // --- Billing, Plans & Subscriptions (Prompt 011) --------------------------
