@@ -45,7 +45,13 @@ export function createDefaultCredentialResolver(store: DataStore): CredentialRes
       const encrypted = await store.getProviderEncryptedKey(organizationId, providerSlug);
       if (encrypted) {
         const apiKey = await decryptApiKey(encrypted);
-        return { apiKey, baseUrl: provider.defaultBaseUrl, mode: "bring_your_own_key" };
+        // Prefer a stored custom base URL (e.g. an OpenAI-compatible endpoint),
+        // falling back to the provider's default.
+        return {
+          apiKey,
+          baseUrl: meta.baseUrl ?? provider.defaultBaseUrl,
+          mode: "bring_your_own_key",
+        };
       }
     }
 

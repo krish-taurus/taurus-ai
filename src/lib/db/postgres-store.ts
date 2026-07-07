@@ -314,6 +314,8 @@ function mapCredentialMetadata(row: Row): ProviderCredentialMetadata {
     providerSlug: row.provider_slug as ProviderSlug,
     credentialMode: row.credential_mode as CredentialMode,
     keyLastFour: row.key_last_four,
+    baseUrl: row.base_url ?? null,
+    label: row.label ?? null,
     status: row.status as CredentialStatus,
     createdByUserId: row.created_by_user_id,
     updatedByUserId: row.updated_by_user_id,
@@ -1371,8 +1373,8 @@ export class PostgresStore implements DataStore {
     providerSlug: ProviderSlug,
   ): Promise<ProviderCredentialMetadata | null> {
     const { rows } = await this.query(
-      `select id, organization_id, provider_slug, credential_mode, key_last_four, status,
-              created_by_user_id, updated_by_user_id, created_at, updated_at
+      `select id, organization_id, provider_slug, credential_mode, key_last_four, base_url, label,
+              status, created_by_user_id, updated_by_user_id, created_at, updated_at
        from organization_provider_credentials
        where organization_id = $1 and provider_slug = $2`,
       [organizationId, providerSlug],
@@ -1384,8 +1386,8 @@ export class PostgresStore implements DataStore {
     organizationId: string,
   ): Promise<ProviderCredentialMetadata[]> {
     const { rows } = await this.query(
-      `select id, organization_id, provider_slug, credential_mode, key_last_four, status,
-              created_by_user_id, updated_by_user_id, created_at, updated_at
+      `select id, organization_id, provider_slug, credential_mode, key_last_four, base_url, label,
+              status, created_by_user_id, updated_by_user_id, created_at, updated_at
        from organization_provider_credentials
        where organization_id = $1`,
       [organizationId],
@@ -1411,23 +1413,27 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `insert into organization_provider_credentials
          (organization_id, provider_slug, credential_mode, encrypted_api_key, key_last_four,
-          status, created_by_user_id, updated_by_user_id)
-       values ($1, $2, $3, $4, $5, $6, $7, $7)
+          base_url, label, status, created_by_user_id, updated_by_user_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)
        on conflict (organization_id, provider_slug) do update set
          credential_mode = excluded.credential_mode,
          encrypted_api_key = coalesce(excluded.encrypted_api_key, organization_provider_credentials.encrypted_api_key),
          key_last_four = coalesce(excluded.key_last_four, organization_provider_credentials.key_last_four),
+         base_url = excluded.base_url,
+         label = excluded.label,
          status = excluded.status,
          updated_by_user_id = excluded.updated_by_user_id,
          updated_at = now()
-       returning id, organization_id, provider_slug, credential_mode, key_last_four, status,
-                 created_by_user_id, updated_by_user_id, created_at, updated_at`,
+       returning id, organization_id, provider_slug, credential_mode, key_last_four, base_url, label,
+                 status, created_by_user_id, updated_by_user_id, created_at, updated_at`,
       [
         input.organizationId,
         input.providerSlug,
         input.credentialMode,
         input.encryptedApiKey ?? null,
         input.keyLastFour ?? null,
+        input.baseUrl ?? null,
+        input.label ?? null,
         input.status ?? "active",
         input.userId ?? null,
       ],
@@ -1449,8 +1455,8 @@ export class PostgresStore implements DataStore {
          updated_by_user_id = $3,
          updated_at = now()
        where organization_id = $1 and provider_slug = $2
-       returning id, organization_id, provider_slug, credential_mode, key_last_four, status,
-                 created_by_user_id, updated_by_user_id, created_at, updated_at`,
+       returning id, organization_id, provider_slug, credential_mode, key_last_four, base_url, label,
+                 status, created_by_user_id, updated_by_user_id, created_at, updated_at`,
       [organizationId, providerSlug, userId ?? null],
     );
     return rows[0] ? mapCredentialMetadata(rows[0]) : null;

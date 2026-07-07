@@ -14,7 +14,9 @@ import type {
   ProviderCredentialMetadata,
   ProviderSlug,
 } from "@/lib/db/types";
-import { getModel, getProvider } from "@/modules/model-gateway/catalog";
+import { getModel, getProvider, modelsByProvider } from "@/modules/model-gateway/catalog";
+import { createDefaultCredentialResolver } from "@/modules/model-gateway/credential-resolver";
+import { DEFAULT_PROVIDERS } from "@/modules/model-gateway/providers";
 import { BRAIN_MODES_BY_ID, type BrainMode } from "@/modules/model-gateway/metadata";
 import {
   employeeBrainSchema,
@@ -170,7 +172,7 @@ export async function saveProviderCredential(
       parsed.error.issues[0]?.message ?? "Please check the provider key.",
     );
   }
-  const { providerSlug, apiKey } = parsed.data;
+  const { providerSlug, apiKey, baseUrl, label } = parsed.data;
 
   const provider = getProvider(providerSlug);
   if (!provider || !provider.supportsByok) {
@@ -181,6 +183,15 @@ export async function saveProviderCredential(
       "Secure key storage is not configured, so your own key cannot be saved yet.",
     );
   }
+  // The custom OpenAI-compatible provider has no default endpoint, so a base URL
+  // is required. Other providers ignore any supplied base URL (they have one).
+  const requiresBaseUrl = provider.defaultBaseUrl === null;
+  if (requiresBaseUrl && !baseUrl) {
+    throw new ModelHubValidationError(
+      "Enter the base URL for this custom OpenAI-compatible endpoint.",
+    );
+  }
+  const effectiveBaseUrl = requiresBaseUrl ? baseUrl : null;
 
   const encryptedApiKey = await encryptApiKey(apiKey);
   const saved = await store.saveProviderCredential({
@@ -189,6 +200,8 @@ export async function saveProviderCredential(
     credentialMode: "bring_your_own_key",
     encryptedApiKey,
     keyLastFour: lastFour(apiKey),
+    baseUrl: effectiveBaseUrl,
+    label,
     status: "active",
     userId: actor.userId,
   });
@@ -205,10 +218,106 @@ export async function saveProviderCredential(
       providerSlug,
       credentialMode: "bring_your_own_key",
       keyLastFour: saved.keyLastFour,
+      hasCustomBaseUrl: effectiveBaseUrl !== null,
+      label: saved.label,
     },
   });
 
   return saved;
+}
+
+/**
+ * A single probe of a provider connection. Given a resolved credential and a
+ * model id, it should complete without throwing when the connection works.
+ * Injectable so tests can verify the flow WITHOUT any network call — the default
+ * uses the real provider adapter and is only reached from the server action.
+ */
+export interface ProviderProbeInput {
+  providerSlug: ProviderSlug;
+  apiKey: string;
+  baseUrl: string | null;
+  modelId: string;
+}
+export type ProviderConnectionProbe = (input: ProviderProbeInput) => Promise<void>;
+
+export interface ConnectionTestResult {
+  ok: boolean;
+  message: string;
+}
+
+/** Default probe: a minimal, real adapter call. Never used in tests. */
+async function defaultConnectionProbe(input: ProviderProbeInput): Promise<void> {
+  const provider = DEFAULT_PROVIDERS[input.providerSlug];
+  await provider.generateText({
+    modelId: input.modelId,
+    system: null,
+    messages: [{ role: "user", content: "ping" }],
+    maxOutputTokens: 1,
+    apiKey: input.apiKey,
+    baseUrl: input.baseUrl,
+  });
+}
+
+/**
+ * Optionally test a provider connection using the resolved organization
+ * credential (BYOK or Taurus-managed). Returns a safe, non-technical result and
+ * records a metadata-only audit event. Never returns the key or the raw provider
+ * error, and never throws for an ordinary connection failure.
+ */
+export async function testProviderConnection(
+  store: DataStore,
+  actor: ModelHubActor,
+  providerSlug: ProviderSlug,
+  options: { probe?: ProviderConnectionProbe } = {},
+): Promise<ConnectionTestResult> {
+  const provider = getProvider(providerSlug);
+  if (!provider) {
+    throw new ModelHubValidationError("Unknown provider.");
+  }
+
+  const resolveCredential = createDefaultCredentialResolver(store);
+  const credential = await resolveCredential(actor.organizationId, providerSlug);
+  if (!credential) {
+    return { ok: false, message: "No usable key is configured for this provider yet." };
+  }
+
+  const model = modelsByProvider(providerSlug)[0];
+  if (!model) {
+    return {
+      ok: false,
+      message: "Connection testing is not available for this provider yet.",
+    };
+  }
+
+  const probe = options.probe ?? defaultConnectionProbe;
+  let ok = false;
+  try {
+    await probe({
+      providerSlug,
+      apiKey: credential.apiKey,
+      baseUrl: credential.baseUrl,
+      modelId: model.modelId,
+    });
+    ok = true;
+  } catch {
+    // Swallow the raw error — it may reference the endpoint and must not be
+    // surfaced. The generic message below is safe for the UI.
+    ok = false;
+  }
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "provider_credential.tested",
+    targetType: "provider",
+    targetId: providerSlug,
+    metadata: { providerSlug, mode: credential.mode, ok },
+  });
+
+  return ok
+    ? { ok: true, message: "Connection successful." }
+    : { ok: false, message: "Connection failed. Check the key and endpoint, then try again." };
 }
 
 /** Disable a provider credential and drop stored key material. */

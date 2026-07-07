@@ -94,6 +94,24 @@ export const saveProviderCredentialSchema = z.object({
     .trim()
     .min(8, "Please paste a valid API key (at least 8 characters).")
     .max(400),
+  // Optional custom endpoint (OpenAI-compatible). Required for the custom
+  // provider; validated as an http(s) URL when provided.
+  baseUrl: z
+    .string()
+    .trim()
+    .url("Enter a valid URL, e.g. https://api.example.com/v1.")
+    .max(400)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => (v ? v : null)),
+  // Optional human label to tell keys apart (e.g. "Finance team key").
+  label: z
+    .string()
+    .trim()
+    .max(80)
+    .optional()
+    .or(z.literal(""))
+    .transform((v) => (v ? v : null)),
 });
 
 export type OrganizationModelSettingsValues = z.infer<typeof organizationModelSettingsSchema>;
