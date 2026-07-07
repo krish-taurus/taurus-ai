@@ -1,21 +1,26 @@
 "use client";
 
 /**
- * Provider credentials panel (Prompt 006B).
+ * Provider credentials panel (Prompt 006B; BYOK setup in Sprint 013).
  *
- * Shows, per provider: whether a Taurus-managed key is available, and the
- * bring-your-own-key (BYOK) status. Only the last four characters of a saved key
- * are ever shown — never the full key or the encrypted value. BYOK entry is
- * disabled unless secure key storage is configured on the server.
+ * Per provider: whether a Taurus-managed key is available, the bring-your-own-key
+ * (BYOK) status, and a setup form to add your own key — with an optional custom
+ * base URL (OpenAI-compatible endpoints), an optional label, a masked key
+ * display, remove, and an optional connection test.
+ *
+ * SECURITY: only the last four characters of a saved key are ever shown — never
+ * the full key or the encrypted value. BYOK entry is disabled unless secure key
+ * storage is configured on the server.
  */
 
 import { useFormState, useFormStatus } from "react-dom";
 import {
   saveProviderCredentialAction,
   disableProviderCredentialAction,
+  testProviderConnectionAction,
   type ModelHubActionState,
 } from "@/modules/model-gateway/actions";
-import { Badge, buttonClasses, Card, FieldError, Input } from "@/components/ui";
+import { Badge, buttonClasses, Card, Field, FieldError, Input, Notice } from "@/components/ui";
 
 export interface ProviderCredentialView {
   slug: string;
@@ -24,9 +29,12 @@ export interface ProviderCredentialView {
   supportsPlatformKey: boolean;
   platformAvailable: boolean;
   documentationUrl: string | null;
+  requiresBaseUrl: boolean;
   credentialMode: "taurus_managed" | "bring_your_own_key" | "disabled" | null;
   status: "active" | "disabled" | "error" | null;
   keyLastFour: string | null;
+  baseUrl: string | null;
+  label: string | null;
 }
 
 function SaveButton() {
@@ -47,6 +55,21 @@ function DisableButton() {
   );
 }
 
+function TestButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={buttonClasses("secondary", "sm")}>
+      {pending ? "Testing…" : "Test connection"}
+    </button>
+  );
+}
+
+function StatusBadge({ status }: { status: "active" | "disabled" | "error" }) {
+  if (status === "active") return <Badge tone="solid">Status: Active</Badge>;
+  if (status === "error") return <Badge tone="outline">Status: Error</Badge>;
+  return <Badge tone="outline">Status: Disabled</Badge>;
+}
+
 function ProviderRow({
   item,
   encryptionConfigured,
@@ -64,13 +87,17 @@ function ProviderRow({
     disableProviderCredentialAction,
     {} as ModelHubActionState,
   );
+  const [testState, testAction] = useFormState(
+    testProviderConnectionAction,
+    {} as ModelHubActionState,
+  );
 
   const hasByok = item.credentialMode === "bring_your_own_key" && item.status === "active";
 
   return (
     <Card className="p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold text-taurus-text">{item.displayName}</h3>
           {item.platformAvailable ? (
             <Badge tone="soft">Taurus managed: Available</Badge>
@@ -78,6 +105,10 @@ function ProviderRow({
             <Badge tone="outline">Taurus managed: Not available</Badge>
           )}
           {hasByok ? <Badge tone="solid">Your key •••• {item.keyLastFour}</Badge> : null}
+          {item.credentialMode === "bring_your_own_key" && item.status ? (
+            <StatusBadge status={item.status} />
+          ) : null}
+          {hasByok && item.label ? <Badge tone="outline">{item.label}</Badge> : null}
         </div>
         {item.documentationUrl ? (
           <a
@@ -90,6 +121,10 @@ function ProviderRow({
           </a>
         ) : null}
       </div>
+
+      {hasByok && item.baseUrl ? (
+        <p className="mt-2 text-xs text-taurus-faint">Endpoint: {item.baseUrl}</p>
+      ) : null}
 
       {!item.supportsByok ? (
         <p className="mt-3 text-sm text-taurus-faint">
@@ -106,32 +141,80 @@ function ProviderRow({
         </p>
       ) : (
         <div className="mt-4 space-y-3">
-          <form action={saveAction} className="flex flex-wrap items-end gap-2">
+          <form action={saveAction} className="space-y-3">
             <input type="hidden" name="providerSlug" value={item.slug} />
-            <div className="min-w-[220px] flex-1">
-              <label
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field
+                label={hasByok ? "Replace your API key" : "Add your API key"}
                 htmlFor={`apiKey-${item.slug}`}
-                className="mb-1 block text-xs font-medium text-taurus-sub"
               >
-                {hasByok ? "Replace your API key" : "Add your API key"}
-              </label>
-              <Input
-                id={`apiKey-${item.slug}`}
-                name="apiKey"
-                type="password"
-                autoComplete="off"
-                placeholder="sk-…"
-                minLength={8}
-              />
+                <Input
+                  id={`apiKey-${item.slug}`}
+                  name="apiKey"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="sk-…"
+                  minLength={8}
+                />
+              </Field>
+              <Field label="Label" htmlFor={`label-${item.slug}`} optional>
+                <Input
+                  id={`label-${item.slug}`}
+                  name="label"
+                  type="text"
+                  maxLength={80}
+                  placeholder="e.g. Finance team key"
+                  defaultValue={item.label ?? ""}
+                />
+              </Field>
             </div>
+
+            {item.requiresBaseUrl ? (
+              <Field
+                label="Base URL"
+                htmlFor={`baseUrl-${item.slug}`}
+                hint="Your OpenAI-compatible endpoint, e.g. https://api.example.com/v1."
+              >
+                <Input
+                  id={`baseUrl-${item.slug}`}
+                  name="baseUrl"
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://api.example.com/v1"
+                  defaultValue={item.baseUrl ?? ""}
+                />
+              </Field>
+            ) : null}
+
+            <p className="text-xs text-taurus-faint">
+              Your API key is encrypted and never shown again. We only display the last four
+              characters.
+            </p>
+
+            {saveState?.error ? <FieldError>{saveState.error}</FieldError> : null}
             <SaveButton />
           </form>
-          {saveState?.error ? <FieldError>{saveState.error}</FieldError> : null}
+
           {hasByok ? (
-            <form action={disableAction}>
-              <input type="hidden" name="providerSlug" value={item.slug} />
-              <DisableButton />
-            </form>
+            <div className="flex flex-wrap items-center gap-2 border-t border-taurus-line pt-3">
+              <form action={testAction}>
+                <input type="hidden" name="providerSlug" value={item.slug} />
+                <TestButton />
+              </form>
+              <form action={disableAction}>
+                <input type="hidden" name="providerSlug" value={item.slug} />
+                <DisableButton />
+              </form>
+            </div>
+          ) : null}
+
+          {testState?.error ? <FieldError>{testState.error}</FieldError> : null}
+          {testState?.message && !testState.error ? (
+            testState.ok ? (
+              <Notice>{testState.message}</Notice>
+            ) : (
+              <p className="text-sm text-taurus-sub">{testState.message}</p>
+            )
           ) : null}
         </div>
       )}

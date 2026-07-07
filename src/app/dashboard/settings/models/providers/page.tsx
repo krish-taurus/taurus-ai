@@ -32,9 +32,13 @@ export default async function ModelProvidersPage() {
         supportsPlatformKey: p.supportsPlatformKey,
         platformAvailable: isPlatformKeyAvailable(p.slug),
         documentationUrl: p.documentationUrl,
+        // A custom OpenAI-compatible provider has no default endpoint.
+        requiresBaseUrl: p.defaultBaseUrl === null,
         credentialMode: cred?.credentialMode ?? null,
         status: cred?.status ?? null,
         keyLastFour: cred?.keyLastFour ?? null,
+        baseUrl: cred?.baseUrl ?? null,
+        label: cred?.label ?? null,
       };
     }),
   );

@@ -435,6 +435,10 @@ export interface ProviderCredentialMetadata {
   providerSlug: ProviderSlug;
   credentialMode: CredentialMode;
   keyLastFour: string | null;
+  /** Custom endpoint base URL (OpenAI-compatible providers). Not a secret. */
+  baseUrl: string | null;
+  /** Optional human label for the saved key. Not a secret. */
+  label: string | null;
   status: CredentialStatus;
   createdByUserId: string | null;
   updatedByUserId: string | null;
@@ -449,6 +453,10 @@ export interface SaveProviderCredentialInput {
   /** Already-encrypted value (never plaintext). Null when disabling/managed. */
   encryptedApiKey?: string | null;
   keyLastFour?: string | null;
+  /** Custom endpoint base URL (OpenAI-compatible providers). Not a secret. */
+  baseUrl?: string | null;
+  /** Optional human label for the saved key. Not a secret. */
+  label?: string | null;
   status?: CredentialStatus;
   userId?: string | null;
 }

@@ -823,6 +823,8 @@ export class InMemoryStore implements DataStore {
       credentialMode: input.credentialMode,
       keyLastFour:
         input.keyLastFour !== undefined ? input.keyLastFour : (existing?.keyLastFour ?? null),
+      baseUrl: input.baseUrl !== undefined ? input.baseUrl : (existing?.baseUrl ?? null),
+      label: input.label !== undefined ? input.label : (existing?.label ?? null),
       status: input.status ?? "active",
       encryptedApiKey:
         input.encryptedApiKey !== undefined

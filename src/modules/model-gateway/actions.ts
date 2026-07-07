@@ -18,6 +18,7 @@ import type { ProviderSlug } from "@/lib/db/types";
 import {
   disableProviderCredential,
   saveProviderCredential,
+  testProviderConnection,
   updateEmployeeBrain,
   updateOrganizationModelSettings,
   type ModelHubActor,
@@ -27,6 +28,8 @@ import { PROVIDER_SLUGS } from "@/modules/model-gateway/schema";
 export interface ModelHubActionState {
   error?: string;
   ok?: boolean;
+  /** Non-technical result message (e.g. from a connection test). */
+  message?: string;
 }
 
 const DENIED = "You do not have permission to manage the Model Hub in this organization.";
@@ -107,6 +110,8 @@ export async function saveProviderCredentialAction(
     await saveProviderCredential(getStore(), ctx.actor, {
       providerSlug: formData.get("providerSlug"),
       apiKey: formData.get("apiKey"),
+      baseUrl: formData.get("baseUrl") ?? "",
+      label: formData.get("label") ?? "",
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save the provider key." };
@@ -114,6 +119,30 @@ export async function saveProviderCredentialAction(
 
   revalidatePath("/dashboard/settings/models/providers");
   redirect("/dashboard/settings/models/providers");
+}
+
+export async function testProviderConnectionAction(
+  _prevState: ModelHubActionState,
+  formData: FormData,
+): Promise<ModelHubActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+
+  const providerSlug = String(formData.get("providerSlug") ?? "");
+  if (!(PROVIDER_SLUGS as readonly string[]).includes(providerSlug)) {
+    return { error: "Unknown provider." };
+  }
+
+  try {
+    const result = await testProviderConnection(
+      getStore(),
+      ctx.actor,
+      providerSlug as ProviderSlug,
+    );
+    return { ok: result.ok, message: result.message };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not test the connection." };
+  }
 }
 
 export async function disableProviderCredentialAction(

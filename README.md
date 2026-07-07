@@ -596,6 +596,31 @@ LLM Gateway, so Taurus is never locked to any single provider.
 - `/dashboard/employees/[employeeId]/brain` — Employee Brain: inherit the
   organization default, pick a simple mode, or (advanced) pin an exact model.
 
+### Bring your own key (BYOK) setup — Sprint 013
+
+Owner/admins add customer-managed provider keys on the **Providers** page. For
+each of the eight providers the setup form takes an **API key**, an optional
+**label** (to tell keys apart), an optional **base URL** (required only for the
+**Custom OpenAI-compatible** provider), **Save key**, and an optional **Test
+connection**.
+
+- **Encrypted at rest.** Keys are encrypted with AES-256-GCM before storage and
+  are **never returned to the browser** — the UI shows only `key_last_four` and,
+  after saving, states: _"Your API key is encrypted and never shown again."_
+- **Gated on encryption.** BYOK is unavailable (form hidden with an explanation)
+  unless `TAURUS_MODEL_CREDENTIALS_MASTER_KEY` is set.
+- **Owner/admin only**, re-checked server-side (`model_hub.manage`); the
+  organization is derived from the session, never from client input.
+- **Disable/remove** drops the stored key material and marks the provider
+  disabled.
+- **Test connection** resolves the org credential and does one minimal call
+  through the provider adapter, returning only a friendly success/failure message
+  — never the key or the raw provider error. Audit events are **metadata only**
+  (`provider_credential.saved` / `.disabled` / `.tested`).
+- Employee Brain settings continue to **inherit the organization default** or
+  select a specific mode/model, which runs on whichever provider credential
+  (BYOK or Taurus-managed) resolves.
+
 ## Gateway (`src/modules/model-gateway`)
 
 - `catalog.ts` — code-authoritative catalog of 8 providers (OpenAI, Anthropic,
@@ -631,8 +656,9 @@ guaranteed**. The UI shows this disclaimer wherever cost appears.
   keys never break local dev or tests; the provider stays visible but not
   runnable.
 - `TAURUS_MODEL_CREDENTIALS_MASTER_KEY` — master key used to encrypt BYOK
-  provider keys at rest (AES-256-GCM). If it is not set, **BYOK is disabled** in
-  the UI (Taurus-managed keys still work).
+  provider keys at rest (AES-256-GCM). Must be at least 16 characters. If it is
+  not set, **BYOK is disabled** in the UI (Taurus-managed keys still work).
+  Generate one with `openssl rand -base64 32`.
 
 ## Data & security
 
