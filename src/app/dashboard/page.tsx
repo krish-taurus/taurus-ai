@@ -24,6 +24,13 @@ export default async function DashboardPage() {
 
   const modelHub = await store.getModelHubOverview(organization.id);
   const canViewModelHub = hasPermission(membership.role, "model_hub.view");
+
+  const canViewConnections = hasPermission(membership.role, "channel.view");
+  const connections = canViewConnections
+    ? await store.listEmployeeChannelsForOrganization(organization.id)
+    : [];
+  const activeConnections = connections.filter((c) => c.status === "active").length;
+  const canManageConnections = hasPermission(membership.role, "channel.manage");
   const defaultBrainLabel = modelHub.defaultModelId
     ? (getModel(modelHub.defaultModelId)?.displayName ??
       brainModeForRoutingMode(modelHub.routingMode)?.label ??
@@ -158,6 +165,48 @@ export default async function DashboardPage() {
               value={`${modelHub.allowedProviderCount} of ${modelHub.totalProviders}`}
             />
           </div>
+        </section>
+      ) : null}
+
+      {canViewConnections ? (
+        <section className="mt-10">
+          <SectionHeader
+            title="Connections"
+            action={
+              <Link
+                href="/dashboard/connections"
+                className="text-sm font-medium text-taurus-sub hover:text-taurus-text"
+              >
+                Open Connections
+              </Link>
+            }
+          />
+
+          {connections.length === 0 ? (
+            <EmptyState
+              title="No connections configured yet."
+              description={
+                canManageConnections
+                  ? "Deploy an AI Employee to your website, messaging, email, or phone."
+                  : "Ask an organization admin to connect an AI Employee to a channel."
+              }
+              action={
+                canManageConnections && employees.length > 0 ? (
+                  <Link
+                    href="/dashboard/connections/new"
+                    className={buttonClasses("primary", "lg")}
+                  >
+                    New connection
+                  </Link>
+                ) : undefined
+              }
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <StatCard label="Connections" value={connections.length} />
+              <StatCard label="Active" value={activeConnections} />
+            </div>
+          )}
         </section>
       ) : null}
     </div>

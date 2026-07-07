@@ -272,27 +272,35 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         </Card>
       ) : null}
 
-      {/* Channels — deploy this AI Employee outside the dashboard. */}
+      {/* Connections — deploy this AI Employee outside the dashboard. */}
       {canViewChannels ? (
         <Card className="mt-6 p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-taurus-text">Channels</h2>
+              <h2 className="text-sm font-semibold text-taurus-text">Connections</h2>
               <p className="mt-1.5 text-sm text-taurus-sub">
                 {channelCount > 0
-                  ? `${channelCount} channel${channelCount === 1 ? "" : "s"} configured`
+                  ? `${channelCount} connection${channelCount === 1 ? "" : "s"} configured`
                   : "Not deployed yet"}
               </p>
               <p className="mt-1.5 text-xs text-taurus-faint">
-                Add this AI Employee to your website, and beyond.
+                Deploy this AI Employee to your website, messaging, email, and calls.
               </p>
             </div>
-            <Link
-              href={`/dashboard/employees/${employee.id}/channels`}
-              className={buttonClasses("secondary")}
-            >
-              Add to Website
-            </Link>
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
+              <Link
+                href={`/dashboard/employees/${employee.id}/channels`}
+                className={buttonClasses("secondary")}
+              >
+                {canManage ? "Manage connections" : "View connections"}
+              </Link>
+              <Link
+                href={`/dashboard/connections?employee=${employee.id}`}
+                className="text-center text-xs font-medium text-taurus-sub hover:text-taurus-text"
+              >
+                View in all Connections
+              </Link>
+            </div>
           </div>
         </Card>
       ) : null}

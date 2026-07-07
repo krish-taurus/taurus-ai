@@ -297,6 +297,8 @@ export interface DataStore {
     organizationId: string,
     employeeId: string,
   ): Promise<EmployeeChannel[]>;
+  /** All channels across every employee in the organization (Connections page). */
+  listEmployeeChannelsForOrganization(organizationId: string): Promise<EmployeeChannel[]>;
   getEmployeeChannel(organizationId: string, channelId: string): Promise<EmployeeChannel | null>;
   /** Public resolver — not organization-scoped; returns the owning organization. */
   getEmployeeChannelByPublicKey(publicKey: string): Promise<EmployeeChannel | null>;

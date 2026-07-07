@@ -775,6 +775,33 @@ billing, public profiles, tool/integration execution, autonomous actions, websit
 crawling, advanced PDF/DOCX parsing, embeddings, vector database, human-approval
 workflows, or memory beyond the current chat thread.
 
+# Connections navigation (Sprint 014)
+
+**Connections** is the customer-facing name for deployment channels, surfaced in
+the main sidebar so every deployment is manageable in one place — not only inside
+each AI Employee. ("Channels" remains the technical term inside the established
+per-AI-Employee admin pages.)
+
+- **Sidebar → Connections** opens `/dashboard/connections`: an organization-wide
+  overview of every connection across all AI Employees, filterable by AI Employee,
+  connection type, and status (active / paused / draft / archived). Each card shows
+  status, connected AI Employee, provider, setup state, last activity, and
+  Configure / Test CTAs. Empty state: _"No connections configured yet."_
+- The page also lists **all 12 connection types** with clear availability —
+  Website Widget / Hosted Chat / Iframe Embed / Public API (available), WhatsApp /
+  SMS / Email / Phone Calls (foundation), and Slack / Microsoft Teams / Instagram
+  DM / Telegram (coming soon).
+- **New connection** (`/dashboard/connections/new`) asks which AI Employee to
+  attach and which type, then continues to that AI Employee's **existing** setup
+  page — no provider logic is duplicated, and all employee-specific channel routes
+  keep working unchanged.
+- Dashboard overview and each AI Employee profile gain a **Connections** card.
+- This sprint is navigation/management consolidation only: **no new providers** and
+  no channel runtime changes. Server-side checks reuse the existing model —
+  everyone with `channel.view` can view (viewers see status only); `channel.manage`
+  (owner/admin/builder) can configure/test. Organization-scoped throughout; no
+  secrets are exposed on the Connections surface.
+
 # Channels + Website Widget (Prompt 008)
 
 Deploy an AI Employee outside the Taurus dashboard. This sprint fully ships the
