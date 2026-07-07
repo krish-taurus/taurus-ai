@@ -1179,6 +1179,12 @@ export class InMemoryStore implements DataStore {
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
+  async listEmployeeChannelsForOrganization(organizationId: string): Promise<EmployeeChannel[]> {
+    return [...this.channels.values()]
+      .filter((c) => c.organizationId === organizationId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
   async getEmployeeChannel(
     organizationId: string,
     channelId: string,

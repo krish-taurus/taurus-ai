@@ -1806,6 +1806,16 @@ export class PostgresStore implements DataStore {
     return rows.map(mapChannel);
   }
 
+  async listEmployeeChannelsForOrganization(organizationId: string): Promise<EmployeeChannel[]> {
+    const { rows } = await this.query(
+      `select * from employee_channels
+       where organization_id = $1
+       order by updated_at desc`,
+      [organizationId],
+    );
+    return rows.map(mapChannel);
+  }
+
   async getEmployeeChannel(
     organizationId: string,
     channelId: string,
