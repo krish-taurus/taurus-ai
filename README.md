@@ -1022,3 +1022,113 @@ phone-number purchasing, an outbound dialer, call campaigns, call transfer to
 humans, payment collection over the phone, full call-recording storage, advanced
 IVR flows, and voice cloning are **not built**. Marketplace, billing, and
 cross-company collaboration are **not built**.
+
+# Production Authentication with Supabase Auth (Sprint 012)
+
+Replaces the temporary passwordless development login with production-ready
+authentication backed by **Supabase Auth**, while preserving the existing Taurus
+user / organization / membership / role model.
+
+## What you get
+
+- Email + password sign up, sign in, and password reset.
+- Email OTP / magic link sign in.
+- Google and LinkedIn OAuth ("Continue with…").
+- Logout, session persistence, and protected routes.
+- Every authenticated Supabase user is mapped to a Taurus user record.
+
+Auth methods live on `/login` (sign in) and `/signup` (sign up). `/signin` is an
+alias that redirects to `/login`. Password reset uses `/forgot-password` →
+emailed link → `/reset-password`.
+
+## How it fits the existing model
+
+- Supabase `auth.users.id` is stored on the Taurus user as
+  `users.supabase_auth_user_id` (migration `0011`). Taurus `users.id` remains the
+  internal application id; **memberships and role checks are unchanged** and keep
+  referencing `users.id`.
+- On first sign-in, `resolveTaurusUserForSupabaseIdentity` links an existing
+  account with the same email, or creates a new Taurus user — so every Supabase
+  user always has exactly one Taurus user.
+- The signed-in user is always derived from a **verified server-side session**
+  (`supabase.auth.getUser()`), never from client-provided input.
+
+## Environment variables
+
+| Variable                        | Required                     | Notes                                                             |
+| ------------------------------- | ---------------------------- | ----------------------------------------------------------------- |
+| `NEXT_PUBLIC_SUPABASE_URL`      | Prod (unless dev auth on)    | Public Supabase project URL. Safe for the browser.                |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Prod (unless dev auth on)    | Public anon key. Safe for the browser.                            |
+| `SUPABASE_SERVICE_ROLE_KEY`     | No                           | **Server only**, never exposed to the browser. Not used this sprint. |
+| `TAURUS_ALLOW_DEV_AUTH`         | No                           | `true` to allow the passwordless dev flow in production.          |
+
+When the Supabase variables are absent (local dev / tests), the app falls back to
+the development auth flow. In production, Supabase is **required** unless
+`TAURUS_ALLOW_DEV_AUTH=true` — enforced by env validation.
+
+## Supabase Auth setup
+
+1. Create a project at supabase.com. Copy **Project URL** and the **anon public**
+   key (Project Settings → API) into `NEXT_PUBLIC_SUPABASE_URL` and
+   `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+2. In **Authentication → Providers**, keep **Email** enabled (email+password and
+   magic link/OTP work out of the box).
+3. In **Authentication → URL Configuration**, set the **Site URL** to your app
+   origin and add the redirect URLs below.
+
+## Redirect URLs
+
+Add these to Supabase → Authentication → URL Configuration → **Redirect URLs**:
+
+```
+http://localhost:3000/auth/callback
+https://YOUR_DOMAIN/auth/callback
+```
+
+All OAuth, magic link, and password-reset emails return to `/auth/callback`,
+which exchanges the code for a session and routes the user to their dashboard or
+onboarding.
+
+## Google OAuth setup
+
+1. In Google Cloud Console, create an **OAuth 2.0 Client ID** (Web application).
+2. Authorized redirect URI: `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`.
+3. In Supabase → Authentication → Providers → **Google**, paste the Client ID and
+   Client Secret and enable it.
+
+## LinkedIn OAuth setup
+
+1. Create an app at LinkedIn Developers and enable **Sign In with LinkedIn using
+   OpenID Connect**.
+2. Authorized redirect URL: `https://YOUR_SUPABASE_PROJECT.supabase.co/auth/v1/callback`.
+3. In Supabase → Authentication → Providers → **LinkedIn (OIDC)**, paste the
+   Client ID and Client Secret and enable it. (The app requests the
+   `linkedin_oidc` provider.)
+
+## Vercel / production deployment
+
+1. Add `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and a strong
+   `AUTH_SECRET` to your Vercel project environment variables. Add
+   `SUPABASE_SERVICE_ROLE_KEY` only if a server task needs it (keep it server-only —
+   do not prefix it with `NEXT_PUBLIC_`).
+2. Set `NEXT_PUBLIC_APP_URL` to your production origin.
+3. Do **not** set `TAURUS_ALLOW_DEV_AUTH` in production — leave the dev flow off.
+4. Add your production `/auth/callback` URL to Supabase Redirect URLs and set the
+   Supabase Site URL to your production origin.
+5. Run migration `0011_supabase_auth.sql` against your database.
+
+## Security notes
+
+- Passwords are handled entirely by Supabase Auth — **no plaintext passwords are
+  stored in Taurus tables**.
+- The Supabase **service role key is never exposed to the browser**; only the
+  public URL + anon key are.
+- The authenticated user is always derived server-side from the verified Supabase
+  session; the client-provided user id is never trusted.
+- Organization isolation and role-based permission checks are unchanged and remain
+  enforced.
+
+## Not included (by design)
+
+Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
+this sprint.

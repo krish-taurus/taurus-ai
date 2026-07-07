@@ -14,6 +14,8 @@ export interface User {
   email: string;
   fullName: string | null;
   avatarUrl: string | null;
+  /** Linked Supabase Auth user id (auth.users.id), or null for dev-auth users. */
+  supabaseAuthUserId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -65,6 +67,8 @@ export interface AuditEvent extends AuditEventInput {
 export interface CreateUserInput {
   email: string;
   fullName?: string | null;
+  avatarUrl?: string | null;
+  supabaseAuthUserId?: string | null;
 }
 
 export interface CreateOrganizationInput {

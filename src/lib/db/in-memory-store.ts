@@ -158,6 +158,13 @@ export class InMemoryStore implements DataStore {
     return null;
   }
 
+  async getUserBySupabaseAuthId(supabaseAuthUserId: string): Promise<User | null> {
+    for (const user of this.users.values()) {
+      if (user.supabaseAuthUserId === supabaseAuthUserId) return user;
+    }
+    return null;
+  }
+
   async createUser(input: CreateUserInput): Promise<User> {
     const email = input.email.trim().toLowerCase();
     const existing = await this.getUserByEmail(email);
@@ -169,12 +176,21 @@ export class InMemoryStore implements DataStore {
       id: uuid(),
       email,
       fullName: input.fullName?.trim() || null,
-      avatarUrl: null,
+      avatarUrl: input.avatarUrl?.trim() || null,
+      supabaseAuthUserId: input.supabaseAuthUserId ?? null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     this.users.set(user.id, user);
     return user;
+  }
+
+  async linkUserToSupabaseAuth(userId: string, supabaseAuthUserId: string): Promise<User> {
+    const user = this.users.get(userId);
+    if (!user) throw new Error(`User ${userId} not found.`);
+    const updated: User = { ...user, supabaseAuthUserId, updatedAt: now() };
+    this.users.set(userId, updated);
+    return updated;
   }
 
   async getOrganizationById(id: string): Promise<Organization | null> {

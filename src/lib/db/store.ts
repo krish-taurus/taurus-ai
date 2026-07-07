@@ -96,7 +96,10 @@ export interface DataStore {
   // Users
   getUserById(id: string): Promise<User | null>;
   getUserByEmail(email: string): Promise<User | null>;
+  getUserBySupabaseAuthId(supabaseAuthUserId: string): Promise<User | null>;
   createUser(input: CreateUserInput): Promise<User>;
+  /** Link an existing Taurus user to a Supabase Auth identity. */
+  linkUserToSupabaseAuth(userId: string, supabaseAuthUserId: string): Promise<User>;
 
   // Organizations + memberships
   getOrganizationById(id: string): Promise<Organization | null>;
