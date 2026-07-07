@@ -12,6 +12,7 @@ import {
   createLlmGateway,
   isLiveProviderConfigured as defaultIsLiveProviderConfigured,
   isProductionRuntime,
+  listConfiguredProviderSlugs,
 } from "@/modules/model-gateway/credential-resolver";
 import type { ProviderSlug } from "@/lib/db/types";
 import type { ChatBlockReason } from "@/modules/employee-chat/metadata";
@@ -40,6 +41,8 @@ export interface ReadinessDeps {
     organizationId: string,
     providerSlug: ProviderSlug | null,
   ) => Promise<boolean>;
+  /** Providers the org has a usable credential for (BYOK active or managed env). */
+  listConfiguredProviders?: (store: DataStore, organizationId: string) => Promise<ProviderSlug[]>;
   isProduction?: () => boolean;
 }
 
@@ -66,13 +69,15 @@ export async function computeChatReadiness(
       };
     });
   const isLiveProviderConfigured = deps.isLiveProviderConfigured ?? defaultIsLiveProviderConfigured;
+  const listConfiguredProviders = deps.listConfiguredProviders ?? listConfiguredProviderSlugs;
   const isProduction = deps.isProduction ?? isProductionRuntime;
 
-  const [published, assignedSources, segments, resolved] = await Promise.all([
+  const [published, assignedSources, segments, resolved, configuredProviders] = await Promise.all([
     store.getPublishedEmployeeDna(organizationId, employee.id),
     store.listKnowledgeSourcesForEmployee(organizationId, employee.id),
     store.listKnowledgeRetrievalSegmentsForEmployee(organizationId, employee.id),
     resolveProviderSlug(organizationId, employee.id),
+    listConfiguredProviders(store, organizationId),
   ]);
 
   const assignedKnowledgeCount = assignedSources.filter((s) => s.status !== "archived").length;
@@ -90,11 +95,16 @@ export async function computeChatReadiness(
 
   const employeeArchived = employee.status === "archived";
   const dnaPublished = !!published;
+  const hasConfiguredProvider = configuredProviders.length > 0;
 
+  // Message precedence maps to the two distinct setup states:
+  //   - a provider key exists but no model resolves → choose an Employee Brain
+  //   - no provider key (model may or may not resolve) → connect a provider
   let blockReason: ChatBlockReason | null = null;
   if (employeeArchived) blockReason = "archived";
   else if (!dnaPublished) blockReason = "needs_dna";
-  else if (!resolved.providerSlug) blockReason = "no_model";
+  else if (!resolved.providerSlug)
+    blockReason = hasConfiguredProvider ? "no_model" : "needs_model_hub";
   else if (brainMode === "unavailable") blockReason = "needs_model_hub";
 
   return {

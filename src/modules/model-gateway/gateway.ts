@@ -45,6 +45,13 @@ export interface LlmGatewayDeps {
   providers: Record<ProviderSlug, LLMProvider>;
   resolveCredential: CredentialResolver;
   /**
+   * Provider slugs the organization has a usable credential for. When provided,
+   * automatic routing is restricted to these providers so the gateway never
+   * selects a model whose provider has no key. Optional — omitted in tests, which
+   * preserves credential-blind routing for those cases.
+   */
+  listAvailableProviders?: (organizationId: string) => Promise<ProviderSlug[]>;
+  /**
    * Local Demo Brain (Prompt 007). When no real provider credential resolves and
    * `allowed` is true (local dev / tests only), the gateway answers with this
    * deterministic brain instead of throwing. It is NEVER allowed in production,
@@ -107,12 +114,16 @@ export class LlmGateway {
     const employeeSettings = request.employeeId
       ? await this.deps.store.getEmployeeModelSettings(request.organizationId, request.employeeId)
       : null;
+    const availableProviderSlugs = this.deps.listAvailableProviders
+      ? await this.deps.listAvailableProviders(request.organizationId)
+      : undefined;
 
     return resolveModelForTask({
       orgSettings,
       employeeSettings,
       desiredRoutingMode: request.desiredRoutingMode ?? null,
       requiredCapabilities: request.requiredCapabilities,
+      availableProviderSlugs,
     });
   }
 
