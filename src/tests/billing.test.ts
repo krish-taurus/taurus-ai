@@ -13,6 +13,7 @@ import {
   canAddConnection,
   canAddKnowledgeSource,
   canHireEmployee,
+  planIncludesFeature,
   withinInteractionQuota,
   type EntitlementSnapshot,
 } from "@/modules/billing/entitlements";
@@ -114,6 +115,27 @@ describe("Plans catalog integrity", () => {
     expect(getPlan("growth").id).toBe("growth");
     expect(isPlanId("scale")).toBe(true);
     expect(isPlanId("enterprise")).toBe(false);
+  });
+
+  it("gates Performance Review + BYOK to the paid tiers", () => {
+    expect(PLANS.starter.features.performanceReview).toBe(false);
+    expect(PLANS.starter.features.byok).toBe(false);
+    for (const id of ["growth", "scale"] as const) {
+      expect(PLANS[id].features.performanceReview).toBe(true);
+      expect(PLANS[id].features.byok).toBe(true);
+    }
+    // The pure gate helper deny-by-defaults for Starter and allows paid tiers.
+    expect(planIncludesFeature(PLANS.starter, "byok")).toBe(false);
+    expect(planIncludesFeature(PLANS.growth, "byok")).toBe(true);
+    expect(planIncludesFeature(PLANS.scale, "performanceReview")).toBe(true);
+  });
+
+  it("gives the paid tiers unlimited connections that never block", () => {
+    expect(PLANS.growth.entitlements.maxConnections).toBe(Infinity);
+    expect(PLANS.scale.entitlements.maxConnections).toBe(Infinity);
+    // Even at a very high count, an unlimited plan still allows another connection.
+    expect(canAddConnection(snapshot("growth", { connections: 10_000 })).allowed).toBe(true);
+    expect(canAddConnection(snapshot("scale", { connections: 10_000 })).allowed).toBe(true);
   });
 });
 

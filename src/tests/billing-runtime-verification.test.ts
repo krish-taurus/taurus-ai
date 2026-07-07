@@ -30,9 +30,10 @@ import { createTextSource } from "@/modules/knowledge/service";
  * service/provider/enforcement code — not client mocks. Each block maps to an
  * item (A–G) in 05_reports/RUNTIME_VERIFICATION.md.
  *
- * NOTE ON NUMBERS: the merged catalog is Starter = 2 employees / 5 knowledge /
- * 1 connection / 200 interactions; Growth = 10 / 50 / 10 / 5,000; Scale = 50 /
- * 500 / 50 / 50,000 (soft-cap). These tests assert the ACTUAL merged values.
+ * NOTE ON NUMBERS: the catalog is Starter = 1 employee / 5 knowledge / 1
+ * connection / 100 interactions; Growth = 3 / 50 / unlimited connections / 2,000;
+ * Scale = 10 / 500 / unlimited / 10,000 (soft-cap). Growth and Scale also enable
+ * the Performance Review + BYOK feature flags. These tests assert those values.
  */
 
 const SIMULATED = new SimulatedBillingProvider();
@@ -81,10 +82,10 @@ describe("A. Default plan on signup", () => {
       new Date(overview.subscription.currentPeriodStart).getTime(),
     );
     // Usage-vs-quota for each entitlement, with the plan's real limits.
-    expect(overview.usage.employees.limit).toBe(2);
+    expect(overview.usage.employees.limit).toBe(1);
     expect(overview.usage.knowledgeSources.limit).toBe(5);
     expect(overview.usage.connections.limit).toBe(1);
-    expect(overview.usage.interactions.limit).toBe(200);
+    expect(overview.usage.interactions.limit).toBe(100);
     expect(overview.simulated).toBe(true);
   });
 });
@@ -97,7 +98,7 @@ describe("B. Entitlement enforcement (server-side)", () => {
     const store = new InMemoryStore();
     const { orgId, userId } = await makeOrg(store, "hire");
     const actor = { organizationId: orgId, userId };
-    const cap = PLANS.starter.entitlements.maxEmployees; // 2
+    const cap = PLANS.starter.entitlements.maxEmployees; // 1
 
     for (let i = 0; i < cap; i++) {
       await hireEmployee(store, actor, { name: `Emp ${i}`, roleTitle: "Support", ...HIRE_BASE });
@@ -155,7 +156,7 @@ describe("B. Entitlement enforcement (server-side)", () => {
   it("blocks a further reply once the interaction quota is spent, reading from usage events", async () => {
     const store = new InMemoryStore();
     const { orgId, userId } = await makeOrg(store, "quota");
-    const quota = PLANS.starter.entitlements.monthlyInteractionQuota; // 200
+    const quota = PLANS.starter.entitlements.monthlyInteractionQuota; // 100
 
     // Under quota → allowed.
     await expect(assertWithinInteractionQuota(store, orgId)).resolves.toBeTruthy();
@@ -193,7 +194,7 @@ describe("C. Upgrade / downgrade (simulated)", () => {
     const { orgId, userId } = await makeOrg(store, "up");
     const actor = { organizationId: orgId, userId };
 
-    // On Starter, hiring a 3rd employee is blocked.
+    // On Starter (cap 1), hiring beyond the cap is blocked once 2 exist.
     await store.createEmployee({
       organizationId: orgId,
       name: "A",
@@ -215,11 +216,16 @@ describe("C. Upgrade / downgrade (simulated)", () => {
     expect((await getOrganizationPlan(store, orgId)).id).toBe("growth");
     // Limit lifted immediately — hiring a 3rd is now allowed.
     await expect(assertCanHireEmployee(store, orgId)).resolves.toBeUndefined();
-    expect((await buildEntitlementSnapshot(store, orgId)).plan.entitlements.maxEmployees).toBe(10);
+    const growthPlan = (await buildEntitlementSnapshot(store, orgId)).plan;
+    expect(growthPlan.entitlements.maxEmployees).toBe(3);
+    // Growth is unlimited on connections and flips on the paid feature flags.
+    expect(growthPlan.entitlements.maxConnections).toBe(Infinity);
+    expect(growthPlan.features.performanceReview).toBe(true);
+    expect(growthPlan.features.byok).toBe(true);
 
     const s = await startPlanChange(store, actor, SIMULATED, "scale", URLS);
     expect(s.kind).toBe("applied");
-    expect((await buildEntitlementSnapshot(store, orgId)).plan.entitlements.maxEmployees).toBe(50);
+    expect((await buildEntitlementSnapshot(store, orgId)).plan.entitlements.maxEmployees).toBe(10);
 
     // A billing_events row AND an audit event were written for each change.
     const events = await store.listBillingEvents(orgId);

@@ -22,6 +22,17 @@ Added:
 - **Reports** — `05_reports/FUNCTIONALITY_AUDIT.md` and
   `05_reports/RUNTIME_VERIFICATION.md`.
 
+Changed:
+
+- **Plan catalog aligned to the authoritative spec** — Starter 1 AI Employee /
+  5 knowledge / 1 connection / 100 interactions (free); Growth 3 / 50 / unlimited
+  connections / 2,000 ($49); Scale 10 / 500 / unlimited / 10,000 ($199, soft-cap).
+- **Per-plan feature flags** (`features.performanceReview`, `features.byok`) — on
+  for Growth and Scale, off for Starter. **BYOK** (bring-your-own model keys) is
+  now gated server-side at the credential save action; a Starter org is refused
+  with an upgrade message before any key is stored. Unlimited connections are
+  represented as `Infinity` and rendered as "Unlimited" in the usage meter.
+
 Numbering: the billing sprint is **Sprint 015** (it follows 014 Connections). The
 migration file keeps its independent number `0014_billing.sql`.
 

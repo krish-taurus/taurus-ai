@@ -6,22 +6,22 @@ in **simulated mode** (no `STRIPE_SECRET_KEY`) through the real
 service/provider/enforcement code — not client mocks.
 
 **Date:** 2026-07-07 · **Mode:** simulated billing (no Stripe keys)
-**Automated evidence:** `src/tests/billing-runtime-verification.test.ts` (17
-scenarios, all passing) + `src/tests/billing.test.ts` + `src/tests/end-to-end-flow.test.ts`.
-Full suite **360 passing**; lint + terminology green; `next build` clean.
+**Automated evidence:** `src/tests/billing-runtime-verification.test.ts` + `src/tests/billing.test.ts`
++ `src/tests/billing-byok-gate.test.ts` + `src/tests/end-to-end-flow.test.ts`.
+Full suite **368 passing**; typecheck + lint + terminology green; `next build` clean.
 
-> **Catalog-values note (read first).** This task's checklist states some plan
-> numbers (Starter cap **1** employee / **100** interactions; Growth "up to **3**";
-> Growth "Performance Review + BYOK flags"). The **merged catalog** actually
-> defines: Starter = **2** employees / 5 knowledge / 1 connection / **200**
-> interactions; Growth = **10** / 50 / 10 / 5,000; Scale = 50 / 500 / 50 / 50,000
-> (soft-cap). There are **no per-plan feature flags** (Performance Review, BYOK)
-> in the implementation. The verification below asserts the **actual** merged
-> values. The enforcement *mechanism* works at whatever values the catalog
-> defines; the difference in the numbers/flags is a **product-catalog decision**,
-> not a code defect — see the verdict. It was **not** changed unilaterally
-> (changing plan economics is a product decision, and adding feature flags is
-> out of scope for this task).
+> **Catalog-values note (read first).** The plan catalog has been **aligned to the
+> authoritative product spec**: Starter (Free) = **1** AI Employee / 5 knowledge /
+> **1** connection / **100** interactions; Growth ($49) = **3** / 50 / **unlimited**
+> connections / **2,000**, with the **Performance Review + BYOK** feature flags on;
+> Scale ($199) = **10** / 500 / **unlimited** / **10,000** (soft-cap), flags on. The
+> verification below asserts these values. Two implementation notes: (1) "unlimited"
+> is `Infinity` in the catalog — the `used < limit` math treats it as never-blocked
+> and the usage meter renders "Unlimited". (2) **BYOK** is a real, enforced feature
+> gate: `saveProviderCredentialAction` refuses a plan without `features.byok`
+> (Starter) server-side before any key is stored. **Performance Review** has no
+> runtime feature yet, so its flag is defined, surfaced, and asserted, but its gate
+> attaches when that feature ships — this is documented, not a silent gap.
 
 ---
 
@@ -33,34 +33,35 @@ Full suite **360 passing**; lint + terminology green; `next build` clean.
   is `starter`. Evidence: test *A › puts a brand-new organization on Starter*.
 - Billing dashboard data (`getBillingOverview`) returns plan, status, a valid
   period (`currentPeriodEnd > currentPeriodStart`), and usage-vs-quota for all
-  four entitlements with the real limits (2 / 5 / 1 / 200) and `simulated: true`.
+  four entitlements with the real limits (1 / 5 / 1 / 100) and `simulated: true`.
   Evidence: test *A › billing dashboard data shows plan, status, period, usage*.
 
 ### B. Entitlement enforcement (server-side) — **PASS**
 Each limit blocks **server-side** via a direct service call (bypassing any client
 gating), raising an `EntitlementError` whose message is a clear, Taurus-voice
 upgrade prompt — not a raw error code, not just a greyed-out button:
-- **Hire past the Starter cap** (actual cap **2**) → blocked; message matches
+- **Hire past the Starter cap** (cap **1**) → blocked; message matches
   `/reached your plan's limit/` + `/upgrade/`, no error code. `hireEmployee`
   calls `assertCanHireEmployee` before `store.createEmployee`.
 - **2nd connection on Starter** (cap 1) → blocked (`createWebChannel` →
   `assertCanAddConnection`).
 - **6th Knowledge source on Starter** (cap 5) → blocked (`createTextSource` →
   `assertCanAddKnowledgeSource`).
-- **Interaction quota** (actual **200**): after emitting 200 billable
+- **Interaction quota** (**100**): after emitting 100 billable
   `llm_usage_events`, `buildEntitlementSnapshot` reports `interactionsThisPeriod
-  === 200` (derived from the usage events, **not a parallel counter**) and
+  === 100` (derived from the usage events, **not a parallel counter**) and
   `assertWithinInteractionQuota` throws — this is the exact gate the Employee
   Chat runtime calls before generating a reply (`employee-chat/service.ts`).
 - Evidence: tests *B › blocks hiring…*, *…2nd connection…*, *…Knowledge past
   cap…*, *…blocks a further reply once the interaction quota is spent, reading
   from usage events*.
 
-### C. Upgrade / downgrade (simulated) — **PASS** (feature-flags item: N/A)
+### C. Upgrade / downgrade (simulated) — **PASS**
 - **Upgrade → Growth** applies **immediately**; the org moves to Growth and the
-  employee limit lifts from 2 → 10 in the same call (a previously-blocked hire is
-  now allowed). **Upgrade → Scale** lifts to 50. Evidence: test *C › upgrades to
-  Growth then Scale…*.
+  employee limit lifts from 1 → 3 in the same call (a previously-blocked hire is
+  now allowed), connections become **unlimited**, and the **Performance Review +
+  BYOK** feature flags flip on (`plan.features.*` asserted). **Upgrade → Scale**
+  lifts to 10. Evidence: test *C › upgrades to Growth then Scale…*.
 - A **`billing_events`** row (`subscription.upgraded`) **and** an audit event
   (`billing.plan_upgraded`) are written per change. Same test.
 - **Downgrade Growth → Starter** is safe: existing employees are **not deleted**
@@ -70,9 +71,13 @@ upgrade prompt — not a raw error code, not just a greyed-out button:
 - **Simulated billing is clearly labeled**: `getBillingOverview(...).simulated`
   is `true` and the dashboard renders the "Simulated billing" notice
   (`billing/page.tsx` + `plans/page.tsx`).
-- **N/A:** "Performance Review + BYOK flags on" — no such per-plan feature flags
-  exist in the implementation (only numeric entitlements + overage behavior).
-  Adding them is out of scope ("Not in this task").
+- **Feature flags on Growth+**: the catalog carries `features.performanceReview`
+  and `features.byok` (both **on** for Growth and Scale, **off** for Starter). The
+  **BYOK** flag is enforced server-side — `saveProviderCredentialAction` refuses a
+  Starter org with an upgrade message before any key is stored, and lets a Growth
+  org through the gate. Evidence: `src/tests/billing-byok-gate.test.ts` + catalog
+  assertions in `billing.test.ts`. **Performance Review**'s flag is defined and
+  surfaced; its runtime gate attaches when that feature ships.
 
 ### D. Permissions & isolation — **PASS**
 - `billing.view` is granted to **every** role; `billing.manage` only to
@@ -123,31 +128,29 @@ upgrade prompt — not a raw error code, not just a greyed-out button:
   Stripe secrets are server-only*.
 
 ### G. Build health — **PASS**
-- `npm test` → **360 passing**. `next lint` → clean. Terminology test → **14
-  passing** (no `agent` / `prompt` / `knowledge base` in the UI).
-  `npm run build` → compiles, all routes generated.
+- `npx vitest run` → **368 passing**. `npx tsc --noEmit` → clean. `next lint` →
+  clean. Terminology test → **14 passing** (no `agent` / `prompt` / `knowledge
+  base` in the UI). `next build` → compiles, all routes generated.
 
 ---
 
 ## Verdict
 
-**Billing is functional end-to-end.** Every checklist item A–G is **PASS** (with
-the C feature-flags sub-item **N/A** — not implemented, out of scope). The
+**Billing is functional end-to-end.** Every checklist item A–G is **PASS**. The
 mechanisms a customer relies on — automatic Starter on signup, server-side
 entitlement blocks with upgrade messaging, instant simulated upgrade/downgrade
 with events + audit, role-gated management, cross-org isolation, signed webhooks
 resolving the org from stored ids, metadata-only events, server-only secrets —
 all work when driven through the real code.
 
-**One open item (product decision, not a defect):** the plan **numbers and
-feature flags** stated in the task (Starter 1 / 100, Growth 3, Performance Review
-+ BYOK flags) differ from the merged catalog (Starter 2 / 200, Growth 10, no
-flags). The enforcement works at whatever values the catalog defines; aligning
-the catalog to different numbers and adding per-plan feature flags is a
-product-catalog decision (feature flags are explicitly out of scope here), so it
-was **flagged, not changed unilaterally**. If those numbers are authoritative,
-updating `src/modules/billing/plans.ts` (+ the value assertions in the tests) is
-a small follow-up.
+**Catalog aligned to the authoritative spec.** The plan numbers and feature flags
+now match the product spec: Starter 1 / 5 / 1 / 100 (free); Growth 3 / 50 /
+unlimited / 2,000 ($49) with Performance Review + BYOK on; Scale 10 / 500 /
+unlimited / 10,000 ($199) with both flags on. Unlimited connections are enforced
+as `Infinity`; the **BYOK** flag is enforced server-side at the credential save
+action (Starter refused, Growth+ allowed). **Performance Review**'s flag is
+defined and surfaced now; wiring its runtime gate is a one-line follow-up when
+that feature is built (there is no Performance Review feature to gate today).
 
 ---
 

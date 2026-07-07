@@ -25,13 +25,32 @@ export type PlanId = (typeof PLAN_IDS)[number];
  */
 export type OverageBehavior = "block" | "soft_cap";
 
-/** Hard entitlements for a plan. */
+/**
+ * Per-plan feature switches (distinct from numeric entitlements). Unlike a limit,
+ * a feature is simply on or off for the plan. They are the single source of truth
+ * for what each tier includes; runtime gates read them via
+ * `planIncludesFeature` (entitlements.ts).
+ */
+export type PlanFeature = "performanceReview" | "byok";
+
+export interface PlanFeatures {
+  /** Scheduled AI Employee performance reviews (Growth and above). */
+  performanceReview: boolean;
+  /** Bring-your-own model provider API keys in the Model Hub (Growth and above). */
+  byok: boolean;
+}
+
+/**
+ * Hard entitlements for a plan. A limit of `Infinity` means unlimited — the
+ * enforcement math (`used < limit`) treats it as never blocked, and the usage
+ * meter renders it as "Unlimited".
+ */
 export interface PlanEntitlements {
   /** Max active (non-archived) AI Employees the organization may have. */
   maxEmployees: number;
   /** Max Knowledge Vault sources. */
   maxKnowledgeSources: number;
-  /** Max connections (deployment channels across all Employees). */
+  /** Max connections (deployment channels across all Employees). `Infinity` = unlimited. */
   maxConnections: number;
   /** Monthly billable AI Employee interactions across chat + channels. */
   monthlyInteractionQuota: number;
@@ -48,6 +67,8 @@ export interface Plan {
   /** True for the free tier (no card required). */
   isFree: boolean;
   entitlements: PlanEntitlements;
+  /** On/off feature switches for this tier. */
+  features: PlanFeatures;
   overageBehavior: OverageBehavior;
   /**
    * Name of the server-only env var holding this plan's Stripe Price id. Null for
@@ -71,18 +92,22 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 0,
     isFree: true,
     entitlements: {
-      maxEmployees: 2,
+      maxEmployees: 1,
       maxKnowledgeSources: 5,
       maxConnections: 1,
-      monthlyInteractionQuota: 200,
+      monthlyInteractionQuota: 100,
+    },
+    features: {
+      performanceReview: false,
+      byok: false,
     },
     overageBehavior: "block",
     stripePriceEnvVar: null,
     highlights: [
-      "Up to 2 active AI Employees",
+      "1 active AI Employee",
       "5 Knowledge Vault sources",
       "1 connection",
-      "200 AI Employee interactions / month",
+      "100 AI Employee interactions / month",
     ],
   },
   growth: {
@@ -92,18 +117,24 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 49,
     isFree: false,
     entitlements: {
-      maxEmployees: 10,
+      maxEmployees: 3,
       maxKnowledgeSources: 50,
-      maxConnections: 10,
-      monthlyInteractionQuota: 5_000,
+      maxConnections: Infinity,
+      monthlyInteractionQuota: 2_000,
+    },
+    features: {
+      performanceReview: true,
+      byok: true,
     },
     overageBehavior: "block",
     stripePriceEnvVar: "STRIPE_PRICE_GROWTH",
     highlights: [
-      "Up to 10 active AI Employees",
+      "Up to 3 active AI Employees",
       "50 Knowledge Vault sources",
-      "10 connections",
-      "5,000 AI Employee interactions / month",
+      "Unlimited connections",
+      "2,000 AI Employee interactions / month",
+      "Scheduled performance reviews",
+      "Bring your own model provider keys",
     ],
   },
   scale: {
@@ -113,20 +144,26 @@ export const PLANS: Record<PlanId, Plan> = {
     monthlyPriceUsd: 199,
     isFree: false,
     entitlements: {
-      maxEmployees: 50,
+      maxEmployees: 10,
       maxKnowledgeSources: 500,
-      maxConnections: 50,
-      monthlyInteractionQuota: 50_000,
+      maxConnections: Infinity,
+      monthlyInteractionQuota: 10_000,
+    },
+    features: {
+      performanceReview: true,
+      byok: true,
     },
     // Scale never hard-blocks mid-conversation; it soft-caps with a notice so a
     // busy customer is never left stranded, then follows up to upgrade.
     overageBehavior: "soft_cap",
     stripePriceEnvVar: "STRIPE_PRICE_SCALE",
     highlights: [
-      "Up to 50 active AI Employees",
+      "Up to 10 active AI Employees",
       "500 Knowledge Vault sources",
-      "50 connections",
-      "50,000 AI Employee interactions / month",
+      "Unlimited connections",
+      "10,000 AI Employee interactions / month",
+      "Scheduled performance reviews",
+      "Bring your own model provider keys",
     ],
   },
 };

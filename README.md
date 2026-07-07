@@ -1197,13 +1197,21 @@ self-serve. Builds on the existing usage events and Model Hub budget.
 - **Plans catalog** (`src/modules/billing/plans.ts`) — code-authoritative, like
   the Model Hub catalog. Three tiers with a monthly price and hard entitlements:
 
-  | Plan | Price | AI Employees | Knowledge sources | Connections | Interactions / month | Over-quota |
-  | ---- | ----- | ------------ | ----------------- | ----------- | -------------------- | ---------- |
-  | **Starter** | Free | 2 | 5 | 1 | 200 | block |
-  | **Growth** | $49/mo | 10 | 50 | 10 | 5,000 | block |
-  | **Scale** | $199/mo | 50 | 500 | 50 | 50,000 | soft-cap (keeps working + notice) |
+  | Plan | Price | AI Employees | Knowledge sources | Connections | Interactions / month | Over-quota | Feature flags |
+  | ---- | ----- | ------------ | ----------------- | ----------- | -------------------- | ---------- | ------------- |
+  | **Starter** | Free | 1 | 5 | 1 | 100 | block | — |
+  | **Growth** | $49/mo | 3 | 50 | Unlimited | 2,000 | block | Performance Review, BYOK |
+  | **Scale** | $199/mo | 10 | 500 | Unlimited | 10,000 | soft-cap (keeps working + notice) | Performance Review, BYOK |
 
-  Prices/entitlements live only here; no prices are hard-coded elsewhere.
+  Prices/entitlements/feature flags live only here; no prices are hard-coded
+  elsewhere. "Unlimited" is represented as `Infinity` in the catalog — the
+  enforcement math treats it as never-blocked and the usage meter renders it as
+  "Unlimited". Each plan also carries **feature flags** (`features.performanceReview`,
+  `features.byok`); the paid tiers enable both. BYOK (bring-your-own model provider
+  keys in the Model Hub) is **gated server-side** at the credential save action:
+  a Starter org is refused with an upgrade message before any key is stored.
+  Performance Review's flag is defined and surfaced now; its runtime gate attaches
+  when that feature ships.
 - **Subscription state** per organization — `billing_subscriptions`,
   `billing_customers`, `billing_events` (migration `db/migrations/0014_billing.sql`;
   the migration file keeps its `0014` number — migrations are numbered
