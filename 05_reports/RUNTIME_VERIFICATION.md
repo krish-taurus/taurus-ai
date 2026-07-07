@@ -1,101 +1,162 @@
-# Taurus AI — Runtime Verification Report
+# Billing Sprint (015) — Runtime Verification
 
-Companion to `FUNCTIONALITY_AUDIT.md`. Where the audit traces each feature
-through the code, this report records the **audits actually run** — real modules
-chained end-to-end (no network) plus a live HTTP smoke of the booted app — and
-the observed results.
+Proves (or disproves) that the merged billing sprint (PR #20, merge `aa47529`)
+**works end-to-end for a user**, beyond "units pass + build is clean." Exercised
+in **simulated mode** (no `STRIPE_SECRET_KEY`) through the real
+service/provider/enforcement code — not client mocks.
 
-**Date:** 2026-07-07
-**Branch:** `claude/billing-plans-subscriptions-3z7get`
-**Method:** deterministic integration test (`src/tests/end-to-end-flow.test.ts`)
-exercising the real service/gateway/store code, plus `next dev` + `curl` against
-public HTTP surfaces. In-memory store, simulated providers — no external calls.
+**Date:** 2026-07-07 · **Mode:** simulated billing (no Stripe keys)
+**Automated evidence:** `src/tests/billing-runtime-verification.test.ts` (17
+scenarios, all passing) + `src/tests/billing.test.ts` + `src/tests/end-to-end-flow.test.ts`.
+Full suite **360 passing**; lint + terminology green; `next build` clean.
 
----
-
-## 1. End-to-end module verification
-
-`src/tests/end-to-end-flow.test.ts` (4 scenarios) chains the real modules through
-the customer loop and asserts observed behavior.
-
-### 1.1 Provider API keys — Model Hub BYOK ✅
-- `saveProviderCredential` encrypts a bring-your-own Anthropic key (AES-256-GCM);
-  returned metadata carries only the **last four** and never the plaintext.
-- `createDefaultCredentialResolver` **round-trips**: the resolved key decrypts
-  back to the exact original.
-- `testProviderConnection` runs the probe path with an injected probe (no
-  network) and reports success.
-- **Cross-org isolation:** a different organization resolves `null` — no leakage.
-
-### 1.2 Knowledge Vault — extraction ✅
-- A manual **text note** is created and immediately extracted (text content +
-  preview stored).
-- An uploaded **`.txt` file** is really extracted: decoded text content, preview,
-  and a SHA-256 checksum are persisted; the source lands `ready`.
-
-### 1.3 Knowledge Vault — retrieval (grounding) ✅
-- Two sources (refund policy, support hours) are assigned to an AI Employee and
-  prepared into retrieval segments.
-- Query *"how long do I have to get a refund?"* → surfaces the **refund** source.
-- Query *"what are your support hours?"* → surfaces the **hours** source.
-- Retrieval returns the correct grounded source per query — not noise.
-
-### 1.4 Chat runtime — full turn ✅
-- Runs through the **real `LlmGateway`** wired to fake provider adapters (no
-  network), not a stub — so the true gateway path executes.
-- Observed: retrieves grounding, generates a reply, persists the user **and**
-  assistant messages in order, and **emits the `llm_usage_event` that the billing
-  meter reads** (`countInteractionsForEmployee` ≥ 1 afterward).
-
-### 1.5 Independent web connection ✅
-- Create + activate a web channel, then send a visitor message through the
-  **public key only**.
-- Observed: a reply is produced, a `public_chat.message_sent` event is recorded,
-  and the organization is resolved from the channel public key (never client
-  input). A **forged public key is rejected**.
+> **Catalog-values note (read first).** This task's checklist states some plan
+> numbers (Starter cap **1** employee / **100** interactions; Growth "up to **3**";
+> Growth "Performance Review + BYOK flags"). The **merged catalog** actually
+> defines: Starter = **2** employees / 5 knowledge / 1 connection / **200**
+> interactions; Growth = **10** / 50 / 10 / 5,000; Scale = 50 / 500 / 50 / 50,000
+> (soft-cap). There are **no per-plan feature flags** (Performance Review, BYOK)
+> in the implementation. The verification below asserts the **actual** merged
+> values. The enforcement *mechanism* works at whatever values the catalog
+> defines; the difference in the numbers/flags is a **product-catalog decision**,
+> not a code defect — see the verdict. It was **not** changed unilaterally
+> (changing plan economics is a product decision, and adding feature flags is
+> out of scope for this task).
 
 ---
 
-## 2. Live HTTP smoke (booted app)
+## Checklist
 
-`next dev` booted successfully; observed responses:
+### A. Default plan on signup — **PASS**
+- A brand-new org is created on **Starter**, `status active`, no card, no manual
+  step. `createOrganizationWithOwner` seeds the subscription; `DEFAULT_PLAN_ID`
+  is `starter`. Evidence: test *A › puts a brand-new organization on Starter*.
+- Billing dashboard data (`getBillingOverview`) returns plan, status, a valid
+  period (`currentPeriodEnd > currentPeriodStart`), and usage-vs-quota for all
+  four entitlements with the real limits (2 / 5 / 1 / 200) and `simulated: true`.
+  Evidence: test *A › billing dashboard data shows plan, status, period, usage*.
 
-| Request | Observed | Meaning |
-|---|---|---|
-| `GET /` | `200`, ~107 KB HTML | Landing renders |
-| `GET /widget/taurus-widget.js?channelId=demo` | `200`, `application/javascript` | Embeddable widget served |
-| `GET /login` | `200` | Auth entry renders |
-| `GET /dashboard` (no session) | `307` → `/login?next=%2Fdashboard` | **Auth guard enforced at the HTTP layer** |
-| `POST /api/webhooks/billing/stripe` (empty body) | `200` `{received:true,applied:false}` | Webhook route works; nothing applied |
-| `POST /api/webhooks/billing/stripe` (unknown customer id) | `200` `{received:true,applied:false}` | **Org resolved from stored ids only — unknown → not applied (deny-by-default)** |
-| `GET /api/public/channels/demo/messages` | `405` | Method not allowed (POST-only), correct |
-| `GET /public/chat/unknownkey` | `200` | Graceful "unavailable" page (no crash) |
+### B. Entitlement enforcement (server-side) — **PASS**
+Each limit blocks **server-side** via a direct service call (bypassing any client
+gating), raising an `EntitlementError` whose message is a clear, Taurus-voice
+upgrade prompt — not a raw error code, not just a greyed-out button:
+- **Hire past the Starter cap** (actual cap **2**) → blocked; message matches
+  `/reached your plan's limit/` + `/upgrade/`, no error code. `hireEmployee`
+  calls `assertCanHireEmployee` before `store.createEmployee`.
+- **2nd connection on Starter** (cap 1) → blocked (`createWebChannel` →
+  `assertCanAddConnection`).
+- **6th Knowledge source on Starter** (cap 5) → blocked (`createTextSource` →
+  `assertCanAddKnowledgeSource`).
+- **Interaction quota** (actual **200**): after emitting 200 billable
+  `llm_usage_events`, `buildEntitlementSnapshot` reports `interactionsThisPeriod
+  === 200` (derived from the usage events, **not a parallel counter**) and
+  `assertWithinInteractionQuota` throws — this is the exact gate the Employee
+  Chat runtime calls before generating a reply (`employee-chat/service.ts`).
+- Evidence: tests *B › blocks hiring…*, *…2nd connection…*, *…Knowledge past
+  cap…*, *…blocks a further reply once the interaction quota is spent, reading
+  from usage events*.
 
-Server was stopped cleanly after the smoke.
+### C. Upgrade / downgrade (simulated) — **PASS** (feature-flags item: N/A)
+- **Upgrade → Growth** applies **immediately**; the org moves to Growth and the
+  employee limit lifts from 2 → 10 in the same call (a previously-blocked hire is
+  now allowed). **Upgrade → Scale** lifts to 50. Evidence: test *C › upgrades to
+  Growth then Scale…*.
+- A **`billing_events`** row (`subscription.upgraded`) **and** an audit event
+  (`billing.plan_upgraded`) are written per change. Same test.
+- **Downgrade Growth → Starter** is safe: existing employees are **not deleted**
+  (3 remain), the org is back on Starter, and a further hire is blocked (no
+  silent deletion of over-limit resources). An audit `billing.plan_downgraded`
+  is written. Evidence: test *C › downgrade is safe…*.
+- **Simulated billing is clearly labeled**: `getBillingOverview(...).simulated`
+  is `true` and the dashboard renders the "Simulated billing" notice
+  (`billing/page.tsx` + `plans/page.tsx`).
+- **N/A:** "Performance Review + BYOK flags on" — no such per-plan feature flags
+  exist in the implementation (only numeric entitlements + overage behavior).
+  Adding them is out of scope ("Not in this task").
+
+### D. Permissions & isolation — **PASS**
+- `billing.view` is granted to **every** role; `billing.manage` only to
+  **owner/admin** (`hasPermission` matrix). Evidence: test *D › viewer/builder can
+  view but cannot manage*.
+- The mutations enforce this **server-side, not just by hiding buttons**:
+  `choosePlanAction` and `manageBillingAction` both resolve the org from the
+  session and check `hasPermission(membership.role, "billing.manage")` before
+  doing anything — `billing/actions.ts:41` and `:81`. Driven with a mocked
+  session, a `viewer` and a `builder` both get a permission error and the
+  store/provider are **never reached** (a broken check would throw). The org is
+  taken from `requireCurrentOrganization()`, never from request input. Evidence:
+  `src/tests/billing-actions-permission.test.ts`.
+- **Cross-org isolation**: Org A upgrading to Scale leaves Org B on Starter; each
+  reads only its own subscription (`getBillingSubscription` is org-scoped).
+  Evidence: test *D › one organization cannot read or change another's*.
+
+### E. Webhook — **PASS**
+- `POST /api/webhooks/billing/stripe` exists; with `STRIPE_WEBHOOK_SECRET` set the
+  `StripeBillingProvider` verifies the real HMAC-SHA256 signature: a correctly
+  signed body verifies, while **unsigned, wrong-signature, and tampered bodies
+  are rejected**. Evidence: test *E › verifies the signature… rejects
+  unsigned/invalid*.
+- `parseWebhookEvent` normalizes **checkout.session.completed**,
+  **customer.subscription.updated**, **customer.subscription.deleted**, and
+  **invoice.payment_failed** (correct type + status + plan). Evidence: test *E ›
+  parses each event type*.
+- `applyWebhookEvent` resolves the org from the **stored** customer/subscription
+  mapping only — an unknown id is ignored (`false`, deny-by-default), a known
+  customer updates status (active → past_due → canceled across the event types).
+  Never trusts client input. Evidence: test *E › resolves the organization from
+  stored ids only… unknown ids are ignored*.
+
+### F. Store parity & safety — **PASS**
+- **Parity:** all 10 billing store methods exist in **both**
+  `in-memory-store.ts` and `postgres-store.ts` (asserted by reading both files);
+  the in-memory behavior is exercised throughout this suite. The PostgreSQL
+  methods mirror the same signatures + org-scoped queries (verified by
+  construction — no live database in the test environment). Evidence: test *F ›
+  every billing store method exists in BOTH backends*.
+- **Metadata-only:** a real upgrade's `billing_events` contain no `card`, `cvc`,
+  `pan`, email (`@`), or `raw_payload`. Evidence: test *F › billing events are
+  metadata-only*.
+- **Secrets server-only:** the resolved **client** env exposes no Stripe key and
+  there is no `NEXT_PUBLIC_STRIPE*` variable anywhere. `STRIPE_SECRET_KEY` /
+  `STRIPE_WEBHOOK_SECRET` are read only in server-only modules
+  (`billing/providers/*`, `lib/env`). No card data is stored. Evidence: test *F ›
+  Stripe secrets are server-only*.
+
+### G. Build health — **PASS**
+- `npm test` → **360 passing**. `next lint` → clean. Terminology test → **14
+  passing** (no `agent` / `prompt` / `knowledge base` in the UI).
+  `npm run build` → compiles, all routes generated.
 
 ---
 
-## 3. Toolchain gates
+## Verdict
 
-| Gate | Result |
-|---|---|
-| `vitest run` (full suite) | **343 passing** (up from 271 at the start of this work) |
-| `src/tests/terminology.test.ts` | green (no `agent` / `prompt` / `knowledge base` etc. in UI) |
-| `tsc --noEmit` | clean |
-| `next lint` | clean |
-| `next build` | compiles; all routes generated |
-| Store parity (in-memory vs PostgreSQL) | 124 methods, identical in both backends — zero drift |
+**Billing is functional end-to-end.** Every checklist item A–G is **PASS** (with
+the C feature-flags sub-item **N/A** — not implemented, out of scope). The
+mechanisms a customer relies on — automatic Starter on signup, server-side
+entitlement blocks with upgrade messaging, instant simulated upgrade/downgrade
+with events + audit, role-gated management, cross-org isolation, signed webhooks
+resolving the org from stored ids, metadata-only events, server-only secrets —
+all work when driven through the real code.
+
+**One open item (product decision, not a defect):** the plan **numbers and
+feature flags** stated in the task (Starter 1 / 100, Growth 3, Performance Review
++ BYOK flags) differ from the merged catalog (Starter 2 / 200, Growth 10, no
+flags). The enforcement works at whatever values the catalog defines; aligning
+the catalog to different numbers and adding per-plan feature flags is a
+product-catalog decision (feature flags are explicitly out of scope here), so it
+was **flagged, not changed unilaterally**. If those numbers are authoritative,
+updating `src/modules/billing/plans.ts` (+ the value assertions in the tests) is
+a small follow-up.
 
 ---
 
-## 4. Conclusion
+## Appendix — earlier full-app runtime verification
 
-The self-serve core loop and every subsystem a customer touches — auth, hiring,
-Employee DNA, Knowledge Vault (extraction + retrieval), Model Hub provider keys,
-chat runtime, web connections, billing/entitlements, and the audit trail — are
-**Working** by the audit's strict definition and confirmed at runtime.
-
-Remaining items are explicit, labeled product deferrals (Collaboration, Model Hub
-budget enforcement, usage-analytics dashboard), not defects.
-
-**Verdict: good to proceed to build.**
+A prior end-to-end pass (`src/tests/end-to-end-flow.test.ts`) plus an HTTP smoke
+of the booted app confirmed the surrounding subsystems billing depends on:
+provider API keys (encrypt → resolve round-trip), Knowledge Vault extraction +
+retrieval, the chat runtime (real gateway emits the usage event billing meters),
+and independent web connections. Landing/login served `200`, `/dashboard`
+redirected to login (auth guard), and the billing webhook returned
+`{applied:false}` for unknown ids (deny-by-default).
