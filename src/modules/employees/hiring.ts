@@ -27,6 +27,7 @@ import {
   RISK_OPTIONS,
   TONE_OPTIONS,
 } from "@/modules/employees/hiring-templates";
+import { assertCanHireEmployee } from "@/modules/billing/service";
 
 const responsibilitySchema = z.string().trim().min(1).max(200);
 
@@ -71,6 +72,10 @@ export async function hireEmployee(
   input: HireEmployeeValues,
 ): Promise<AiEmployee> {
   const values = hireEmployeeSchema.parse(input);
+
+  // Entitlement gate (Prompt 011): block hiring past the plan's AI Employee cap.
+  // Re-checked server-side; a clear upgrade message surfaces on limit.
+  await assertCanHireEmployee(store, actor.organizationId);
 
   const employee = await store.createEmployee({
     organizationId: actor.organizationId,

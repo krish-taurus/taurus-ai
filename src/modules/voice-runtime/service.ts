@@ -21,6 +21,7 @@ import {
   lastFour,
 } from "@/modules/channels/credentials";
 import { createVoiceChannelSchema, updateVoiceChannelSchema } from "@/modules/voice-runtime/schema";
+import { assertCanAddConnection } from "@/modules/billing/service";
 import { defaultVoiceConfig, type VoiceChannelConfig } from "@/modules/voice-runtime/catalog";
 
 export interface VoiceActor {
@@ -101,6 +102,9 @@ export async function createVoiceChannel(
     );
   }
   const values = parsed.data;
+
+  // Entitlement gate (Prompt 011): block past the plan's connection cap.
+  await assertCanAddConnection(store, actor.organizationId);
 
   const channel = await store.createEmployeeChannel({
     organizationId: actor.organizationId,

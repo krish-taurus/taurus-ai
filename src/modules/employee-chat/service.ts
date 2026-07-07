@@ -31,6 +31,7 @@ import {
 import { retrieveForEmployee, toSourceReferences } from "@/modules/employee-chat/retrieval";
 import { buildRuntimeContext } from "@/modules/employee-chat/runtime-context";
 import { FRIENDLY_ERROR_MESSAGE, type ChatBlockReason } from "@/modules/employee-chat/metadata";
+import { assertWithinInteractionQuota } from "@/modules/billing/service";
 
 /** The subset of the Model Gateway the chat service depends on. */
 export interface ChatGateway {
@@ -124,6 +125,12 @@ export async function sendChatMessage(
 
   const liveAvailable = await isLiveProviderConfigured(store, orgId, resolution.providerSlug);
   if (!liveAvailable && isProduction()) throw new ChatBlockedError("needs_model_hub");
+
+  // --- Interaction quota gate (Prompt 011) ---------------------------------
+  // A billable AI Employee interaction is about to happen. Re-check the plan's
+  // monthly quota server-side BEFORE generating a reply. On a "block" plan this
+  // throws an upgrade-oriented EntitlementError; a "soft_cap" plan passes.
+  await assertWithinInteractionQuota(store, orgId);
 
   // --- Thread ---------------------------------------------------------------
   let thread = params.threadId

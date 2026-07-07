@@ -28,6 +28,7 @@ import {
   createUrlSourceSchema,
   updateKnowledgeSourceSchema,
 } from "@/modules/knowledge/schema";
+import { assertCanAddKnowledgeSource } from "@/modules/billing/service";
 
 /** Minimal storage seam so the service can be tested without a real filesystem. */
 export interface KnowledgeStorage {
@@ -140,6 +141,9 @@ export async function createTextSource(
   }
   const values = parsed.data;
 
+  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
     name: values.name,
@@ -185,6 +189,9 @@ export async function createUrlSource(
   }
   const values = parsed.data;
 
+  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
     name: values.name,
@@ -222,6 +229,9 @@ export async function createFileSource(
   }
   const meta = parsedMeta.data;
   const fileType = validateUpload(input.file);
+
+  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
 
   const checksum = await sha256Hex(input.file.bytes);
   const storageKey = buildStorageKey(fileType.extension);

@@ -16,6 +16,13 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  BillingSubscription,
+  BillingCustomer,
+  BillingEvent,
+  CreateBillingSubscriptionInput,
+  UpdateBillingSubscriptionInput,
+  UpsertBillingCustomerInput,
+  CreateBillingEventInput,
   CreateEmployeeInput,
   ChannelOverview,
   ChannelProviderCredentialMetadata,
@@ -459,6 +466,31 @@ export interface DataStore {
     organizationId: string,
     employeeId: string,
   ): Promise<VoiceChannelOverview>;
+
+  // Billing, Plans & Subscriptions (Prompt 011) — organization-scoped. Exactly
+  // one active subscription per organization; a Starter subscription is created
+  // implicitly when the organization is created.
+  getBillingSubscription(organizationId: string): Promise<BillingSubscription | null>;
+  createBillingSubscription(input: CreateBillingSubscriptionInput): Promise<BillingSubscription>;
+  updateBillingSubscription(
+    organizationId: string,
+    patch: UpdateBillingSubscriptionInput,
+  ): Promise<BillingSubscription | null>;
+
+  getBillingCustomer(organizationId: string): Promise<BillingCustomer | null>;
+  /** Resolve the organization from a stored external customer id (webhook path). */
+  getBillingCustomerByExternalId(externalCustomerId: string): Promise<BillingCustomer | null>;
+  /** Resolve the organization from a stored external subscription id (webhook path). */
+  getBillingSubscriptionByExternalId(
+    externalSubscriptionId: string,
+  ): Promise<BillingSubscription | null>;
+  upsertBillingCustomer(input: UpsertBillingCustomerInput): Promise<BillingCustomer>;
+
+  createBillingEvent(input: CreateBillingEventInput): Promise<BillingEvent>;
+  listBillingEvents(organizationId: string, limit?: number): Promise<BillingEvent[]>;
+
+  /** Count billable AI Employee interactions since a timestamp (derived quota). */
+  countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number>;
 
   // Audit
   createAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
