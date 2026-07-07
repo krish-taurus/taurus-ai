@@ -45,7 +45,7 @@ core loop:
 | 3 | ~~**Hire-success** "Knowledge / Test Chat / Voice" tiles are inert "Coming soon"~~ → **FIXED in Batch 2** (real links) | ✅ Working | Guided onboarding path |
 | 4 | **Collaboration** page + module are an empty placeholder (nav links to it) | Static | Dead nav destination; product decision |
 | 5 | ~~Several `void` actions swallow errors (`catch {}` / dropped form state) — no user-facing failure feedback~~ → **FIXED in Batch 4** | ✅ Working | UX; failures now surface |
-| 6 | **Voice** credential Save lacks Zod; credential **Test**/**Disable** named but never implemented | Partial / Static | Inconsistent with messaging; voice is foundation |
+| 6 | ~~**Voice** credential Save lacks Zod; credential **Disable** never implemented~~ → **FIXED in Batch 5** (Zod on save + Disable added). **Test** intentionally omitted — neither voice nor messaging providers do a live test (foundation) | ✅ Working | Now at parity with messaging |
 | 7 | **SendGrid / Telnyx / Vonage** webhook verification returns `true` on config-presence (no crypto check) | Security (foundation) | Must be real before those providers go live |
 | 8 | ~~"Collect visitor email" channel toggle is persisted but consumed by nothing~~ → **FIXED in Batch 2** (inert control removed) | ✅ Working | Inert control |
 
@@ -234,8 +234,9 @@ verification is not real** and must be fixed before SendGrid goes live.
 |---|---|---|---|
 | Voice channel create + phone number | Working | `voice-runtime/actions.ts:81-98`; `service.ts:92-132` | `requireManage`; Zod; org from session |
 | Voice channel update | Working | `actions.ts:100-115`; `service.ts:135-166` | Zod |
-| Credential **save** | **Partial** | `actions.ts:148-169`; `service.ts:257-302` | Perm+org+encryption+error, but **no Zod** (manual cast) |
-| Credential **test** / **disable** | **Static (absent)** | `voice-credential-form.tsx:35-107` | Named in scope but no button/action/service exists |
+| Credential **save** | ✅ Working (Batch 5) | `voice-runtime/actions.ts`; `schema.ts`; `service.ts` | Now Zod-validated (provider enum + label); perm+org+encryption+error |
+| Credential **disable** | ✅ Working (Batch 5) | `voice-runtime/actions.ts` `disableVoiceCredentialAction`; `service.ts` `disableVoiceProviderCredential`; `voice-credential-form.tsx` | Mirrors messaging: drops the encrypted blob + audits; "Remove your key" shown when a key is saved |
+| Credential **test** | Simulated (by design) | — | Deliberately not added — voice providers are foundation (no live call), same as messaging which also has no test |
 | Status controls (activate/pause/archive) | **Partial** | `voice-status-controls.tsx:50-52` | Perm+org OK, but **action error state dropped** (`const [, activate]`) |
 | Simulate call (start/utterance/end) | Simulated (by design) | `actions.ts:173-262` | `channel.manage`; Zod; forces `mode:"simulated"` |
 | Voice webhook POST | Working | `webhooks/voice/.../route.ts:21-85` | Org from publicKey; sig verify in live mode |
@@ -338,7 +339,8 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
   consumed by nothing~~ ✅ **FIXED in Batch 2** — inert control removed; stored
   value round-tripped via a hidden field (no silent data change).
 - `connection-card.tsx:65-69` — "Test" link navigates to Configure, not a test.
-- Voice credential **Test**/**Disable** — named in scope, no implementation.
+- ~~Voice credential **Disable** — named in scope, no implementation.~~ ✅ **FIXED in Batch 5**.
+  (Voice credential **Test** intentionally not added — foundation providers make no live call, same as messaging.)
 
 **Mutations with dropped/ swallowed error UI (Partial)** — ✅ **ALL FIXED in Batch 4**
 - ~~`employees/actions.ts` (pause/activate/archive), `employee-dna/actions.ts`
@@ -348,7 +350,8 @@ Summary: shell, navigation, and the data-driven overview are fully Working.
 - ~~`prepare-knowledge-button.tsx` — discarded action state.~~ Now shows error + a success notice.
 
 **Missing/inconsistent validation**
-- `voice-runtime/actions.ts:148-169` — credential save has no Zod (manual cast).
+- ~~`voice-runtime/actions.ts` — credential save has no Zod (manual cast).~~
+  ✅ **FIXED in Batch 5** (Zod provider enum + label).
 - `api/public/channels/[publicKey]/messages/route.ts:65-75` — manual type-guard
   validation (robust) rather than Zod.
 
@@ -448,16 +451,27 @@ change — those were already enforced and tested).
   the service-layer suites (`employees`, `employee-dna`, `knowledge`). Full suite
   **318 passing**; terminology green; `tsc`/`lint`/`next build` clean.
 
-### Batch 5 — **Voice credential parity with messaging**
-- Add Zod validation to voice credential save; implement voice credential
-  **Test** and **Disable** mirroring the messaging pattern (`requireManage`,
-  org scope, audit, encryption gate) — or, if out of scope for launch, remove the
-  scope-named-but-absent controls and mark voice credentials Save-only in the UI.
-- **Files:** `voice-runtime/actions.ts`, `voice-runtime/service.ts`,
-  `voice-runtime/schema.ts`, `voice-credential-form.tsx`.
-- **Risk:** Medium (new mutation surface; voice is foundation/simulated).
-- **Proof:** save rejects invalid input; test/disable happy-path + permission-
-  denied + cross-org tests; simulated mode still works with no keys.
+### Batch 5 — **Voice credential parity with messaging** ✅ **DONE**
+- Added Zod validation to voice credential save (`saveVoiceCredentialSchema` —
+  provider enum + label) and implemented **Disable** mirroring the messaging
+  pattern (`requireManage`, org scope, audit, drops the encrypted blob). **Test**
+  was intentionally **not** added: voice providers are foundation (no live call),
+  exactly like the messaging credential flow, which also has no test — adding one
+  would be a fake affordance.
+- **Files changed:** `voice-runtime/schema.ts` (+`saveVoiceCredentialSchema`,
+  +`disableVoiceCredentialSchema`), `voice-runtime/service.ts`
+  (+`disableVoiceProviderCredential`), `voice-runtime/actions.ts` (Zod on save +
+  `disableVoiceCredentialAction`), `voice-credential-form.tsx` ("Remove your key"
+  control shown when a key is saved), `src/tests/voice-credentials.test.ts` (new).
+- **Risk:** Medium (new mutation surface) — mitigated by reusing the existing,
+  tested channel-credential store methods and encryption; simulated mode (no keys)
+  is unaffected.
+- **Proof:** `src/tests/voice-credentials.test.ts` — schema accept/reject
+  (unknown provider, over-long label), save encrypts + keeps only last-4 + never
+  leaks the secret, missing-required and no-encryption failure paths, disable
+  drops the blob + audits, cross-org isolation, and the owner/admin-only
+  permission boundary. Full suite **328 passing**; terminology green;
+  `tsc`/`lint`/`next build` clean.
 
 ### Batch 6 — **Real webhook signature verification (pre-go-live, security)**
 For **SendGrid**, **Telnyx**, **Vonage**, replace config-presence checks with

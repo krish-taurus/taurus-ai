@@ -300,3 +300,22 @@ export async function saveVoiceProviderCredential(
     metadata: { providerType, credentialMode: "bring_your_own_key" },
   });
 }
+
+/** Disable + drop a saved voice provider credential (mirrors the messaging path). */
+export async function disableVoiceProviderCredential(
+  store: DataStore,
+  actor: VoiceActor,
+  providerType: ChannelProviderType,
+): Promise<void> {
+  await store.disableChannelProviderCredential(actor.organizationId, providerType, actor.userId);
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "channel_provider_credential.disabled",
+    targetType: "provider",
+    // A provider is identified by its type (kept in metadata), not a UUID.
+    targetId: null,
+    metadata: { providerType },
+  });
+}
