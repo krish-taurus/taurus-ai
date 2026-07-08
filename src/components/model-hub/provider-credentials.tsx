@@ -210,6 +210,9 @@ function ProviderRow({
             </p>
 
             {saveState?.error ? <FieldError>{saveState.error}</FieldError> : null}
+            {saveState?.ok ? (
+              <Notice>{saveState.message ?? "Key saved. Use “Test connection” below to verify it."}</Notice>
+            ) : null}
             <SaveButton />
           </form>
 

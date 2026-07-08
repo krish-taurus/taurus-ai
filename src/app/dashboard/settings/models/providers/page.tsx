@@ -12,6 +12,7 @@ import {
   type ProviderCredentialView,
 } from "@/components/model-hub/provider-credentials";
 import { AccessModeToggle } from "@/components/model-hub/access-mode-toggle";
+import { ModelHubNav } from "@/components/model-hub/model-hub-nav";
 import { buttonClasses, Notice, PageHeader } from "@/components/ui";
 
 export default async function ModelProvidersPage() {
@@ -55,12 +56,8 @@ export default async function ModelProvidersPage() {
         eyebrow="Model Hub"
         title="Providers"
         description="Enable providers with a Taurus-managed key, or securely bring your own."
-        action={
-          <Link href="/dashboard/settings/models" className={buttonClasses("secondary")}>
-            Back to Model Hub
-          </Link>
-        }
       />
+      <ModelHubNav />
 
       {!encryptionConfigured ? (
         <div className="mb-5">

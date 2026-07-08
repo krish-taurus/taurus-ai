@@ -11,12 +11,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/components/ui";
 
-interface NavItem {
+export interface NavItem {
   href: string;
   label: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
+export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/employees", label: "AI Employees" },
   { href: "/dashboard/hire", label: "Hiring Studio" },
@@ -31,7 +31,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/settings", label: "Settings" },
 ];
 
-function isActive(pathname: string, href: string): boolean {
+export function isActive(pathname: string, href: string): boolean {
   if (href === "/dashboard") {
     return pathname === "/dashboard";
   }

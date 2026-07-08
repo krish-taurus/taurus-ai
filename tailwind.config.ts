@@ -35,10 +35,11 @@ const config: Config = {
         "2xl": "1rem",
       },
       boxShadow: {
-        "taurus-sm": "0 1px 2px 0 rgba(0, 0, 0, 0.4)",
-        taurus: "0 1px 3px 0 rgba(0, 0, 0, 0.5), 0 10px 30px -12px rgba(0, 0, 0, 0.6)",
+        // Tuned for a light surface — soft, low-alpha shadows (Apple-like depth).
+        "taurus-sm": "0 1px 2px 0 rgba(0, 0, 0, 0.05)",
+        taurus: "0 1px 2px 0 rgba(0, 0, 0, 0.06), 0 12px 32px -16px rgba(0, 0, 0, 0.14)",
         "taurus-lift":
-          "0 0 0 1px rgb(var(--taurus-strong) / 0.6), 0 24px 60px -24px rgba(0, 0, 0, 0.85)",
+          "0 0 0 1px rgb(var(--taurus-line) / 1), 0 24px 56px -28px rgba(0, 0, 0, 0.22)",
       },
       transitionTimingFunction: {
         taurus: "cubic-bezier(0.16, 1, 0.3, 1)",

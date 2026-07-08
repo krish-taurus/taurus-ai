@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DashboardNav } from "@/components/dashboard-nav";
+import { DashboardMobileNav } from "@/components/dashboard-mobile-nav";
 import { OrganizationSwitcher } from "@/components/organization-switcher";
 import { SignOutButton } from "@/components/sign-out-button";
 import { requireCurrentOrganization } from "@/lib/security/guards";
@@ -60,8 +61,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
         {/* Main column */}
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-taurus-line bg-taurus-app/80 px-6 py-3 backdrop-blur">
+          <header className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-taurus-line bg-taurus-app/80 px-4 py-3 backdrop-blur sm:px-6">
             <div className="flex items-center gap-3">
+              <DashboardMobileNav />
               <OrganizationSwitcher />
               <Badge tone="outline">{ROLE_LABELS[membership.role]}</Badge>
             </div>

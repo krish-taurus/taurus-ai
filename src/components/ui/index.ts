@@ -24,6 +24,6 @@ export {
   FormSection,
   fieldClasses,
 } from "@/components/ui/form";
-export { Container, PageShell, PageHeader, SectionHeader } from "@/components/ui/layout";
+export { Container, PageShell, PageHeader, SectionHeader, BackLink } from "@/components/ui/layout";
 export { Alert, FieldError, Notice, EmptyState } from "@/components/ui/feedback";
 export { StatCard, Progress, Skeleton } from "@/components/ui/data";

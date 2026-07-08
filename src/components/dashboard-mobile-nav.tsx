@@ -1,0 +1,89 @@
+"use client";
+
+/**
+ * Mobile dashboard navigation.
+ *
+ * The sidebar is desktop-only, so on phones the app had no navigation at all.
+ * This renders a menu button in the header (mobile only) that opens the same
+ * NAV_ITEMS in an animated slide-down sheet, plus the primary hire action. The
+ * menu closes on navigation. Motion respects the global reduced-motion rule.
+ */
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { NAV_ITEMS, isActive } from "@/components/dashboard-nav";
+import { buttonClasses, cn } from "@/components/ui";
+
+export function DashboardMobileNav() {
+  const pathname = usePathname();
+  const [open, setOpen] = useState(false);
+
+  // Close the sheet whenever the route changes.
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  return (
+    <div className="sm:hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label={open ? "Close menu" : "Open menu"}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-taurus-line text-taurus-text"
+      >
+        <span className="relative block h-3 w-4" aria-hidden>
+          <span
+            className={cn(
+              "absolute left-0 top-0 h-0.5 w-4 rounded bg-taurus-text transition-transform duration-300 ease-taurus",
+              open && "translate-y-[5px] rotate-45",
+            )}
+          />
+          <span
+            className={cn(
+              "absolute left-0 top-[5px] h-0.5 w-4 rounded bg-taurus-text transition-opacity duration-300",
+              open && "opacity-0",
+            )}
+          />
+          <span
+            className={cn(
+              "absolute left-0 top-[10px] h-0.5 w-4 rounded bg-taurus-text transition-transform duration-300 ease-taurus",
+              open && "-translate-y-[5px] -rotate-45",
+            )}
+          />
+        </span>
+      </button>
+
+      {open ? (
+        <div className="fixed inset-x-0 top-[57px] z-30 max-h-[calc(100vh-57px)] overflow-y-auto border-b border-taurus-line bg-taurus-app/95 px-4 py-3 backdrop-blur">
+          <nav aria-label="Dashboard" className="flex flex-col gap-0.5">
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(pathname, item.href);
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
+                    active
+                      ? "bg-taurus-muted text-taurus-text"
+                      : "text-taurus-sub hover:bg-taurus-muted/60 hover:text-taurus-text",
+                  )}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
+          </nav>
+          <div className="mt-3 border-t border-taurus-line pt-3">
+            <Link href="/dashboard/hire" className={buttonClasses("primary", "md", "w-full")}>
+              Hire AI Employee
+            </Link>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
