@@ -46,6 +46,20 @@ function can(role: Role, permission: Permission): boolean {
 }
 
 /**
+ * Read the onboarding progress record, tolerating the case where the Sprint 020
+ * migration has not been applied yet (missing table). A read failure degrades to
+ * "no record" so the activation checklist never breaks the dashboard.
+ */
+async function readOnboardingProgress(store: DataStore, organizationId: string) {
+  try {
+    return await store.getOnboardingProgress(organizationId);
+  } catch (error) {
+    console.error("onboarding: could not read progress (is migration 0019 applied?)", error);
+    return null;
+  }
+}
+
+/**
  * Compute the activation state for an organization. Read-only: it never writes.
  * Completion is recorded separately via `recordOnboardingCompletion` so a plain
  * page render has no side effects until the milestone is genuinely reached.
@@ -60,7 +74,12 @@ export async function getOnboardingState(
     store.listEmployees(organizationId),
     store.getKnowledgeVaultOverview(organizationId),
     store.listEmployeeChannelsForOrganization(organizationId),
-    store.getOnboardingProgress(organizationId),
+    // The onboarding table is a Sprint 020 addition. If its migration (0019) has
+    // not been applied yet in a given environment, treat progress as absent
+    // rather than letting the whole dashboard fail to render. The checklist still
+    // derives correctly from real data; only dismissal/completion won't persist
+    // until the migration runs.
+    readOnboardingProgress(store, organizationId),
   ]);
 
   const firstEmployee = employees[0] ?? null;
@@ -136,14 +155,20 @@ export async function recordOnboardingCompletion(
   store: DataStore,
   ctx: OnboardingContext,
 ): Promise<void> {
-  const before = await store.getOnboardingProgress(ctx.organizationId);
-  if (before?.completedAt != null) return;
-  await store.markOnboardingCompleted(ctx.organizationId, ctx.userId);
-  await store.createAuditEvent({
-    organizationId: ctx.organizationId,
-    actorType: "user",
-    actorId: ctx.userId,
-    action: "onboarding.completed",
-    metadata: { requiredSteps: ONBOARDING_STEPS.filter((s) => !s.optional).length },
-  });
+  try {
+    const before = await store.getOnboardingProgress(ctx.organizationId);
+    if (before?.completedAt != null) return;
+    await store.markOnboardingCompleted(ctx.organizationId, ctx.userId);
+    await store.createAuditEvent({
+      organizationId: ctx.organizationId,
+      actorType: "user",
+      actorId: ctx.userId,
+      action: "onboarding.completed",
+      metadata: { requiredSteps: ONBOARDING_STEPS.filter((s) => !s.optional).length },
+    });
+  } catch (error) {
+    // Recording the milestone must never break the dashboard render (e.g. before
+    // migration 0019 is applied). It is a best-effort, idempotent side effect.
+    console.error("onboarding: could not record completion milestone", error);
+  }
 }
