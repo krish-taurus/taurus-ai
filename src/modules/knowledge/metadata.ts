@@ -51,13 +51,13 @@ export const EXTRACTION_STATUS_LABELS: Record<DocumentExtractionStatus, string> 
   unsupported: "Stored as document",
 };
 
-/** Message shown for uploaded PDF/DOCX documents (no parsing this sprint). */
+/** Shown for a document whose text could not be read (e.g. a scanned PDF). */
 export const PDF_DOCX_PROCESSING_MESSAGE =
-  "This document has been added to the vault. Full document understanding will be available in a later step.";
+  "This document was added, but its text could not be read (it may be scanned or image-only). Try a text-based PDF or a Word document.";
 
-/** Message shown for website URL records (no crawling this sprint). */
+/** Shown when a website could not be read (unreachable or blocked). */
 export const WEBSITE_RECORD_MESSAGE =
-  "This website has been saved to the vault. Reading websites automatically is coming in a later step.";
+  "This website was saved, but its content could not be read. Check the address is public and reachable.";
 
 // --- File upload rules ------------------------------------------------------
 
@@ -70,14 +70,14 @@ export interface AllowedFileType {
   label: string;
 }
 
-/** Allowed upload types. Text formats are extracted; pdf/docx are stored only. */
+/** Allowed upload types. Text, PDF, and DOCX all have their text extracted. */
 export const ALLOWED_FILE_TYPES: readonly AllowedFileType[] = [
   { extension: ".txt", extractsText: true, label: "Text" },
   { extension: ".md", extractsText: true, label: "Markdown" },
   { extension: ".csv", extractsText: true, label: "CSV" },
   { extension: ".json", extractsText: true, label: "JSON" },
-  { extension: ".pdf", extractsText: false, label: "PDF" },
-  { extension: ".docx", extractsText: false, label: "Word document" },
+  { extension: ".pdf", extractsText: true, label: "PDF" },
+  { extension: ".docx", extractsText: true, label: "Word document" },
 ] as const;
 
 export const ALLOWED_EXTENSIONS = ALLOWED_FILE_TYPES.map((t) => t.extension);

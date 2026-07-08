@@ -12,6 +12,7 @@
 
 import type { DataStore } from "@/lib/db/store";
 import type {
+  DocumentExtractionStatus,
   EmployeeKnowledgeAssignment,
   KnowledgeSource,
   KnowledgeVaultOverview,
@@ -96,8 +97,14 @@ export function validateUpload(file: UploadedFile): AllowedFileType {
 
 // --- Text extraction helpers (pure) ----------------------------------------
 
-function decodeUtf8(bytes: Uint8Array): string {
-  return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+/**
+ * Pre-computed extraction result, produced by the server-only extraction module
+ * and passed in by the caller. Keeping it as a plain shape lets this service stay
+ * pure and unit-testable (no PDF/DOCX/network dependencies).
+ */
+export interface ExtractionInput {
+  text: string | null;
+  status: DocumentExtractionStatus;
 }
 
 function makePreview(text: string, max = 600): string {
@@ -177,11 +184,17 @@ export async function createTextSource(
   return source;
 }
 
-/** Flow C: create a website URL record (URL is stored, never fetched). */
+/**
+ * Flow C: create a website knowledge source. The caller fetches the page text
+ * (SSRF-guarded, server-only) and passes it in; the URL is stored and, when the
+ * page was read, its text is saved as a document so AI Employees can answer from
+ * it. If the fetch failed, the record is still saved and flagged for attention.
+ */
 export async function createUrlSource(
   store: DataStore,
   actor: KnowledgeActor,
   input: unknown,
+  fetched: ExtractionInput,
 ): Promise<KnowledgeSource> {
   const parsed = createUrlSourceSchema.safeParse(input);
   if (!parsed.success) {
@@ -192,14 +205,27 @@ export async function createUrlSource(
   // Entitlement gate (Sprint 015): block past the plan's Knowledge Vault cap.
   await assertCanAddKnowledgeSource(store, actor.organizationId);
 
+  const readable = fetched.status === "extracted" && !!fetched.text;
+
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
     name: values.name,
     description: emptyToNull(values.description),
     sourceType: "url",
-    status: "uploaded",
+    status: readable ? "ready" : "failed",
     visibility: values.visibility,
     metadata: { url: values.url },
+    createdByUserId: actor.userId,
+  });
+
+  await store.createKnowledgeDocument({
+    organizationId: actor.organizationId,
+    knowledgeSourceId: source.id,
+    title: values.name,
+    contentType: "text/html",
+    textContent: fetched.text,
+    textPreview: fetched.text ? makePreview(fetched.text) : null,
+    extractionStatus: fetched.status,
     createdByUserId: actor.userId,
   });
 
@@ -221,7 +247,7 @@ export async function createFileSource(
   store: DataStore,
   storage: KnowledgeStorage,
   actor: KnowledgeActor,
-  input: { meta: unknown; file: UploadedFile },
+  input: { meta: unknown; file: UploadedFile; extraction: ExtractionInput },
 ): Promise<KnowledgeSource> {
   const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
   if (!parsedMeta.success) {
@@ -244,15 +270,15 @@ export async function createFileSource(
     bytes: input.file.bytes,
   });
 
-  const extractsText = fileType.extractsText;
-  const textContent = extractsText ? decodeUtf8(input.file.bytes) : null;
+  const textContent = input.extraction.text;
+  const readable = input.extraction.status === "extracted" && !!textContent;
 
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
     sourceType: "file",
-    status: extractsText ? "ready" : "uploaded",
+    status: readable ? "ready" : "uploaded",
     visibility: meta.visibility,
     metadata: { fileType: fileType.extension },
     createdByUserId: actor.userId,
@@ -269,7 +295,7 @@ export async function createFileSource(
     storageKey,
     textContent,
     textPreview: textContent ? makePreview(textContent) : null,
-    extractionStatus: extractsText ? "extracted" : "unsupported",
+    extractionStatus: input.extraction.status,
     createdByUserId: actor.userId,
   });
 

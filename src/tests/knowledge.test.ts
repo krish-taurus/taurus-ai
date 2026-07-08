@@ -61,11 +61,22 @@ describe("Knowledge Vault validation", () => {
 
   it("rejects non-http(s) and malformed URLs", async () => {
     const { store, alice, aliceOrg } = await setup();
+    const noFetch = { text: null, status: "failed" as const };
     await expect(
-      createUrlSource(store, actor(aliceOrg.id, alice.id), { name: "Site", url: "ftp://x.com" }),
+      createUrlSource(
+        store,
+        actor(aliceOrg.id, alice.id),
+        { name: "Site", url: "ftp://x.com" },
+        noFetch,
+      ),
     ).rejects.toBeInstanceOf(KnowledgeValidationError);
     await expect(
-      createUrlSource(store, actor(aliceOrg.id, alice.id), { name: "Site", url: "not a url" }),
+      createUrlSource(
+        store,
+        actor(aliceOrg.id, alice.id),
+        { name: "Site", url: "not a url" },
+        noFetch,
+      ),
     ).rejects.toBeInstanceOf(KnowledgeValidationError);
   });
 
@@ -107,18 +118,36 @@ describe("manual text source", () => {
   });
 });
 
-describe("website URL record", () => {
-  it("stores the URL in metadata without fetching, status uploaded", async () => {
+describe("website URL source", () => {
+  it("stores fetched page text as a ready, searchable document", async () => {
     const { store, alice, aliceOrg } = await setup();
-    const source = await createUrlSource(store, actor(aliceOrg.id, alice.id), {
-      name: "Help center",
-      url: "https://example.com/help",
-    });
+    const source = await createUrlSource(
+      store,
+      actor(aliceOrg.id, alice.id),
+      { name: "Help center", url: "https://example.com/help" },
+      { text: "Our return policy is 30 days.", status: "extracted" },
+    );
     expect(source.sourceType).toBe("url");
-    expect(source.status).toBe("uploaded");
+    expect(source.status).toBe("ready");
     expect(source.metadata.url).toBe("https://example.com/help");
-    // No document is created for a URL record (nothing was fetched).
-    expect(await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id)).toHaveLength(0);
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].extractionStatus).toBe("extracted");
+    expect(docs[0].textContent).toContain("return policy is 30 days");
+  });
+
+  it("saves the record but flags it when the page could not be read", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createUrlSource(
+      store,
+      actor(aliceOrg.id, alice.id),
+      { name: "Broken", url: "https://example.com/nope" },
+      { text: null, status: "failed" },
+    );
+    expect(source.status).toBe("failed");
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs[0].textContent).toBeNull();
+    expect(docs[0].extractionStatus).toBe("failed");
   });
 });
 
@@ -133,6 +162,7 @@ describe("file source", () => {
         contentType: "text/plain",
         bytes: bytes("hello team"),
       },
+      extraction: { text: "hello team", status: "extracted" },
     });
     expect(source.status).toBe("ready");
     const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
@@ -144,7 +174,7 @@ describe("file source", () => {
     expect(docs[0].checksumSha256).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("stores .pdf as metadata only (unsupported extraction)", async () => {
+  it("stores an extracted .pdf as a ready, searchable document", async () => {
     const { store, alice, aliceOrg } = await setup();
     const storage = new FakeStorage();
     const source = await createFileSource(store, storage, actor(aliceOrg.id, alice.id), {
@@ -152,12 +182,31 @@ describe("file source", () => {
       file: {
         originalFilename: "handbook.pdf",
         contentType: "application/pdf",
-        bytes: bytes("%PDF-1.4"),
+        bytes: bytes("%PDF-1.4 ..."),
       },
+      extraction: { text: "The handbook explains our onboarding.", status: "extracted" },
+    });
+    expect(source.status).toBe("ready");
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs[0].extractionStatus).toBe("extracted");
+    expect(docs[0].textContent).toContain("onboarding");
+  });
+
+  it("still saves a file whose text could not be read, flagged for attention", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const storage = new FakeStorage();
+    const source = await createFileSource(store, storage, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Scanned" },
+      file: {
+        originalFilename: "scan.pdf",
+        contentType: "application/pdf",
+        bytes: bytes("%PDF-1.4 scanned image"),
+      },
+      extraction: { text: null, status: "failed" },
     });
     expect(source.status).toBe("uploaded");
     const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
-    expect(docs[0].extractionStatus).toBe("unsupported");
+    expect(docs[0].extractionStatus).toBe("failed");
     expect(docs[0].textContent).toBeNull();
   });
 });
@@ -238,10 +287,12 @@ describe("archive + overview", () => {
       name: "One",
       text: "a",
     });
-    await createUrlSource(store, actor(aliceOrg.id, alice.id), {
-      name: "Two",
-      url: "https://x.com",
-    });
+    await createUrlSource(
+      store,
+      actor(aliceOrg.id, alice.id),
+      { name: "Two", url: "https://x.com" },
+      { text: null, status: "failed" },
+    );
     await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
       employeeId: employee.id,
       knowledgeSourceId: s1.id,
@@ -249,7 +300,7 @@ describe("archive + overview", () => {
 
     let overview = await getVaultOverview(store, aliceOrg.id);
     expect(overview.total).toBe(2);
-    expect(overview.ready).toBe(1); // text source is ready; url is uploaded
+    expect(overview.ready).toBe(1); // text source is ready; the unread url is not
     expect(overview.assigned).toBe(1);
 
     const archived = await archiveSource(store, actor(aliceOrg.id, alice.id), s1.id);
@@ -277,6 +328,7 @@ describe("audit safety", () => {
         contentType: "text/plain",
         bytes: bytes("FILE_SECRET_MARKER_7788"),
       },
+      extraction: { text: "FILE_SECRET_MARKER_7788", status: "extracted" },
     });
     const auditJson = JSON.stringify(store._auditEvents());
     expect(auditJson).not.toContain("SECRET_TEXT_MARKER_9421");

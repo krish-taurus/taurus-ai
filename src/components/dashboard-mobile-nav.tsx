@@ -12,7 +12,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { NAV_ITEMS, isActive } from "@/components/dashboard-nav";
+import { NAV_GROUPS, NavLink } from "@/components/dashboard-nav";
 import { buttonClasses, cn } from "@/components/ui";
 
 export function DashboardMobileNav() {
@@ -57,25 +57,22 @@ export function DashboardMobileNav() {
 
       {open ? (
         <div className="fixed inset-x-0 top-[57px] z-30 max-h-[calc(100vh-57px)] overflow-y-auto border-b border-taurus-line bg-taurus-app/95 px-4 py-3 backdrop-blur">
-          <nav aria-label="Dashboard" className="flex flex-col gap-0.5">
-            {NAV_ITEMS.map((item) => {
-              const active = isActive(pathname, item.href);
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200",
-                    active
-                      ? "bg-taurus-muted text-taurus-text"
-                      : "text-taurus-sub hover:bg-taurus-muted/60 hover:text-taurus-text",
-                  )}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
+          <nav aria-label="Dashboard" className="flex flex-col gap-4">
+            {NAV_GROUPS.map((group) => (
+              <div key={group.label} className="flex flex-col gap-0.5">
+                <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-taurus-faint">
+                  {group.label}
+                </p>
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    item={item}
+                    pathname={pathname}
+                    onNavigate={() => setOpen(false)}
+                  />
+                ))}
+              </div>
+            ))}
           </nav>
           <div className="mt-3 border-t border-taurus-line pt-3">
             <Link href="/dashboard/hire" className={buttonClasses("primary", "md", "w-full")}>

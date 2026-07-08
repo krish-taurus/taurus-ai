@@ -193,6 +193,10 @@ describe("End-to-end: Knowledge Vault extraction + retrieval", () => {
     const fileSource = await createFileSource(store, noopStorage, actor, {
       meta: { name: "Support hours", visibility: "organization" },
       file: { originalFilename: "hours.txt", contentType: "text/plain", bytes },
+      extraction: {
+        text: "Our support hours are Monday to Friday, 9am to 5pm Pacific Time.",
+        status: "extracted",
+      },
     });
     const fileDocs = await store.listKnowledgeDocumentsForSource(orgId, fileSource.id);
     expect(fileSource.status).toBe("ready");

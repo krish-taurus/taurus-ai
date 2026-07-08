@@ -16,6 +16,7 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { localKnowledgeStorage } from "@/modules/knowledge/storage";
+import { extractUploadedFileText, fetchWebsiteText } from "@/modules/knowledge/extraction";
 import {
   archiveSource,
   assignKnowledgeToEmployee,
@@ -73,14 +74,22 @@ export async function createUrlSourceAction(
   const ctx = await requireManage();
   if (!ctx.ok) return { error: DENIED };
 
+  const rawUrl = String(formData.get("url") ?? "");
   let sourceId: string;
   try {
-    const source = await createUrlSource(getStore(), ctx.actor, {
-      name: formData.get("name"),
-      description: formData.get("description") ?? undefined,
-      visibility: formData.get("visibility") ?? undefined,
-      url: formData.get("url"),
-    });
+    // Fetch + extract the page text (SSRF-guarded) before saving.
+    const fetched = await fetchWebsiteText(rawUrl);
+    const source = await createUrlSource(
+      getStore(),
+      ctx.actor,
+      {
+        name: formData.get("name"),
+        description: formData.get("description") ?? undefined,
+        visibility: formData.get("visibility") ?? undefined,
+        url: formData.get("url"),
+      },
+      { text: fetched.text, status: fetched.status },
+    );
     sourceId = source.id;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not save this website." };
@@ -105,6 +114,8 @@ export async function createFileSourceAction(
   let sourceId: string;
   try {
     const bytes = new Uint8Array(await file.arrayBuffer());
+    // Extract the document's text (PDF/DOCX/text) so it can be indexed + answered.
+    const extraction = await extractUploadedFileText(file.name, bytes);
     const source = await createFileSource(getStore(), localKnowledgeStorage, ctx.actor, {
       meta: {
         name: formData.get("name"),
@@ -112,6 +123,7 @@ export async function createFileSourceAction(
         visibility: formData.get("visibility") ?? undefined,
       },
       file: { originalFilename: file.name, contentType: file.type || null, bytes },
+      extraction: { text: extraction.text, status: extraction.status },
     });
     sourceId = source.id;
   } catch (err) {
