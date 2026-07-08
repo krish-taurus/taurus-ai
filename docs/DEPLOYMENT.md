@@ -25,19 +25,33 @@ persistent deployment, set these in the Vercel project's Environment Variables:
 
 ## Database migrations
 
-Migrations are **applied manually** — they do not run on deploy. After adding a
-migration (or pointing a new environment at a database), run it against that
-environment's database:
+Migrations run **automatically on production deploys**. The Vercel Build Command
+(see `vercel.json`) runs `scripts/predeploy-migrate.mjs` before `next build`:
+
+- **Production build with `DATABASE_URL`** → applies pending migrations first.
+- **Preview / development builds** → skipped (they may share the production
+  connection string and must never migrate it). Gated on `VERCEL_ENV`.
+- **No `DATABASE_URL`** (in-memory store) → skipped.
+
+The step **never fails the build**: if a migration can't complete (unreachable
+database, a provider without a required extension, a transient error) it logs a
+warning and the deploy proceeds. The app degrades gracefully when a table is
+missing, so a delayed migration never hard-crashes a page — a frozen deploy
+pipeline would be worse. Recover by running the migration manually (below).
+
+The runner (`scripts/migrate.mjs`) is idempotent and tracks applied files in a
+`schema_migrations` table, so re-running is safe.
+
+To run migrations manually against any environment (e.g. a one-off backfill or a
+database the deploy can't reach):
 
 ```bash
 DATABASE_URL=<that environment's db> npm run db:migrate
 ```
 
-The runner (`scripts/migrate.mjs`) is idempotent and tracks applied files in a
-`schema_migrations` table, so it is safe to re-run. Skipping this leaves the app
-running against an older schema — a newly added table (e.g. `organization_onboarding`
-from `0019`) will be missing until the migration is applied. Feature reads should
-degrade gracefully, but persistence for that feature won't work until it runs.
+> Note: the production `DATABASE_URL` must be set in the Vercel project's
+> Environment Variables (Production scope) and reachable from Vercel's build, so
+> the deploy-time migration can connect.
 
 ## Authentication on preview deployments
 
