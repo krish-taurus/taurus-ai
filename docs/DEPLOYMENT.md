@@ -1,40 +1,23 @@
 # Deployment
 
-Taurus AI is a Next.js 14 app and deploys cleanly to **Vercel**. There are two
-ways to get automatic per-PR preview URLs — pick **one** (using both causes
-duplicate deploys).
+Taurus AI is a Next.js 14 app hosted on **Vercel**.
 
-## Option A — Vercel Git integration (recommended, no secrets)
+## Vercel Git integration (active)
 
-1. Go to [vercel.com/new](https://vercel.com/new) and import
-   `krish-taurus/taurus-ai`.
-2. Vercel auto-detects Next.js — accept the defaults and deploy.
-3. Done. Vercel now comments a **Preview** URL on every pull request and
-   promotes `main` to Production automatically.
+The repository is connected to Vercel's native Git integration, so deployments
+are automatic — no CI secrets or extra workflow required:
 
-If you use this option, delete `.github/workflows/deploy.yml` so deploys aren't
-run twice.
+- **Every pull request** gets a Preview deployment; the Vercel bot comments the
+  URL on the PR (e.g. `taurus-ai-git-<branch>-taurus-ai.vercel.app`).
+- **`main`** is promoted to Production on merge.
 
-## Option B — GitHub Actions (deploys controlled in-repo)
-
-`.github/workflows/deploy.yml` deploys a preview on each PR and production on
-pushes to `main`. It stays dormant (the job passes green but skips) until you add
-three repository secrets under **Settings → Secrets and variables → Actions**:
-
-| Secret | Where to find it |
-| --- | --- |
-| `VERCEL_TOKEN` | Vercel → Account Settings → Tokens → Create |
-| `VERCEL_ORG_ID` | run `vercel link` locally, then read `.vercel/project.json` |
-| `VERCEL_PROJECT_ID` | same `.vercel/project.json` |
-
-Once set, the workflow posts (and updates) a **Preview deployed: …** comment on
-each PR.
+`vercel.json` pins the Next.js framework preset; everything else is auto-detected.
 
 ## Environment variables
 
 The app runs with **zero required config** — with no `DATABASE_URL` it uses the
 in-memory store, which is perfect for previewing the landing page and UI. For a
-persistent deployment, set (in the Vercel project's Environment Variables):
+persistent deployment, set these in the Vercel project's Environment Variables:
 
 - `DATABASE_URL` — PostgreSQL connection string (enables the Postgres store).
 - Auth / provider keys as needed (Stripe, model providers, messaging) — all are
