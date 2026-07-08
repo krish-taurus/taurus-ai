@@ -1186,6 +1186,49 @@ onboarding.
 Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
 this sprint.
 
+# Metered Overage Billing — managed mode (Sprint 017)
+
+Lets a **managed** customer continue past their plan quota on a pay-as-you-go
+basis instead of being hard-blocked, and bills them for it — the token-spread
+revenue (they pay the managed per-interaction price; Taurus's cost is the
+budget-model token cost captured in Sprint 016). BYOK orgs are unaffected.
+
+## What landed
+
+- **Overage policy per org** — `hard_cap` (default, block at quota with an upgrade
+  prompt) or `pay_as_you_go` (continue + meter). Pay-as-you-go is offered only to
+  `managed` orgs (owner/admin, server-side, audited; a payment method is required
+  in live mode). A BYOK org is never metered for tokens.
+- **Metered accrual** — past quota, each further managed interaction accrues one
+  overage line at the managed per-interaction price (Sprint 016) in
+  `billing_overage_items` (migration `db/migrations/0016_overage.sql`). Counts are
+  derived from `llm_usage_events` — no parallel counter. An optional **monthly
+  spend cap** reverts to hard-cap for the rest of the period once reached, enforced
+  **server-side at the interaction path** (`assertWithinInteractionQuota`).
+- **Charging via the provider** — `BillingProvider.reportOverageUsage` reports the
+  period's usage (Stripe usage records; **simulated mode accrues + displays but
+  never charges**, labeled "not charged" — dev/tests need no Stripe). The
+  `invoice.finalized` webhook reconciles reported lines to charged, resolving the
+  org from stored ids only.
+- **Customer surfacing** — `/dashboard/usage` shows overage-to-date (quantity +
+  amount), the per-interaction rate, and the spend cap, with a clear disclosure
+  (rate, in addition to the plan, and the cap control) before pay-as-you-go is
+  enabled — no surprise bills.
+- **Operator view** — `/operator/margin` includes overage revenue vs. its token
+  cost and blended margin, per plan and per org, kept segmented managed vs. BYOK.
+
+## Security
+
+- Overage accrues **only** for a `managed` org on `pay_as_you_go`; a BYOK or
+  hard-cap org never accrues a charge. The spend cap is enforced server-side, not
+  just in the UI. Cross-org isolation holds; amounts + line items are metadata
+  only (no card data).
+
+## Not in this sprint
+
+Prepaid credit packs, volume/tiered overage discounts, annual plans, an invoicing
+UI, tax handling, dunning/retry emails, and automated model routing. Future work.
+
 # Usage & Limits + Cost/Margin (Sprint 016)
 
 Makes usage visible to customers and serving **cost/margin** measurable for the

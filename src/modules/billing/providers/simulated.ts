@@ -15,7 +15,9 @@ import type {
   CreateCheckoutInput,
   CreatePortalInput,
   ExternalSubscriptionStatus,
+  OverageUsageReport,
   PortalSession,
+  ReportOverageUsageInput,
 } from "@/modules/billing/providers/types";
 import { isPlanId } from "@/modules/billing/plans";
 import { isSubscriptionStatus } from "@/modules/billing/metadata";
@@ -60,7 +62,8 @@ export class SimulatedBillingProvider implements BillingProvider {
         type === "checkout.completed" ||
         type === "subscription.updated" ||
         type === "subscription.deleted" ||
-        type === "payment.failed"
+        type === "payment.failed" ||
+        type === "invoice.finalized"
           ? type
           : "ignored",
       externalCustomerId:
@@ -82,5 +85,11 @@ export class SimulatedBillingProvider implements BillingProvider {
   ): Promise<ExternalSubscriptionStatus | null> {
     void _externalSubscriptionId;
     return null;
+  }
+
+  async reportOverageUsage(_input: ReportOverageUsageInput): Promise<OverageUsageReport> {
+    void _input;
+    // No charge in simulated mode — overage is accrued + displayed only.
+    return { mode: "simulated" };
   }
 }

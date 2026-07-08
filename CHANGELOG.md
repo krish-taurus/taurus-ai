@@ -1,5 +1,28 @@
 # Changelog
 
+## Sprint 017 - Metered Overage Billing (Managed Mode) — 2026-07-08
+
+Added:
+
+- **Overage policy per org** — `hard_cap` (default; block at quota) or
+  `pay_as_you_go` (continue past quota, metered). Pay-as-you-go is offered only to
+  `managed` orgs (owner/admin, audited; requires a payment method in live mode).
+  BYOK orgs are never metered for tokens.
+- **Metered accrual** — a managed pay-as-you-go org accrues one overage line per
+  interaction past quota at the managed per-interaction price (Sprint 016), in a
+  new `billing_overage_items` table (migration `0016_overage.sql`). Counts are
+  derived from usage events. An optional **spend cap** reverts to hard-cap for the
+  rest of the period once reached — enforced server-side at the interaction path.
+- **Charging via the provider** — `BillingProvider.reportOverageUsage` reports the
+  period's usage (Stripe metered usage records; simulated mode accrues + displays
+  but never charges, clearly labeled "not charged"). The `invoice.finalized`
+  webhook reconciles reported lines to charged; org resolved from stored ids.
+- **Customer surfacing** — `/dashboard/usage` shows overage-to-date (quantity +
+  amount), the per-interaction rate, and the spend cap, with a clear disclosure
+  before enabling pay-as-you-go.
+- **Operator view** — `/operator/margin` now includes overage revenue vs. its
+  token cost and blended margin, per plan and per org, segmented managed vs. BYOK.
+
 ## Sprint 016 - Usage & Limits Dashboard + Cost/Margin Tracking — 2026-07-07
 
 Added:

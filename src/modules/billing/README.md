@@ -20,6 +20,13 @@ events, not a parallel counter).
 - `service.ts` — server orchestration: plan resolution, entitlement enforcement
   (`assertCan*` / `assertWithinInteractionQuota`), plan changes, portal, and
   webhook application. Emits metadata-only billing + audit events.
+- `overage.ts` — metered overage (Sprint 017): a managed `pay_as_you_go` org
+  continues past quota, accruing one line per interaction at the managed price,
+  bounded by an optional spend cap (both enforced server-side in
+  `assertWithinInteractionQuota`). Simulated mode accrues + displays but never
+  charges; `reportPeriodOverage` reports usage to the provider and the
+  `invoice.finalized` webhook reconciles lines to charged. BYOK/hard-cap never
+  accrue. Owner/admin set the policy + cap (audited).
 - `schema.ts` / `actions.ts` — Zod validation + server actions (permission
   checks; org resolved from the session, never the client).
 - `webhook.ts` — verify signature → parse → apply. Org resolved from stored ids.

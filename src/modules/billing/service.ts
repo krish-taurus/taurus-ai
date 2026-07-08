@@ -25,6 +25,7 @@ import {
 } from "@/modules/billing/entitlements";
 import { addOneMonthIso, INTERACTION_UNIT_LABEL } from "@/modules/billing/metadata";
 import type { BillingProvider, BillingWebhookEvent } from "@/modules/billing/providers/types";
+import { reconcileChargedOverage, tryAccrueOverage } from "@/modules/billing/overage";
 
 /** Thrown when an entitlement limit blocks an action. Message is UI-safe. */
 export class EntitlementError extends Error {
@@ -133,8 +134,24 @@ export async function assertWithinInteractionQuota(
 ): Promise<EntitlementDecision> {
   const snapshot = await buildEntitlementSnapshot(store, organizationId);
   const decision = withinInteractionQuota(snapshot);
-  if (!decision.allowed) throw new EntitlementError(decision.reason!, decision);
-  return decision;
+  if (decision.allowed) return decision;
+
+  // Over quota on a block plan. A managed pay-as-you-go org may continue by
+  // metering the interaction (Sprint 017); otherwise it stays blocked.
+  const [organization, subscription] = await Promise.all([
+    store.getOrganizationById(organizationId),
+    ensureSubscription(store, organizationId),
+  ]);
+  const accrual = await tryAccrueOverage(
+    store,
+    organizationId,
+    subscription,
+    organization?.modelAccessMode ?? "managed",
+  );
+  if (accrual.allowed) {
+    return { ...decision, allowed: true, reason: undefined };
+  }
+  throw new EntitlementError(accrual.reason ?? decision.reason!, decision);
 }
 
 // --- Overview (dashboard) ---------------------------------------------------
@@ -349,6 +366,28 @@ export async function applyWebhookEvent(
     if (customer) organizationId = customer.organizationId;
   }
   if (!organizationId) return false;
+
+  // Invoice finalized: the period's reported overage was billed — reconcile the
+  // ledger to "charged". Nothing else on the subscription changes.
+  if (event.type === "invoice.finalized") {
+    const subscription = await ensureSubscription(store, organizationId);
+    const charged = await reconcileChargedOverage(
+      store,
+      organizationId,
+      subscription.currentPeriodStart,
+    );
+    if (charged > 0) {
+      await store.createBillingEvent({
+        organizationId,
+        eventType: "webhook.invoice.finalized",
+        planId: null,
+        status: null,
+        provider: "stripe",
+        metadata: { chargedOverageLines: charged, externalEventId: event.externalEventId },
+      });
+    }
+    return true;
+  }
 
   const patch: Parameters<DataStore["updateBillingSubscription"]>[1] = { provider: "stripe" };
   if (event.planId) patch.planId = event.planId;

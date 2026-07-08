@@ -18,6 +18,8 @@ import type { Plan } from "@/modules/billing/plans";
 import { ensureSubscription } from "@/modules/billing/service";
 import { getPlan } from "@/modules/billing/plans";
 import { INTERACTION_UNIT_LABEL } from "@/modules/billing/metadata";
+import { getOverageSummary, type OverageSummary } from "@/modules/billing/overage";
+import { getBillingProvider } from "@/modules/billing/providers";
 import {
   channelGroupFor,
   CHANNEL_GROUPS,
@@ -55,6 +57,8 @@ export interface UsageOverview {
   byEmployee: UsageBreakdownRow[];
   byChannel: UsageBreakdownRow[];
   trend: UsageTrendPoint[];
+  /** Metered overage summary (Sprint 017). Set by getUsageOverview, not the pure builder. */
+  overage?: OverageSummary;
 }
 
 interface BuildUsageInput {
@@ -156,9 +160,18 @@ export async function getUsageOverview(
 ): Promise<UsageOverview> {
   const subscription = await ensureSubscription(store, organizationId);
   const plan = getPlan(subscription.planId);
-  const [events, employees] = await Promise.all([
+  const [events, employees, organization] = await Promise.all([
     store.listBillableUsageEventsSince(organizationId, subscription.currentPeriodStart),
     store.listEmployees(organizationId),
+    store.getOrganizationById(organizationId),
   ]);
-  return buildUsageOverview({ plan, subscription, events, employees, now });
+  const base = buildUsageOverview({ plan, subscription, events, employees, now });
+  const overage = await getOverageSummary(
+    store,
+    organizationId,
+    organization?.modelAccessMode ?? "managed",
+    subscription,
+    getBillingProvider(),
+  );
+  return { ...base, overage };
 }

@@ -15,6 +15,10 @@ import type {
   BillingSubscription,
   BillingCustomer,
   BillingEvent,
+  BillingOverageItem,
+  CreateBillingOverageItemInput,
+  OverageItemStatus,
+  OverageAggregateRow,
   CreateBillingSubscriptionInput,
   UpdateBillingSubscriptionInput,
   UpsertBillingCustomerInput,
@@ -159,6 +163,7 @@ export class InMemoryStore implements DataStore {
   private billingSubscriptions = new Map<string, BillingSubscription>();
   private billingCustomers = new Map<string, BillingCustomer>();
   private billingEvents: BillingEvent[] = [];
+  private billingOverageItems: BillingOverageItem[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -2062,6 +2067,8 @@ export class InMemoryStore implements DataStore {
       externalSubscriptionId: input.externalSubscriptionId ?? null,
       externalCustomerId: input.externalCustomerId ?? null,
       provider: input.provider ?? "simulated",
+      overagePolicy: input.overagePolicy ?? "hard_cap",
+      overageSpendCapUsd: input.overageSpendCapUsd ?? null,
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -2096,6 +2103,12 @@ export class InMemoryStore implements DataStore {
         ? { externalCustomerId: patch.externalCustomerId ?? null }
         : {}),
       ...("provider" in patch && patch.provider !== undefined ? { provider: patch.provider } : {}),
+      ...("overagePolicy" in patch && patch.overagePolicy !== undefined
+        ? { overagePolicy: patch.overagePolicy }
+        : {}),
+      ...("overageSpendCapUsd" in patch
+        ? { overageSpendCapUsd: patch.overageSpendCapUsd ?? null }
+        : {}),
       updatedAt: now(),
     };
     this.billingSubscriptions.set(organizationId, updated);
@@ -2160,6 +2173,73 @@ export class InMemoryStore implements DataStore {
       .slice()
       .reverse()
       .slice(0, limit);
+  }
+
+  // --- Metered overage (Sprint 017) -----------------------------------------
+
+  async createBillingOverageItem(
+    input: CreateBillingOverageItemInput,
+  ): Promise<BillingOverageItem> {
+    const item: BillingOverageItem = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      periodStart: input.periodStart,
+      quantity: input.quantity,
+      unitPriceUsd: input.unitPriceUsd,
+      amountUsd: input.amountUsd,
+      status: input.status ?? "pending",
+      provider: input.provider,
+      externalUsageRecordId: input.externalUsageRecordId ?? null,
+      createdAt: now(),
+    };
+    this.billingOverageItems.push(item);
+    return item;
+  }
+
+  async listBillingOverageItems(
+    organizationId: string,
+    periodStart: string,
+  ): Promise<BillingOverageItem[]> {
+    return this.billingOverageItems.filter(
+      (i) => i.organizationId === organizationId && i.periodStart === periodStart,
+    );
+  }
+
+  async markBillingOverageItemsStatus(
+    organizationId: string,
+    periodStart: string,
+    fromStatus: OverageItemStatus,
+    toStatus: OverageItemStatus,
+    externalUsageRecordId: string | null,
+  ): Promise<number> {
+    let count = 0;
+    for (const item of this.billingOverageItems) {
+      if (
+        item.organizationId === organizationId &&
+        item.periodStart === periodStart &&
+        item.status === fromStatus
+      ) {
+        item.status = toStatus;
+        if (externalUsageRecordId) item.externalUsageRecordId = externalUsageRecordId;
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async aggregateOverageSince(sinceIso: string): Promise<OverageAggregateRow[]> {
+    // OPERATOR-ONLY: cross-tenant (no organization filter).
+    const byOrg = new Map<string, OverageAggregateRow>();
+    for (const i of this.billingOverageItems) {
+      if (i.createdAt < sinceIso) continue;
+      const row =
+        byOrg.get(i.organizationId) ??
+        ({ organizationId: i.organizationId, quantity: 0, amountUsd: 0 } satisfies OverageAggregateRow);
+      row.quantity += i.quantity;
+      row.amountUsd += i.amountUsd;
+      byOrg.set(i.organizationId, row);
+    }
+    return [...byOrg.values()];
   }
 
   async countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number> {
