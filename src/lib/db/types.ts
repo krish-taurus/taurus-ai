@@ -1194,7 +1194,7 @@ export interface VoiceChannelOverview {
 }
 
 // ===========================================================================
-// Billing, Plans & Subscriptions (Prompt 011)
+// Billing, Plans & Subscriptions (Sprint 015)
 //
 // Plan prices/entitlements are authoritative in code (modules/billing/plans.ts);
 // only DYNAMIC state lives here: one subscription per organization, the mapping

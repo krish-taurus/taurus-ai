@@ -1,5 +1,5 @@
 -- ===========================================================================
--- Taurus AI — Billing, Plans & Subscriptions (Prompt 011)
+-- Taurus AI — Billing, Plans & Subscriptions (Sprint 015)
 --
 -- Plan prices and entitlements are AUTHORITATIVE IN CODE
 -- (src/modules/billing/plans.ts), like the Model Hub catalog, so they cannot

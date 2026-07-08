@@ -1,5 +1,5 @@
 /**
- * Billing domain service (Prompt 011) — server only.
+ * Billing domain service (Sprint 015) — server only.
  *
  * Orchestrates plan resolution, entitlement enforcement, plan changes, the
  * billing portal, and webhook application over a DataStore + a BillingProvider.
@@ -143,8 +143,10 @@ export interface EntitlementUsage {
   label: string;
   used: number;
   limit: number;
-  /** 0–100 for a progress bar. */
+  /** 0–100 for a progress bar. Always 0 when the limit is unlimited. */
   percent: number;
+  /** True when the plan grants an unlimited allowance (limit is Infinity). */
+  unlimited: boolean;
 }
 
 export interface BillingOverview {
@@ -162,8 +164,9 @@ export interface BillingOverview {
 }
 
 function usage(label: string, used: number, limit: number): EntitlementUsage {
-  const percent = limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : 0;
-  return { label, used, limit, percent };
+  const unlimited = !Number.isFinite(limit);
+  const percent = unlimited || limit <= 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
+  return { label, used, limit, percent, unlimited };
 }
 
 export async function getBillingOverview(

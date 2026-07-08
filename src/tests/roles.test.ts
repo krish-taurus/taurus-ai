@@ -12,11 +12,11 @@ describe("roles and permissions", () => {
     expect(hasPermission("owner", "member.manage_roles")).toBe(true);
   });
 
-  it("restricts admin from organization deletion but allows billing (Prompt 011)", () => {
+  it("restricts admin from organization deletion but allows billing (Sprint 015)", () => {
     expect(hasPermission("admin", "member.invite")).toBe(true);
     expect(hasPermission("admin", "audit.view")).toBe(true);
     expect(hasPermission("admin", "organization.delete")).toBe(false);
-    // Billing management is owner/admin only (Prompt 011).
+    // Billing management is owner/admin only (Sprint 015).
     expect(hasPermission("admin", "billing.view")).toBe(true);
     expect(hasPermission("admin", "billing.manage")).toBe(true);
     // A builder/viewer can view billing but never manage it.

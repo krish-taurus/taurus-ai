@@ -1,4 +1,4 @@
-# Billing module (Prompt 011)
+# Billing module (Sprint 015)
 
 Subscription billing and plan entitlements for the self-serve SMB product. Builds
 directly on `llm_usage_events` (the interaction quota is derived from usage
@@ -7,9 +7,12 @@ events, not a parallel counter).
 ## Layout
 
 - `plans.ts` — **code-authoritative** plan catalog (Starter / Growth / Scale):
-  prices + hard entitlements + overage behavior. The one place prices live.
+  prices + hard entitlements + overage behavior + per-plan feature flags
+  (`features.performanceReview`, `features.byok`). The one place prices live. A
+  limit of `Infinity` means unlimited (paid tiers' connections).
 - `entitlements.ts` — **pure** limit math: `canHireEmployee`,
-  `canAddKnowledgeSource`, `canAddConnection`, `withinInteractionQuota`.
+  `canAddKnowledgeSource`, `canAddConnection`, `withinInteractionQuota`, plus
+  `planIncludesFeature` (the deny-by-default feature-flag gate).
 - `metadata.ts` — status labels, billable task types, current-period helpers.
 - `providers/` — `BillingProvider` adapter interface + `StripeBillingProvider`
   and `SimulatedBillingProvider`. Simulated is selected whenever
@@ -27,6 +30,8 @@ events, not a parallel counter).
 - Knowledge Vault create (text / url / file) → `assertCanAddKnowledgeSource`
 - Channel / connection create (web / messaging / voice) → `assertCanAddConnection`
 - Employee Chat runtime turn (before reply) → `assertWithinInteractionQuota`
+- Model Hub "bring your own key" save → `planIncludesFeature(plan, "byok")` in
+  `saveProviderCredentialAction` (Starter is refused before any key is stored).
 
 On a limit hit these throw an `EntitlementError` whose message is a clear,
 human, upgrade-oriented sentence in Taurus voice — surfaced directly to the UI.

@@ -1,5 +1,5 @@
 /**
- * Billing metadata + presentation helpers (Prompt 011) — pure.
+ * Billing metadata + presentation helpers (Sprint 015) — pure.
  *
  * Small, dependency-free helpers shared by the service and UI: subscription
  * status labels, the set of usage-event task types that count as billable

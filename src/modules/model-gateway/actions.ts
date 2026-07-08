@@ -14,6 +14,8 @@ import { revalidatePath } from "next/cache";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
+import { getOrganizationPlan } from "@/modules/billing/service";
+import { planIncludesFeature } from "@/modules/billing/entitlements";
 import type { ProviderSlug } from "@/lib/db/types";
 import {
   disableProviderCredential,
@@ -33,6 +35,9 @@ export interface ModelHubActionState {
 }
 
 const DENIED = "You do not have permission to manage the Model Hub in this organization.";
+const BYOK_UPGRADE =
+  "Bringing your own model provider keys is available on the Growth and Scale plans. " +
+  "Upgrade your plan to connect your own keys.";
 
 async function requireManage(): Promise<{ ok: true; actor: ModelHubActor } | { ok: false }> {
   const { user, organization, membership } = await requireCurrentOrganization();
@@ -105,6 +110,13 @@ export async function saveProviderCredentialAction(
 ): Promise<ModelHubActionState> {
   const ctx = await requireManage();
   if (!ctx.ok) return { error: DENIED };
+
+  // BYOK is a paid-plan feature. Enforce it server-side (not just hidden in the
+  // UI) with the org resolved from the session, before any key is stored.
+  const plan = await getOrganizationPlan(getStore(), ctx.actor.organizationId);
+  if (!planIncludesFeature(plan, "byok")) {
+    return { error: BYOK_UPGRADE };
+  }
 
   try {
     await saveProviderCredential(getStore(), ctx.actor, {

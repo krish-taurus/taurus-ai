@@ -37,7 +37,7 @@ function seedEmployee(
  * Put a bare (directly-seeded) org on a paid plan so its connection cap allows
  * multiple channels. Orgs created via the normal flow start on Starter (1
  * connection); these fixtures seed the store directly, so we grant a higher plan
- * explicitly to exercise multi-connection filtering (Prompt 011).
+ * explicitly to exercise multi-connection filtering (Sprint 015).
  */
 function seedScalePlan(store: InMemoryStore, organizationId: string): Promise<unknown> {
   return store.createBillingSubscription({ organizationId, planId: "scale", status: "active" });

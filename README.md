@@ -1185,3 +1185,102 @@ onboarding.
 
 Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
 this sprint.
+
+# Billing, Plans & Subscriptions (Sprint 015)
+
+Self-serve subscription billing and plan entitlements. An organization can pick a
+plan, check out (or upgrade instantly in simulated mode), and be metered — all
+self-serve. Builds on the existing usage events and Model Hub budget.
+
+## What landed
+
+- **Plans catalog** (`src/modules/billing/plans.ts`) — code-authoritative, like
+  the Model Hub catalog. Three tiers with a monthly price and hard entitlements:
+
+  | Plan | Price | AI Employees | Knowledge sources | Connections | Interactions / month | Over-quota | Feature flags |
+  | ---- | ----- | ------------ | ----------------- | ----------- | -------------------- | ---------- | ------------- |
+  | **Starter** | Free | 1 | 5 | 1 | 100 | block | — |
+  | **Growth** | $49/mo | 3 | 50 | Unlimited | 2,000 | block | Performance Review, BYOK |
+  | **Scale** | $199/mo | 10 | 500 | Unlimited | 10,000 | soft-cap (keeps working + notice) | Performance Review, BYOK |
+
+  Prices/entitlements/feature flags live only here; no prices are hard-coded
+  elsewhere. "Unlimited" is represented as `Infinity` in the catalog — the
+  enforcement math treats it as never-blocked and the usage meter renders it as
+  "Unlimited". Each plan also carries **feature flags** (`features.performanceReview`,
+  `features.byok`); the paid tiers enable both. BYOK (bring-your-own model provider
+  keys in the Model Hub) is **gated server-side** at the credential save action:
+  a Starter org is refused with an upgrade message before any key is stored.
+  Performance Review's flag is defined and surfaced now; its runtime gate attaches
+  when that feature ships.
+- **Subscription state** per organization — `billing_subscriptions`,
+  `billing_customers`, `billing_events` (migration `db/migrations/0014_billing.sql`;
+  the migration file keeps its `0014` number — migrations are numbered
+  independently of sprints). A **partial unique index** guarantees one non-canceled
+  subscription per org. Every organization gets a **Starter** subscription
+  implicitly on creation — no card required.
+- **Stripe behind an adapter** (`src/modules/billing/providers/`) — a
+  `BillingProvider` interface with a real `StripeBillingProvider` and a
+  `SimulatedBillingProvider`. **Simulated mode is the default whenever
+  `STRIPE_SECRET_KEY` is absent** (local dev / tests): "Upgrade" applies the plan
+  change instantly, with no network call and no charge, and is clearly labeled
+  "Simulated billing" in the UI.
+- **Entitlement enforcement** (`src/modules/billing/entitlements.ts`, pure) —
+  `canHireEmployee`, `canAddKnowledgeSource`, `canAddConnection`,
+  `withinInteractionQuota`. Enforced **server-side** at Hiring Studio create,
+  Knowledge Vault create, channel/connection create, and the Employee Chat runtime
+  turn (before a reply). On a limit hit the caller gets a clear, human,
+  upgrade-oriented message (Taurus voice, no error codes). The interaction quota is
+  **derived from existing usage events** (`llm_usage_events`) for the current
+  period — not a parallel counter.
+- **Billing dashboard** — `/dashboard/settings/billing` (current plan, status,
+  period, usage vs. quota progress bars, Upgrade / Manage CTAs) and
+  `/dashboard/settings/billing/plans` (the three plans + Choose plan → checkout or
+  simulated upgrade). `billing.view` is available to every role; `billing.manage`
+  (upgrade / downgrade / cancel / open portal) is **owner/admin only**, re-checked
+  server-side.
+- **Webhook** — `POST /api/webhooks/billing/stripe` verifies the Stripe signature
+  (real HMAC-SHA256) when `STRIPE_WEBHOOK_SECRET` is set; updates subscription
+  status from `checkout.session.completed`, `customer.subscription.updated/deleted`,
+  and `invoice.payment_failed`. The organization is resolved from the stored
+  customer/subscription mapping — never from client input.
+
+## Security
+
+- No card data ever touches Taurus — Stripe Checkout + Billing Portal only.
+- `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are **server-only** (never
+  `NEXT_PUBLIC_*`). Billing + audit events are metadata-only — never card,
+  customer email, or raw provider payloads.
+- Entitlement checks run server-side at every enforcement point; a client can
+  never raise its own limits or select another organization's plan.
+
+## Environment variables (all optional; server-only)
+
+`STRIPE_SECRET_KEY` (absent → simulated mode), `STRIPE_WEBHOOK_SECRET`,
+`STRIPE_PRICE_GROWTH`, `STRIPE_PRICE_SCALE`. Absent keys never break local dev or
+tests.
+
+## Functionality audit & repair (same sprint)
+
+Alongside billing, a full functionality audit of the app was run and the genuine
+defects it found were repaired in six batches:
+
+1. **Audit trail** — the Audit page was a static stub; wired it to the real,
+   org-scoped `audit_events` (owner/admin only).
+2. **Onboarding polish** — the hire-success "Coming soon" tiles became real links;
+   removed the inert "collect visitor email" toggle.
+3. **Employee usage/activity** — the employee detail page's placeholder tiles now
+   show real interaction counts + recent activity.
+4. **Error surfacing** — several mutations that silently swallowed errors now
+   surface a clear message.
+5. **Voice credential parity** — added Zod validation + a Disable path to the
+   voice provider credential flow (parity with messaging).
+6. **Real webhook signature verification** — SendGrid (ECDSA), Telnyx (Ed25519),
+   and Vonage (signed-webhook JWT) now verify real signatures, fail-closed.
+
+Also made the Connections **"Test"** action real (opens the live hosted chat for
+web connections; the simulate panel for foundation channels).
+
+Full details and results are in the reports:
+
+- `05_reports/FUNCTIONALITY_AUDIT.md` — the route-by-route audit + batched fix plan.
+- `05_reports/RUNTIME_VERIFICATION.md` — end-to-end runtime verification results.

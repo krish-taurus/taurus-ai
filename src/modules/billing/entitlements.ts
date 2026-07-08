@@ -1,5 +1,5 @@
 /**
- * Entitlement enforcement math (Prompt 011) — pure.
+ * Entitlement enforcement math (Sprint 015) — pure.
  *
  * These functions decide whether an organization may take an action given its
  * current plan and current usage. They are pure (no DataStore, no Next.js) so the
@@ -12,7 +12,7 @@
  * organization.
  */
 
-import type { Plan } from "@/modules/billing/plans";
+import type { Plan, PlanFeature } from "@/modules/billing/plans";
 
 /**
  * A point-in-time view of an organization's plan and consumption. Counts are
@@ -54,6 +54,15 @@ export interface EntitlementDecision {
 
 function plural(n: number, singular: string): string {
   return `${n} ${singular}${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * Whether a plan includes an on/off feature (BYOK, performance reviews, …).
+ * Pure and deny-by-default: an undefined flag is treated as off. Runtime gates
+ * (e.g. the Model Hub BYOK server action) call this before allowing the feature.
+ */
+export function planIncludesFeature(plan: Plan, feature: PlanFeature): boolean {
+  return plan.features[feature] === true;
 }
 
 /** Can this organization hire (create) another AI Employee? */

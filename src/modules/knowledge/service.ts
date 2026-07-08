@@ -141,7 +141,7 @@ export async function createTextSource(
   }
   const values = parsed.data;
 
-  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  // Entitlement gate (Sprint 015): block past the plan's Knowledge Vault cap.
   await assertCanAddKnowledgeSource(store, actor.organizationId);
 
   const source = await store.createKnowledgeSource({
@@ -189,7 +189,7 @@ export async function createUrlSource(
   }
   const values = parsed.data;
 
-  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  // Entitlement gate (Sprint 015): block past the plan's Knowledge Vault cap.
   await assertCanAddKnowledgeSource(store, actor.organizationId);
 
   const source = await store.createKnowledgeSource({
@@ -230,7 +230,7 @@ export async function createFileSource(
   const meta = parsedMeta.data;
   const fileType = validateUpload(input.file);
 
-  // Entitlement gate (Prompt 011): block past the plan's Knowledge Vault cap.
+  // Entitlement gate (Sprint 015): block past the plan's Knowledge Vault cap.
   await assertCanAddKnowledgeSource(store, actor.organizationId);
 
   const checksum = await sha256Hex(input.file.bytes);

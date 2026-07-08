@@ -1,5 +1,5 @@
 /**
- * Stripe billing provider (Prompt 011).
+ * Stripe billing provider (Sprint 015).
  *
  * A real adapter that talks to Stripe over HTTPS (no SDK dependency). Only ever
  * constructed when STRIPE_SECRET_KEY is set — providers/index.ts falls back to

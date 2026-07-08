@@ -1,5 +1,5 @@
 /**
- * Stripe billing webhook endpoint (Prompt 011).
+ * Stripe billing webhook endpoint (Sprint 015).
  *
  * POST /api/webhooks/billing/stripe
  *

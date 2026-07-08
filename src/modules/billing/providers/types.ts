@@ -1,5 +1,5 @@
 /**
- * Billing provider adapter interface (Prompt 011).
+ * Billing provider adapter interface (Sprint 015).
  *
  * Mirrors the model-gateway / messaging provider pattern: the service talks to a
  * `BillingProvider`, never to Stripe directly. Two implementations exist — a real

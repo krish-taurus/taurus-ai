@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * "Choose plan" button (Prompt 011). Posts a catalog plan id to the server
+ * "Choose plan" button (Sprint 015). Posts a catalog plan id to the server
  * action, which either applies a simulated upgrade or redirects to Stripe
  * Checkout. The plan id is the only client input; the organization is resolved
  * server-side.

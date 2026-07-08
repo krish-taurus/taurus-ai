@@ -1,5 +1,5 @@
 /**
- * Billing input validation (Prompt 011).
+ * Billing input validation (Sprint 015).
  *
  * Only the plan id is ever accepted from the client, and it must be one of the
  * catalog ids. The organization is always resolved server-side from the session

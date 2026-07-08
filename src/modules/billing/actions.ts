@@ -1,7 +1,7 @@
 "use server";
 
 /**
- * Billing server actions (Prompt 011).
+ * Billing server actions (Sprint 015).
  *
  * SECURITY: authentication + organization are resolved server-side via
  * requireCurrentOrganization(); the organizationId is never taken from the
