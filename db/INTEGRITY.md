@@ -48,6 +48,38 @@ store layer), so one organization can never read another's data.
 (actor, action, target, timestamp) — never raw payloads or secrets. The
 `(organization_id, created_at)` index keeps the per-organization audit view fast.
 
+## Recovering a drifted database
+
+If a database has drifted into an inconsistent state — partial migrations, tables
+that exist but `schema_migrations` doesn't record, etc. — `db:migrate` alone
+cannot reconcile it (it may fail with errors like `column "…" does not exist`).
+When there is **no data to preserve**, reset it to a clean, fully-migrated schema.
+
+**Option A — no local setup (recommended for a Vercel-hosted DB).** In your
+database provider's SQL console (Supabase / Neon / Vercel Postgres), drop every
+table, then redeploy so the production build's migration step rebuilds the schema
+from scratch:
+
+```sql
+do $$
+declare r record;
+begin
+  for r in (select tablename from pg_tables where schemaname = 'public') loop
+    execute 'drop table if exists public.' || quote_ident(r.tablename) || ' cascade';
+  end loop;
+end $$;
+```
+
+**Option B — local.** With the database's connection string:
+
+```bash
+DATABASE_URL=<url> node scripts/reset-db.mjs --force   # DESTRUCTIVE: deletes all data
+```
+
+`scripts/reset-db.mjs` drops all public tables and re-applies the full chain. It
+refuses to run without `--force` and prints the target host first, so an
+accidental run against the wrong database is hard.
+
 ## Feature verification (no feature impact)
 
 `src/tests/postgres-integration.test.ts` runs the **real `PostgresStore`**
