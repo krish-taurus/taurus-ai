@@ -154,6 +154,26 @@ describe("Onboarding activation (Sprint 020)", () => {
     expect((await getOnboardingState(store, ctx)).dismissed).toBe(false);
   });
 
+  it("degrades gracefully when the onboarding table is unavailable", async () => {
+    // Simulate a deployment where migration 0019 has not been applied: the
+    // progress read throws. The checklist must still derive from real data and
+    // never break the dashboard render.
+    const { store, ctx, organization, user } = await setup();
+    await seedFullyOnboarded(store, organization.id, user.id);
+    store.getOnboardingProgress = async () => {
+      throw new Error('relation "organization_onboarding" does not exist');
+    };
+
+    const state = await getOnboardingState(store, ctx);
+    expect(state.steps.every((s) => s.done)).toBe(true);
+    expect(state.complete).toBe(true);
+    expect(state.dismissed).toBe(false);
+    expect(state.completionRecorded).toBe(false);
+
+    // Recording the milestone must swallow the failure, not throw.
+    await expect(recordOnboardingCompletion(store, ctx)).resolves.toBeUndefined();
+  });
+
   it("records the completion milestone exactly once and audits it", async () => {
     const { store, ctx, organization, user } = await setup();
     await seedFullyOnboarded(store, organization.id, user.id);
