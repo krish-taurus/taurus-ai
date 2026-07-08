@@ -1186,6 +1186,46 @@ onboarding.
 Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
 this sprint.
 
+# Performance Review — Evaluation (Sprint 018)
+
+Lets a manager measure an AI Employee's quality: score it against real situations
+and watch quality climb as the DNA is refined. The trust layer the market treats
+as table-stakes. A **Growth+** feature (gated by the plan's `performanceReview`
+flag), enforced server-side.
+
+## What landed
+
+- **Module** `src/modules/performance/` — a **Scorecard** of weighted **Criteria**
+  is run as a **Review Run** against a **pinned Employee DNA version** (reproducible),
+  producing per-criterion **Review Results**, an overall score, and a trend across
+  runs. Internal words (eval / rubric / test case / grader) never appear in the UI.
+- **Grading engine** (`scoring.ts`, pure + provider-agnostic) — deterministic
+  methods (`contains` / `exact` / `regex` / `no_refusal`) grade with **zero model
+  calls**; `reviewer` / `grounded` grade via an injected `Reviewer` port over the
+  Model Hub. A case passes only when **every** criterion passes; the case score is
+  the weight-normalized average, feeding the trend.
+- **Persistence** — five org-scoped tables (`0017_performance.sql`) in both the
+  in-memory and PostgreSQL stores; every child FK is org-scoped so a child can
+  never reference another org's parent. Cross-org reads return not found.
+- **Runtime** — the Model Hub gateway is adapted to the `EmployeeRunner` +
+  `Reviewer` ports. Grading respects the org's model access mode (managed →
+  budget/mid model + cost recorded; BYOK → customer key, cost 0) and never uses a
+  frontier model in managed mode.
+- **UI** — `/dashboard/performance` (+ scorecard detail) and
+  `/dashboard/employees/[id]/performance` (per-criterion reasons, overall score,
+  pass/fail, and a score-over-time trend). Starter orgs see a locked upgrade state.
+- **Cost + gating** — model-graded criteria record a usage-cost event (Sprint 016
+  capture: tokens, model, `cost_usd`, BYOK → 0) via a new **non-billable**
+  `performance_review` task type, so reviews never consume a customer's chat quota;
+  deterministic-only scorecards grade free. A Starter org is refused runs
+  server-side. Permissions: `performance.view` (all roles), `performance.manage`
+  (owner/admin/builder — viewer cannot start runs).
+
+## Not in this sprint
+
+Scheduled/continuous reviews, regression alerting, side-by-side DNA comparison,
+human-in-the-loop review queues, and report export. Future work.
+
 # Metered Overage Billing — managed mode (Sprint 017)
 
 Lets a **managed** customer continue past their plan quota on a pay-as-you-go

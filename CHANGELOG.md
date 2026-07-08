@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 018 - Performance Review (Evaluation) — 2026-07-08
+
+Added:
+
+- **Performance Review** (`src/modules/performance/`) — a Growth+ capability to
+  score an AI Employee against real situations and watch quality improve as the
+  DNA is refined. A **Scorecard** of weighted **Criteria** is run as a **Review
+  Run** against a pinned Employee DNA version, producing per-criterion
+  **Review Results** and an overall score, plus a trend across runs. Internal
+  words (eval / rubric / test case / grader) never appear in the UI.
+- **Grading engine** (`scoring.ts`, pure) — deterministic methods (`contains`,
+  `exact`, `regex`, `no_refusal`) grade with zero model calls; `reviewer` /
+  `grounded` grade via an injected `Reviewer` port over the Model Hub. A case
+  passes only when every criterion passes; the score is weight-normalized.
+- **Persistence** — `performance_scorecard`, `performance_criterion`,
+  `performance_review_case`, `performance_review_run`, `performance_review_result`
+  (migration `0017_performance.sql`), org-scoped in both stores.
+- **UI** — `/dashboard/performance` (+ scorecard detail) and
+  `/dashboard/employees/[id]/performance` (per-criterion results, overall score,
+  and a score-over-time trend). Starter orgs see a locked upgrade state; runs are
+  refused server-side for Starter.
+- **Cost** — model-graded criteria record a usage-cost event (Sprint 016 capture;
+  BYOK → 0) via a new non-billable `performance_review` task type; deterministic
+  grading is free. Grading respects the org's model access mode. Permissions:
+  `performance.view` (all roles), `performance.manage` (owner/admin/builder).
+
 ## Sprint 017 - Metered Overage Billing (Managed Mode) — 2026-07-08
 
 Added:

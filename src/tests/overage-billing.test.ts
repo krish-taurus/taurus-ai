@@ -221,9 +221,15 @@ describe("Provider reporting", () => {
     await store.updateBillingSubscription(orgId, { externalSubscriptionId: "sub_live_1" });
 
     const reported: number[] = [];
+    // Delegate the unused methods to a real simulated provider; override mode +
+    // reportOverageUsage to exercise the live reporting path (no network).
     const fakeStripe: BillingProvider = {
-      ...SIMULATED,
       mode: "stripe",
+      createCheckoutSession: SIMULATED.createCheckoutSession.bind(SIMULATED),
+      createBillingPortalSession: SIMULATED.createBillingPortalSession.bind(SIMULATED),
+      verifyWebhook: SIMULATED.verifyWebhook.bind(SIMULATED),
+      parseWebhookEvent: SIMULATED.parseWebhookEvent.bind(SIMULATED),
+      getSubscriptionStatus: SIMULATED.getSubscriptionStatus.bind(SIMULATED),
       async reportOverageUsage(input) {
         reported.push(input.quantity);
         return { mode: "reported", externalUsageRecordId: "mbur_1" };

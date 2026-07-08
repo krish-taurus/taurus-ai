@@ -220,28 +220,31 @@ export class LlmGateway {
         byok,
       });
 
-      // Metadata only — message contents are NEVER persisted.
-      await this.deps.store.createLlmUsageEvent({
-        organizationId: request.organizationId,
-        employeeId: request.employeeId ?? null,
-        providerSlug,
-        modelId: model.modelId,
-        taskType: request.taskType,
-        inputTokens,
-        cachedInputTokens,
-        outputTokens,
-        estimatedCostUsd: cost.totalUsd,
-        costUsd: snapshot.costUsd,
-        unitInputPrice: snapshot.unitInputPrice,
-        unitOutputPrice: snapshot.unitOutputPrice,
-        byok,
-        channelType,
-        latencyMs,
-        status: "success",
-        errorCode: null,
-        requestIdHash: shortHash(result.rawProviderRequestId),
-        createdByUserId: request.createdByUserId ?? null,
-      });
+      // Metadata only — message contents are NEVER persisted. Callers may skip
+      // persistence (persistUsage:false) to record cost themselves (Sprint 018).
+      if (request.persistUsage !== false) {
+        await this.deps.store.createLlmUsageEvent({
+          organizationId: request.organizationId,
+          employeeId: request.employeeId ?? null,
+          providerSlug,
+          modelId: model.modelId,
+          taskType: request.taskType,
+          inputTokens,
+          cachedInputTokens,
+          outputTokens,
+          estimatedCostUsd: cost.totalUsd,
+          costUsd: snapshot.costUsd,
+          unitInputPrice: snapshot.unitInputPrice,
+          unitOutputPrice: snapshot.unitOutputPrice,
+          byok,
+          channelType,
+          latencyMs,
+          status: "success",
+          errorCode: null,
+          requestIdHash: shortHash(result.rawProviderRequestId),
+          createdByUserId: request.createdByUserId ?? null,
+        });
+      }
 
       return {
         text: result.text,
@@ -251,6 +254,7 @@ export class LlmGateway {
         cachedInputTokens,
         outputTokens,
         estimatedCostUsd: cost.totalUsd,
+        byok,
         latencyMs,
         rawProviderRequestId: result.rawProviderRequestId ?? null,
         finishReason: result.finishReason ?? null,
@@ -259,27 +263,29 @@ export class LlmGateway {
       const latencyMs = Math.max(0, this.now() - start);
       const code = error instanceof GatewayError ? error.code : "provider_error";
       // Record the failure as metadata only (no message contents).
-      await this.deps.store.createLlmUsageEvent({
-        organizationId: request.organizationId,
-        employeeId: request.employeeId ?? null,
-        providerSlug,
-        modelId: model.modelId,
-        taskType: request.taskType,
-        inputTokens: 0,
-        cachedInputTokens: 0,
-        outputTokens: 0,
-        estimatedCostUsd: null,
-        costUsd: 0,
-        unitInputPrice: null,
-        unitOutputPrice: null,
-        byok,
-        channelType,
-        latencyMs,
-        status: "error",
-        errorCode: code,
-        requestIdHash: null,
-        createdByUserId: request.createdByUserId ?? null,
-      });
+      if (request.persistUsage !== false) {
+        await this.deps.store.createLlmUsageEvent({
+          organizationId: request.organizationId,
+          employeeId: request.employeeId ?? null,
+          providerSlug,
+          modelId: model.modelId,
+          taskType: request.taskType,
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          estimatedCostUsd: null,
+          costUsd: 0,
+          unitInputPrice: null,
+          unitOutputPrice: null,
+          byok,
+          channelType,
+          latencyMs,
+          status: "error",
+          errorCode: code,
+          requestIdHash: null,
+          createdByUserId: request.createdByUserId ?? null,
+        });
+      }
       if (error instanceof GatewayError) throw error;
       throw new GatewayError("Provider request failed.", code);
     }
@@ -308,28 +314,30 @@ export class LlmGateway {
     const outputTokens = estimateTokens(result.text);
 
     // Demo answers are free; still record usage metadata for consistency.
-    await this.deps.store.createLlmUsageEvent({
-      organizationId: request.organizationId,
-      employeeId: request.employeeId ?? null,
-      providerSlug,
-      modelId: model.modelId,
-      taskType: request.taskType,
-      inputTokens,
-      cachedInputTokens: 0,
-      outputTokens,
-      estimatedCostUsd: 0,
-      // The Local Demo Brain is free and runs on no customer key.
-      costUsd: 0,
-      unitInputPrice: null,
-      unitOutputPrice: null,
-      byok: false,
-      channelType: request.channelType ?? null,
-      latencyMs,
-      status: "success",
-      errorCode: null,
-      requestIdHash: null,
-      createdByUserId: request.createdByUserId ?? null,
-    });
+    if (request.persistUsage !== false) {
+      await this.deps.store.createLlmUsageEvent({
+        organizationId: request.organizationId,
+        employeeId: request.employeeId ?? null,
+        providerSlug,
+        modelId: model.modelId,
+        taskType: request.taskType,
+        inputTokens,
+        cachedInputTokens: 0,
+        outputTokens,
+        estimatedCostUsd: 0,
+        // The Local Demo Brain is free and runs on no customer key.
+        costUsd: 0,
+        unitInputPrice: null,
+        unitOutputPrice: null,
+        byok: false,
+        channelType: request.channelType ?? null,
+        latencyMs,
+        status: "success",
+        errorCode: null,
+        requestIdHash: null,
+        createdByUserId: request.createdByUserId ?? null,
+      });
+    }
 
     return {
       text: result.text,
@@ -339,6 +347,7 @@ export class LlmGateway {
       cachedInputTokens: 0,
       outputTokens,
       estimatedCostUsd: 0,
+      byok: false,
       latencyMs,
       rawProviderRequestId: null,
       finishReason: result.finishReason ?? "stop",

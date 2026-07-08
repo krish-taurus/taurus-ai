@@ -141,6 +141,25 @@ import type {
   CreateBillingEventInput,
 } from "@/lib/db/types";
 import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
+import type {
+  Scorecard,
+  Criterion,
+  ReviewCase,
+  ReviewRun,
+  ReviewResult,
+  ScorecardDetail,
+  PerformancePoint,
+  CriterionScore,
+  GradingMethod,
+  ReviewRunStatus,
+  CreateScorecardInput,
+  CreateCriterionInput,
+  CreateReviewCaseInput,
+  CreateReviewRunInput,
+  CreateReviewResultInput,
+  UpdateReviewRunInput,
+  ReviewRunFilter,
+} from "@/modules/performance/types";
 import {
   AI_MODELS,
   MODEL_PROVIDERS,
@@ -213,6 +232,78 @@ function mapBillingOverageItem(row: Row): BillingOverageItem {
     status: row.status as OverageItemStatus,
     provider: row.provider,
     externalUsageRecordId: row.external_usage_record_id ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapScorecard(row: Row): Scorecard {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description ?? null,
+    createdByUserId: row.created_by_user_id ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapCriterion(row: Row): Criterion {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    scorecardId: row.scorecard_id,
+    label: row.label,
+    guidance: row.guidance ?? "",
+    method: row.method as GradingMethod,
+    expected: row.expected ?? null,
+    weight: num(row.weight) ?? 1,
+    passThreshold: num(row.pass_threshold) ?? 0.7,
+    position: row.position ?? 0,
+  };
+}
+
+function mapReviewCase(row: Row): ReviewCase {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    scorecardId: row.scorecard_id,
+    name: row.name,
+    situation: row.situation,
+    expected: row.expected ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapReviewRun(row: Row): ReviewRun {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    scorecardId: row.scorecard_id,
+    employeeId: row.employee_id,
+    dnaVersionId: row.dna_version_id,
+    dnaVersionNumber: row.dna_version_number,
+    status: row.status as ReviewRunStatus,
+    overallScore: num(row.overall_score),
+    passedCases: row.passed_cases ?? 0,
+    totalCases: row.total_cases ?? 0,
+    error: row.error ?? null,
+    startedByUserId: row.started_by_user_id ?? null,
+    startedAt: new Date(row.started_at).toISOString(),
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+  };
+}
+
+function mapReviewResult(row: Row): ReviewResult {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    runId: row.run_id,
+    caseId: row.case_id,
+    employeeOutput: row.employee_output ?? "",
+    passed: Boolean(row.passed),
+    score: num(row.score) ?? 0,
+    criterionScores: (row.criterion_scores as CriterionScore[]) ?? [],
     createdAt: new Date(row.created_at).toISOString(),
   };
 }
@@ -3081,5 +3172,209 @@ export class PostgresStore implements DataStore {
       [organizationId, BILLABLE_INTERACTION_TASK_TYPES as unknown as string[], sinceIso],
     );
     return rows[0]?.count ?? 0;
+  }
+
+  // --- Performance Review (Sprint 018) --------------------------------------
+
+  async createScorecard(input: CreateScorecardInput): Promise<Scorecard> {
+    const { rows } = await this.query(
+      `insert into performance_scorecard (organization_id, name, description, created_by_user_id)
+       values ($1, $2, $3, $4) returning *`,
+      [input.organizationId, input.name, input.description ?? null, input.createdByUserId ?? null],
+    );
+    return mapScorecard(rows[0]);
+  }
+
+  async getScorecard(organizationId: string, scorecardId: string): Promise<Scorecard | null> {
+    const { rows } = await this.query(
+      "select * from performance_scorecard where id = $1 and organization_id = $2",
+      [scorecardId, organizationId],
+    );
+    return rows[0] ? mapScorecard(rows[0]) : null;
+  }
+
+  async listScorecards(organizationId: string): Promise<Scorecard[]> {
+    const { rows } = await this.query(
+      "select * from performance_scorecard where organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapScorecard);
+  }
+
+  async getScorecardDetail(
+    organizationId: string,
+    scorecardId: string,
+  ): Promise<ScorecardDetail | null> {
+    const scorecard = await this.getScorecard(organizationId, scorecardId);
+    if (!scorecard) return null;
+    const [criteria, cases] = await Promise.all([
+      this.query(
+        `select * from performance_criterion
+         where organization_id = $1 and scorecard_id = $2 order by position asc`,
+        [organizationId, scorecardId],
+      ),
+      this.query(
+        `select * from performance_review_case
+         where organization_id = $1 and scorecard_id = $2 order by created_at asc`,
+        [organizationId, scorecardId],
+      ),
+    ]);
+    return {
+      scorecard,
+      criteria: criteria.rows.map(mapCriterion),
+      cases: cases.rows.map(mapReviewCase),
+    };
+  }
+
+  async createCriterion(input: CreateCriterionInput): Promise<Criterion> {
+    const { rows } = await this.query(
+      `insert into performance_criterion
+         (organization_id, scorecard_id, label, guidance, method, expected, weight, pass_threshold, position)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning *`,
+      [
+        input.organizationId,
+        input.scorecardId,
+        input.label,
+        input.guidance,
+        input.method,
+        input.expected ?? null,
+        input.weight,
+        input.passThreshold ?? 0.7,
+        input.position,
+      ],
+    );
+    return mapCriterion(rows[0]);
+  }
+
+  async createReviewCase(input: CreateReviewCaseInput): Promise<ReviewCase> {
+    const { rows } = await this.query(
+      `insert into performance_review_case (organization_id, scorecard_id, name, situation, expected)
+       values ($1, $2, $3, $4, $5) returning *`,
+      [input.organizationId, input.scorecardId, input.name, input.situation, input.expected ?? null],
+    );
+    return mapReviewCase(rows[0]);
+  }
+
+  async createReviewRun(input: CreateReviewRunInput): Promise<ReviewRun> {
+    const { rows } = await this.query(
+      `insert into performance_review_run
+         (organization_id, scorecard_id, employee_id, dna_version_id, dna_version_number,
+          status, total_cases, started_by_user_id)
+       values ($1, $2, $3, $4, $5, 'running', $6, $7) returning *`,
+      [
+        input.organizationId,
+        input.scorecardId,
+        input.employeeId,
+        input.dnaVersionId,
+        input.dnaVersionNumber,
+        input.totalCases,
+        input.startedByUserId ?? null,
+      ],
+    );
+    return mapReviewRun(rows[0]);
+  }
+
+  async updateReviewRun(
+    organizationId: string,
+    runId: string,
+    patch: UpdateReviewRunInput,
+  ): Promise<ReviewRun | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (column: string, value: unknown) => {
+      sets.push(`${column} = $${i++}`);
+      values.push(value);
+    };
+    if (patch.status !== undefined) add("status", patch.status);
+    if (patch.overallScore !== undefined) add("overall_score", patch.overallScore);
+    if (patch.passedCases !== undefined) add("passed_cases", patch.passedCases);
+    if (patch.error !== undefined) add("error", patch.error);
+    if (patch.completedAt !== undefined) add("completed_at", patch.completedAt);
+    if (sets.length === 0) return this.getReviewRun(organizationId, runId);
+    values.push(runId, organizationId);
+    const { rows } = await this.query(
+      `update performance_review_run set ${sets.join(", ")}
+       where id = $${i++} and organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapReviewRun(rows[0]) : null;
+  }
+
+  async getReviewRun(organizationId: string, runId: string): Promise<ReviewRun | null> {
+    const { rows } = await this.query(
+      "select * from performance_review_run where id = $1 and organization_id = $2",
+      [runId, organizationId],
+    );
+    return rows[0] ? mapReviewRun(rows[0]) : null;
+  }
+
+  async listReviewRuns(organizationId: string, filter: ReviewRunFilter): Promise<ReviewRun[]> {
+    const clauses = ["organization_id = $1"];
+    const values: unknown[] = [organizationId];
+    let i = 2;
+    if (filter.employeeId) {
+      clauses.push(`employee_id = $${i++}`);
+      values.push(filter.employeeId);
+    }
+    if (filter.scorecardId) {
+      clauses.push(`scorecard_id = $${i++}`);
+      values.push(filter.scorecardId);
+    }
+    const { rows } = await this.query(
+      `select * from performance_review_run where ${clauses.join(" and ")}
+       order by started_at desc`,
+      values,
+    );
+    return rows.map(mapReviewRun);
+  }
+
+  async createReviewResult(input: CreateReviewResultInput): Promise<ReviewResult> {
+    const { rows } = await this.query(
+      `insert into performance_review_result
+         (organization_id, run_id, case_id, employee_output, passed, score, criterion_scores)
+       values ($1, $2, $3, $4, $5, $6, $7) returning *`,
+      [
+        input.organizationId,
+        input.runId,
+        input.caseId,
+        input.employeeOutput,
+        input.passed,
+        input.score,
+        JSON.stringify(input.criterionScores),
+      ],
+    );
+    return mapReviewResult(rows[0]);
+  }
+
+  async listReviewResults(organizationId: string, runId: string): Promise<ReviewResult[]> {
+    const { rows } = await this.query(
+      `select * from performance_review_result
+       where organization_id = $1 and run_id = $2 order by created_at asc`,
+      [organizationId, runId],
+    );
+    return rows.map(mapReviewResult);
+  }
+
+  async getPerformanceTrend(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<PerformancePoint[]> {
+    const { rows } = await this.query(
+      `select id, dna_version_number, overall_score, passed_cases, total_cases,
+              completed_at, started_at
+       from performance_review_run
+       where organization_id = $1 and employee_id = $2
+         and status = 'completed' and overall_score is not null and completed_at is not null
+       order by completed_at asc`,
+      [organizationId, employeeId],
+    );
+    return rows.map((row: Row) => ({
+      runId: row.id,
+      dnaVersionNumber: row.dna_version_number,
+      overallScore: num(row.overall_score) ?? 0,
+      passRate: row.total_cases > 0 ? row.passed_cases / row.total_cases : 0,
+      completedAt: new Date(row.completed_at ?? row.started_at).toISOString(),
+    }));
   }
 }

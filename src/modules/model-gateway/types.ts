@@ -103,6 +103,12 @@ export interface GatewayRequest {
   createdByUserId?: string | null;
   /** Deployment channel this interaction came through (for usage breakdowns). */
   channelType?: ChannelType | null;
+  /**
+   * When false, the gateway does NOT persist a usage event — the caller records
+   * cost itself (e.g. Performance Review writes its own usage-cost event). Default
+   * true. Sprint 018.
+   */
+  persistUsage?: boolean;
   metadata?: Record<string, string | number | boolean | null>;
 }
 
@@ -115,6 +121,8 @@ export interface GatewayResponse {
   cachedInputTokens?: number;
   outputTokens?: number;
   estimatedCostUsd: number | null;
+  /** True when the interaction ran on the customer's own key (Sprint 016/018). */
+  byok?: boolean;
   latencyMs: number;
   rawProviderRequestId?: string | null;
   finishReason?: string | null;

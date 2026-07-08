@@ -389,6 +389,7 @@ export type LlmTaskType =
   | "tool_planning"
   | "internal_collaboration"
   | "voice_realtime"
+  | "performance_review"
   | "system_test";
 
 export type LlmUsageStatus = "success" | "error" | "blocked";

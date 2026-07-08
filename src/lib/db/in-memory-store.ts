@@ -97,6 +97,22 @@ import type {
   UpdateOrganizationModelSettingsInput,
   User,
 } from "@/lib/db/types";
+import type {
+  Scorecard,
+  Criterion,
+  ReviewCase,
+  ReviewRun,
+  ReviewResult,
+  ScorecardDetail,
+  PerformancePoint,
+  CreateScorecardInput,
+  CreateCriterionInput,
+  CreateReviewCaseInput,
+  CreateReviewRunInput,
+  CreateReviewResultInput,
+  UpdateReviewRunInput,
+  ReviewRunFilter,
+} from "@/modules/performance/types";
 import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
 import { DEFAULT_MEMBER_ROLE, type Role } from "@/modules/organizations/roles";
 import { DNA_SCHEMA_VERSION } from "@/modules/employee-dna/schema";
@@ -164,6 +180,12 @@ export class InMemoryStore implements DataStore {
   private billingCustomers = new Map<string, BillingCustomer>();
   private billingEvents: BillingEvent[] = [];
   private billingOverageItems: BillingOverageItem[] = [];
+  // Performance Review (Sprint 018).
+  private scorecards: Scorecard[] = [];
+  private performanceCriteria: Criterion[] = [];
+  private reviewCases: ReviewCase[] = [];
+  private reviewRuns: ReviewRun[] = [];
+  private reviewResults: ReviewResult[] = [];
   private auditEvents: AuditEvent[] = [];
 
   async getUserById(id: string): Promise<User | null> {
@@ -2240,6 +2262,184 @@ export class InMemoryStore implements DataStore {
       byOrg.set(i.organizationId, row);
     }
     return [...byOrg.values()];
+  }
+
+  // --- Performance Review (Sprint 018) --------------------------------------
+
+  async createScorecard(input: CreateScorecardInput): Promise<Scorecard> {
+    const timestamp = now();
+    const scorecard: Scorecard = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      name: input.name,
+      description: input.description ?? null,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.scorecards.push(scorecard);
+    return scorecard;
+  }
+
+  async getScorecard(organizationId: string, scorecardId: string): Promise<Scorecard | null> {
+    return (
+      this.scorecards.find((s) => s.id === scorecardId && s.organizationId === organizationId) ?? null
+    );
+  }
+
+  async listScorecards(organizationId: string): Promise<Scorecard[]> {
+    return this.scorecards
+      .filter((s) => s.organizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async getScorecardDetail(
+    organizationId: string,
+    scorecardId: string,
+  ): Promise<ScorecardDetail | null> {
+    const scorecard = await this.getScorecard(organizationId, scorecardId);
+    if (!scorecard) return null;
+    const criteria = this.performanceCriteria
+      .filter((c) => c.organizationId === organizationId && c.scorecardId === scorecardId)
+      .sort((a, b) => a.position - b.position);
+    const cases = this.reviewCases
+      .filter((c) => c.organizationId === organizationId && c.scorecardId === scorecardId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return { scorecard, criteria, cases };
+  }
+
+  async createCriterion(input: CreateCriterionInput): Promise<Criterion> {
+    const criterion: Criterion = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      scorecardId: input.scorecardId,
+      label: input.label,
+      guidance: input.guidance,
+      method: input.method,
+      expected: input.expected ?? null,
+      weight: input.weight,
+      passThreshold: input.passThreshold ?? 0.7,
+      position: input.position,
+    };
+    this.performanceCriteria.push(criterion);
+    return criterion;
+  }
+
+  async createReviewCase(input: CreateReviewCaseInput): Promise<ReviewCase> {
+    const reviewCase: ReviewCase = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      scorecardId: input.scorecardId,
+      name: input.name,
+      situation: input.situation,
+      expected: input.expected ?? null,
+      createdAt: now(),
+    };
+    this.reviewCases.push(reviewCase);
+    return reviewCase;
+  }
+
+  async createReviewRun(input: CreateReviewRunInput): Promise<ReviewRun> {
+    const run: ReviewRun = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      scorecardId: input.scorecardId,
+      employeeId: input.employeeId,
+      dnaVersionId: input.dnaVersionId,
+      dnaVersionNumber: input.dnaVersionNumber,
+      status: "running",
+      overallScore: null,
+      passedCases: 0,
+      totalCases: input.totalCases,
+      error: null,
+      startedByUserId: input.startedByUserId ?? null,
+      startedAt: now(),
+      completedAt: null,
+    };
+    this.reviewRuns.push(run);
+    return run;
+  }
+
+  async updateReviewRun(
+    organizationId: string,
+    runId: string,
+    patch: UpdateReviewRunInput,
+  ): Promise<ReviewRun | null> {
+    const run = this.reviewRuns.find(
+      (r) => r.id === runId && r.organizationId === organizationId,
+    );
+    if (!run) return null;
+    if (patch.status !== undefined) run.status = patch.status;
+    if (patch.overallScore !== undefined) run.overallScore = patch.overallScore;
+    if (patch.passedCases !== undefined) run.passedCases = patch.passedCases;
+    if (patch.error !== undefined) run.error = patch.error;
+    if (patch.completedAt !== undefined) run.completedAt = patch.completedAt;
+    return run;
+  }
+
+  async getReviewRun(organizationId: string, runId: string): Promise<ReviewRun | null> {
+    return (
+      this.reviewRuns.find((r) => r.id === runId && r.organizationId === organizationId) ?? null
+    );
+  }
+
+  async listReviewRuns(
+    organizationId: string,
+    filter: ReviewRunFilter,
+  ): Promise<ReviewRun[]> {
+    return this.reviewRuns
+      .filter(
+        (r) =>
+          r.organizationId === organizationId &&
+          (filter.employeeId ? r.employeeId === filter.employeeId : true) &&
+          (filter.scorecardId ? r.scorecardId === filter.scorecardId : true),
+      )
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
+  }
+
+  async createReviewResult(input: CreateReviewResultInput): Promise<ReviewResult> {
+    const result: ReviewResult = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      runId: input.runId,
+      caseId: input.caseId,
+      employeeOutput: input.employeeOutput,
+      passed: input.passed,
+      score: input.score,
+      criterionScores: input.criterionScores,
+      createdAt: now(),
+    };
+    this.reviewResults.push(result);
+    return result;
+  }
+
+  async listReviewResults(organizationId: string, runId: string): Promise<ReviewResult[]> {
+    return this.reviewResults
+      .filter((r) => r.organizationId === organizationId && r.runId === runId)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
+  async getPerformanceTrend(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<PerformancePoint[]> {
+    return this.reviewRuns
+      .filter(
+        (r) =>
+          r.organizationId === organizationId &&
+          r.employeeId === employeeId &&
+          r.status === "completed" &&
+          r.overallScore !== null &&
+          r.completedAt !== null,
+      )
+      .sort((a, b) => (a.completedAt ?? "").localeCompare(b.completedAt ?? ""))
+      .map((r) => ({
+        runId: r.id,
+        dnaVersionNumber: r.dnaVersionNumber,
+        overallScore: r.overallScore ?? 0,
+        passRate: r.totalCases > 0 ? r.passedCases / r.totalCases : 0,
+        completedAt: r.completedAt ?? r.startedAt,
+      }));
   }
 
   async countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number> {
