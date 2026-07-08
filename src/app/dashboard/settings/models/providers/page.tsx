@@ -5,6 +5,8 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { isEncryptionConfigured } from "@/modules/model-gateway/credentials";
 import { isPlatformKeyAvailable } from "@/modules/model-gateway/credential-resolver";
+import { getOrganizationPlan } from "@/modules/billing/service";
+import { planIncludesFeature } from "@/modules/billing/entitlements";
 import {
   ProviderCredentialsPanel,
   type ProviderCredentialView,
@@ -21,6 +23,9 @@ export default async function ModelProvidersPage() {
   const encryptionConfigured = isEncryptionConfigured();
 
   const store = getStore();
+  const plan = await getOrganizationPlan(store, organization.id);
+  const byokAvailable = planIncludesFeature(plan, "byok");
+  const canManageBilling = hasPermission(membership.role, "billing.manage");
   const providers = await store.listModelProviders();
 
   const items: ProviderCredentialView[] = await Promise.all(
@@ -66,6 +71,29 @@ export default async function ModelProvidersPage() {
         </div>
       ) : null}
 
+      {encryptionConfigured && !byokAvailable ? (
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-taurus-line bg-taurus-surface px-5 py-4">
+          <div>
+            <p className="text-sm font-medium text-taurus-text">
+              Bring your own model provider keys
+            </p>
+            <p className="mt-1 text-sm text-taurus-sub">
+              {canManageBilling
+                ? "Available on the Growth and Scale plans. Upgrade to connect your own keys."
+                : "Available on the Growth and Scale plans. Ask an owner or admin to upgrade."}
+            </p>
+          </div>
+          {canManageBilling ? (
+            <Link
+              href="/dashboard/settings/billing/plans"
+              className={buttonClasses("primary", "sm")}
+            >
+              Upgrade plan
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="mb-6">
         <AccessModeToggle current={organization.modelAccessMode} canManage={canManage} />
       </div>
@@ -74,6 +102,7 @@ export default async function ModelProvidersPage() {
         items={items}
         encryptionConfigured={encryptionConfigured}
         canManage={canManage}
+        byokAvailable={byokAvailable}
       />
     </div>
   );

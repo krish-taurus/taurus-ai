@@ -39,7 +39,7 @@ function view(overrides: Partial<ProviderCredentialView>): ProviderCredentialVie
 describe("Provider credentials UI (Sprint 013)", () => {
   it("explains that keys are encrypted and never shown again, and shows the label field", () => {
     const { container, getByLabelText } = render(
-      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured canManage />,
+      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured canManage byokAvailable />,
     );
     expect(container.textContent).toContain("Your API key is encrypted and never shown again.");
     expect(getByLabelText(/Add your API key/)).toBeTruthy();
@@ -58,13 +58,14 @@ describe("Provider credentials UI (Sprint 013)", () => {
         ]}
         encryptionConfigured
         canManage
+        byokAvailable
       />,
     );
     // Scope to each render's container so the two DOM trees never cross-match.
     expect(custom.container.querySelector('input[name="baseUrl"]')).toBeTruthy();
 
     const openai = render(
-      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured canManage />,
+      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured canManage byokAvailable />,
     );
     expect(openai.container.querySelector('input[name="baseUrl"]')).toBeNull();
   });
@@ -82,6 +83,7 @@ describe("Provider credentials UI (Sprint 013)", () => {
         ]}
         encryptionConfigured
         canManage
+        byokAvailable
       />,
     );
     const text = container.textContent ?? "";
@@ -95,7 +97,12 @@ describe("Provider credentials UI (Sprint 013)", () => {
 
   it("hides the setup form and explains when secure storage is not configured", () => {
     const { container } = render(
-      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured={false} canManage />,
+      <ProviderCredentialsPanel
+        items={[view({})]}
+        encryptionConfigured={false}
+        canManage
+        byokAvailable
+      />,
     );
     expect(container.textContent).toContain("Secure key storage is not configured");
     expect(container.querySelector('input[name="apiKey"]')).toBeNull();
@@ -103,9 +110,33 @@ describe("Provider credentials UI (Sprint 013)", () => {
 
   it("hides the setup form for non-managers", () => {
     const { container } = render(
-      <ProviderCredentialsPanel items={[view({})]} encryptionConfigured canManage={false} />,
+      <ProviderCredentialsPanel
+        items={[view({})]}
+        encryptionConfigured
+        canManage={false}
+        byokAvailable
+      />,
     );
     expect(container.textContent).toContain("Only owners and admins can manage provider keys.");
     expect(container.querySelector('input[name="apiKey"]')).toBeNull();
+  });
+
+  it("hides the setup form and shows an upgrade call-to-action when BYOK is not in the plan", () => {
+    const { container, getByText } = render(
+      <ProviderCredentialsPanel
+        items={[view({})]}
+        encryptionConfigured
+        canManage
+        byokAvailable={false}
+      />,
+    );
+    expect(container.textContent).toContain(
+      "Bringing your own model provider keys is available on the Growth and Scale plans.",
+    );
+    // No key entry — instead, a real link to upgrade.
+    expect(container.querySelector('input[name="apiKey"]')).toBeNull();
+    expect(getByText("Upgrade plan").closest("a")?.getAttribute("href")).toBe(
+      "/dashboard/settings/billing/plans",
+    );
   });
 });
