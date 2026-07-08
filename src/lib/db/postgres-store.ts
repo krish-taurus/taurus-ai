@@ -1376,6 +1376,17 @@ export class PostgresStore implements DataStore {
     return rows[0] ? mapKnowledgeDocument(rows[0]) : null;
   }
 
+  async deleteKnowledgeDocumentsForSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<number> {
+    const { rowCount } = await this.query(
+      "delete from knowledge_documents where organization_id = $1 and knowledge_source_id = $2",
+      [organizationId, sourceId],
+    );
+    return rowCount ?? 0;
+  }
+
   async assignKnowledgeSourceToEmployee(
     input: AssignKnowledgeInput,
   ): Promise<EmployeeKnowledgeAssignment> {

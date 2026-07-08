@@ -28,6 +28,7 @@ const SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> = {
   text: "Note",
   file: "Document",
   url: "Website",
+  database: "Database",
 };
 
 export function PublicChat({

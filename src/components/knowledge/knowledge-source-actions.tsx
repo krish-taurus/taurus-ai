@@ -6,17 +6,40 @@
  */
 
 import Link from "next/link";
-import { useFormState } from "react-dom";
+import { useFormState, useFormStatus } from "react-dom";
 import type { KnowledgeSource } from "@/lib/db/types";
-import { archiveSourceAction, type KnowledgeActionState } from "@/modules/knowledge/actions";
+import {
+  archiveSourceAction,
+  syncDatabaseSourceAction,
+  type KnowledgeActionState,
+} from "@/modules/knowledge/actions";
 import { buttonClasses, FieldError } from "@/components/ui";
+
+function SyncButton() {
+  const { pending } = useFormStatus();
+  return (
+    <button type="submit" disabled={pending} className={buttonClasses("secondary")}>
+      {pending ? "Syncing…" : "Sync now"}
+    </button>
+  );
+}
 
 export function KnowledgeSourceActions({ source }: { source: KnowledgeSource }) {
   const isArchived = source.status === "archived";
   const [state, formAction] = useFormState(archiveSourceAction, {} as KnowledgeActionState);
+  const [syncState, syncAction] = useFormState(
+    syncDatabaseSourceAction,
+    {} as KnowledgeActionState,
+  );
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2.5">
+        {source.sourceType === "database" && !isArchived ? (
+          <form action={syncAction}>
+            <input type="hidden" name="sourceId" value={source.id} />
+            <SyncButton />
+          </form>
+        ) : null}
         <Link
           href={`/dashboard/knowledge/${source.id}/edit`}
           className={buttonClasses("secondary")}
@@ -40,6 +63,7 @@ export function KnowledgeSourceActions({ source }: { source: KnowledgeSource }) 
         ) : null}
       </div>
       {state?.error ? <FieldError>{state.error}</FieldError> : null}
+      {syncState?.error ? <FieldError>{syncState.error}</FieldError> : null}
     </div>
   );
 }

@@ -5,12 +5,14 @@ import { hasPermission } from "@/modules/organizations/roles";
 import {
   archiveSource,
   assignKnowledgeToEmployee,
+  createDatabaseSource,
   createFileSource,
   createTextSource,
   createUrlSource,
   getVaultOverview,
   KnowledgeNotFoundError,
   KnowledgeValidationError,
+  syncDatabaseSource,
   unassignKnowledgeFromEmployee,
   validateUpload,
   type KnowledgeStorage,
@@ -208,6 +210,50 @@ describe("file source", () => {
     const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
     expect(docs[0].extractionStatus).toBe("failed");
     expect(docs[0].textContent).toBeNull();
+  });
+});
+
+describe("database source", () => {
+  const connector = {
+    kind: "postgres" as const,
+    displayHost: "db.example.com:5432",
+    query: "select question, answer from faqs",
+    connectionEncrypted: "ENC(postgres://readonly@db.example.com/app)",
+  };
+
+  it("stores query results as a ready, searchable document", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createDatabaseSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Product FAQ" },
+      connector,
+      result: { text: "question: Return policy?\nanswer: 30 days", status: "extracted", rowCount: 1 },
+    });
+    expect(source.sourceType).toBe("database");
+    expect(source.status).toBe("ready");
+    // The connection secret is only stored as ciphertext, never in plaintext.
+    expect(source.metadata.connectionEncrypted).toBe(connector.connectionEncrypted);
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].textContent).toContain("30 days");
+    expect(docs[0].extractionStatus).toBe("extracted");
+  });
+
+  it("re-syncs by replacing the document with fresh rows", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createDatabaseSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Product FAQ" },
+      connector,
+      result: { text: "answer: 30 days", status: "extracted", rowCount: 1 },
+    });
+    await syncDatabaseSource(store, actor(aliceOrg.id, alice.id), source.id, {
+      text: "answer: 45 days",
+      status: "extracted",
+      rowCount: 1,
+    });
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1); // replaced, not duplicated
+    expect(docs[0].textContent).toContain("45 days");
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.synced")).toBe(true);
   });
 });
 

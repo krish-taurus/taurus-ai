@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import {
+  createDatabaseSourceAction,
   createFileSourceAction,
   createTextSourceAction,
   createUrlSourceAction,
@@ -19,12 +20,13 @@ import {
 import { ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/modules/knowledge/metadata";
 import { buttonClasses, cn, Field, FieldError, Input, Select, Textarea } from "@/components/ui";
 
-type Tab = "text" | "file" | "url";
+type Tab = "text" | "file" | "url" | "database";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "text", label: "Add Text" },
   { key: "file", label: "Upload File" },
   { key: "url", label: "Add Website" },
+  { key: "database", label: "Connect Database" },
 ];
 
 const MAX_MB = MAX_UPLOAD_BYTES / (1024 * 1024);
@@ -54,6 +56,7 @@ export function CreateKnowledgeForms() {
   const [textState, textAction] = useFormState(createTextSourceAction, {} as KnowledgeActionState);
   const [fileState, fileAction] = useFormState(createFileSourceAction, {} as KnowledgeActionState);
   const [urlState, urlAction] = useFormState(createUrlSourceAction, {} as KnowledgeActionState);
+  const [dbState, dbAction] = useFormState(createDatabaseSourceAction, {} as KnowledgeActionState);
 
   return (
     <div>
@@ -174,7 +177,7 @@ export function CreateKnowledgeForms() {
           <Field
             label="Website address"
             htmlFor="url-input"
-            hint="We save the address now. Reading the website automatically is coming in a later step."
+            hint="We fetch the page and save its text so your AI Employees can answer from it."
           >
             <Input
               id="url-input"
@@ -187,6 +190,56 @@ export function CreateKnowledgeForms() {
           <VisibilityField />
           {urlState?.error ? <FieldError>{urlState.error}</FieldError> : null}
           <SubmitButton label="Save website" />
+        </form>
+      ) : null}
+
+      {tab === "database" ? (
+        <form action={dbAction} className="space-y-5">
+          <input type="hidden" name="kind" value="postgres" />
+          <Field label="Name" htmlFor="db-name">
+            <Input id="db-name" name="name" required minLength={2} placeholder="e.g. Product catalog" />
+          </Field>
+          <Field label="Description" htmlFor="db-description" optional>
+            <Input
+              id="db-description"
+              name="description"
+              placeholder="A short note about this data"
+            />
+          </Field>
+          <Field label="Database" htmlFor="db-kind">
+            <Select id="db-kind" name="kindDisplay" defaultValue="postgres" disabled>
+              <option value="postgres">PostgreSQL</option>
+            </Select>
+          </Field>
+          <Field
+            label="Connection string"
+            htmlFor="db-connection"
+            hint="Use a read-only user. Stored encrypted; only the host is ever shown."
+          >
+            <Input
+              id="db-connection"
+              name="connectionString"
+              type="password"
+              required
+              placeholder="postgres://readonly:•••@host:5432/dbname"
+            />
+          </Field>
+          <Field
+            label="Read-only SQL query"
+            htmlFor="db-query"
+            hint="A single SELECT. Its rows are saved as searchable knowledge (up to 5,000 rows)."
+          >
+            <Textarea
+              id="db-query"
+              name="query"
+              rows={5}
+              required
+              placeholder="SELECT question, answer FROM faqs WHERE published = true"
+            />
+          </Field>
+          <VisibilityField />
+          {dbState?.error ? <FieldError>{dbState.error}</FieldError> : null}
+          <SubmitButton label="Connect & import" />
         </form>
       ) : null}
     </div>

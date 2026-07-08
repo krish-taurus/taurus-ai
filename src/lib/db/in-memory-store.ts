@@ -648,6 +648,20 @@ export class InMemoryStore implements DataStore {
     return doc;
   }
 
+  async deleteKnowledgeDocumentsForSource(
+    organizationId: string,
+    sourceId: string,
+  ): Promise<number> {
+    let removed = 0;
+    for (const [id, doc] of this.knowledgeDocuments) {
+      if (doc.organizationId === organizationId && doc.knowledgeSourceId === sourceId) {
+        this.knowledgeDocuments.delete(id);
+        removed += 1;
+      }
+    }
+    return removed;
+  }
+
   async assignKnowledgeSourceToEmployee(
     input: AssignKnowledgeInput,
   ): Promise<EmployeeKnowledgeAssignment> {
