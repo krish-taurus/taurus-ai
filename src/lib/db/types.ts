@@ -219,7 +219,7 @@ export interface ArchiveDnaVersionInput {
 
 // --- Knowledge Vault (Prompt 006) ------------------------------------------
 
-export type KnowledgeSourceType = "file" | "text" | "url" | "database";
+export type KnowledgeSourceType = "file" | "text" | "url" | "database" | "google_drive";
 
 export type KnowledgeSourceStatus =
   | "draft"

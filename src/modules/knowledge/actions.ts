@@ -10,6 +10,7 @@
  * adapter and are never served publicly.
  */
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getStore } from "@/lib/db/store";
@@ -18,7 +19,17 @@ import { hasPermission } from "@/modules/organizations/roles";
 import { localKnowledgeStorage } from "@/modules/knowledge/storage";
 import { extractUploadedFileText, fetchWebsiteText } from "@/modules/knowledge/extraction";
 import { runDatabaseQuery } from "@/modules/knowledge/connectors/database";
-import { createDatabaseSourceSchema } from "@/modules/knowledge/schema";
+import {
+  decodePendingConnection,
+  ingestDriveSource,
+  parseDriveId,
+  refreshAccessToken,
+  PENDING_COOKIE,
+} from "@/modules/knowledge/connectors/google-drive";
+import {
+  createDatabaseSourceSchema,
+  createGoogleDriveSourceSchema,
+} from "@/modules/knowledge/schema";
 import {
   isEncryptionConfigured,
   encryptApiKey,
@@ -29,9 +40,11 @@ import {
   assignKnowledgeToEmployee,
   createDatabaseSource,
   createFileSource,
+  createGoogleDriveSource,
   createTextSource,
   createUrlSource,
   syncDatabaseSource,
+  syncGoogleDriveSource,
   unassignKnowledgeFromEmployee,
   updateSourceMetadata,
   type KnowledgeActor,
@@ -225,6 +238,105 @@ export async function syncDatabaseSourceAction(
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not sync the database." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  revalidatePath(`/dashboard/knowledge/${sourceId}`);
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function createGoogleDriveSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  if (!isEncryptionConfigured()) {
+    return { error: "Secure storage is not configured, so connectors are disabled." };
+  }
+
+  // The just-connected account is carried in an encrypted, httpOnly cookie.
+  const pending = await decodePendingConnection(cookies().get(PENDING_COOKIE)?.value);
+  if (!pending) {
+    return { error: "The Google Drive connection expired. Please connect the account again." };
+  }
+
+  const parsed = createGoogleDriveSourceSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+    visibility: formData.get("visibility") ?? undefined,
+    link: formData.get("link"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please review the details." };
+  }
+  const values = parsed.data;
+
+  const rootId = parseDriveId(values.link);
+  if (!rootId) {
+    return { error: "That doesn't look like a Google Drive file or folder link." };
+  }
+
+  let sourceId: string;
+  try {
+    const accessToken = await refreshAccessToken(pending.refreshToken);
+    const ingest = await ingestDriveSource({ accessToken, rootId });
+    if (ingest.documents.length === 0) {
+      return {
+        error:
+          "No supported files were found there. Add PDFs, Word, text, or Google Docs/Sheets/Slides.",
+      };
+    }
+    const connectionEncrypted = await encryptApiKey(pending.refreshToken);
+    const source = await createGoogleDriveSource(getStore(), ctx.actor, {
+      meta: { name: values.name, description: values.description, visibility: values.visibility },
+      connector: {
+        email: pending.email,
+        rootId,
+        rootName: ingest.rootName,
+        connectionEncrypted,
+      },
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+    sourceId = source.id;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not import from Google Drive." };
+  }
+
+  // The connection is now stored on the source; clear the short-lived handoff.
+  cookies().delete(PENDING_COOKIE);
+  revalidatePath("/dashboard/knowledge");
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function syncGoogleDriveSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const sourceId = String(formData.get("sourceId") ?? "");
+
+  try {
+    const store = getStore();
+    const source = await store.getKnowledgeSource(ctx.actor.organizationId, sourceId);
+    if (!source || source.sourceType !== "google_drive") {
+      return { error: "This Google Drive source could not be found." };
+    }
+    const meta = source.metadata as { rootId?: string; connectionEncrypted?: string };
+    if (!meta.connectionEncrypted || !meta.rootId) {
+      return { error: "This source is missing its connection details. Please reconnect it." };
+    }
+    const refreshToken = await decryptApiKey(meta.connectionEncrypted);
+    const accessToken = await refreshAccessToken(refreshToken);
+    const ingest = await ingestDriveSource({ accessToken, rootId: meta.rootId });
+    await syncGoogleDriveSource(store, ctx.actor, sourceId, {
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not sync from Google Drive." };
   }
 
   revalidatePath("/dashboard/knowledge");

@@ -11,6 +11,7 @@ import type { KnowledgeSource } from "@/lib/db/types";
 import {
   archiveSourceAction,
   syncDatabaseSourceAction,
+  syncGoogleDriveSourceAction,
   type KnowledgeActionState,
 } from "@/modules/knowledge/actions";
 import { buttonClasses, FieldError } from "@/components/ui";
@@ -26,15 +27,16 @@ function SyncButton() {
 
 export function KnowledgeSourceActions({ source }: { source: KnowledgeSource }) {
   const isArchived = source.status === "archived";
+  const isSyncable = source.sourceType === "database" || source.sourceType === "google_drive";
   const [state, formAction] = useFormState(archiveSourceAction, {} as KnowledgeActionState);
   const [syncState, syncAction] = useFormState(
-    syncDatabaseSourceAction,
+    source.sourceType === "google_drive" ? syncGoogleDriveSourceAction : syncDatabaseSourceAction,
     {} as KnowledgeActionState,
   );
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2.5">
-        {source.sourceType === "database" && !isArchived ? (
+        {isSyncable && !isArchived ? (
           <form action={syncAction}>
             <input type="hidden" name="sourceId" value={source.id} />
             <SyncButton />
