@@ -1,5 +1,5 @@
 /**
- * Landing footer (Premium Landing v2). Server component — no motion needed.
+ * Light landing footer (Sprint 020). Server component — no motion needed.
  */
 
 import Link from "next/link";
@@ -9,7 +9,7 @@ const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
     title: "Product",
     links: [
       { label: "How it works", href: "#how-it-works" },
-      { label: "AI Employees", href: "#product" },
+      { label: "Use cases", href: "#use-cases" },
       { label: "Channels", href: "#channels" },
       { label: "Pricing", href: "#pricing" },
     ],
@@ -17,45 +17,38 @@ const COLUMNS: { title: string; links: { label: string; href: string }[] }[] = [
   {
     title: "Platform",
     links: [
-      { label: "Employee DNA", href: "#platform" },
-      { label: "Knowledge Vault", href: "#platform" },
-      { label: "Model Hub", href: "#platform" },
-      { label: "Unified Inbox", href: "#platform" },
+      { label: "Employee DNA", href: "#how-it-works" },
+      { label: "Knowledge Vault", href: "#how-it-works" },
+      { label: "Model Hub", href: "#model-hub" },
+      { label: "Performance Review", href: "#performance" },
     ],
   },
   {
-    title: "Resources",
+    title: "Get started",
     links: [
-      { label: "Get started", href: "/signup" },
+      { label: "Create account", href: "/signup" },
       { label: "Sign in", href: "/login" },
-    ],
-  },
-  {
-    title: "Company",
-    links: [
-      { label: "About Taurus", href: "#top" },
-      { label: "The workforce network", href: "#top" },
     ],
   },
 ];
 
-export function LandingFooter() {
+export function LandingFooterLight() {
   return (
-    <footer className="border-t border-white/[0.07] bg-[#030303]">
+    <footer className="border-t border-neutral-200 bg-white">
       <div className="mx-auto w-full max-w-6xl px-5 py-14 sm:px-8">
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-6">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
           <div className="col-span-2">
-            <p className="text-sm font-semibold tracking-[0.22em] text-taurus-text">
-              TAURUS<span className="text-taurus-faint"> AI</span>
+            <p className="text-sm font-semibold tracking-[0.22em] text-neutral-900">
+              TAURUS<span className="text-neutral-400"> AI</span>
             </p>
-            <p className="mt-3 max-w-xs text-sm leading-relaxed text-taurus-faint">
+            <p className="mt-3 max-w-xs text-sm leading-relaxed text-neutral-500">
               The operating system for AI Employees. Hire, train, deploy, and manage AI Employees
               across your business.
             </p>
           </div>
           {COLUMNS.map((column) => (
             <div key={column.title}>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-taurus-faint">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-neutral-400">
                 {column.title}
               </p>
               <ul className="mt-4 space-y-2.5">
@@ -64,7 +57,7 @@ export function LandingFooter() {
                     <li key={link.label}>
                       <Link
                         href={link.href}
-                        className="text-sm text-taurus-sub transition-colors duration-200 hover:text-taurus-text"
+                        className="text-sm text-neutral-500 transition-colors duration-200 hover:text-neutral-900"
                       >
                         {link.label}
                       </Link>
@@ -73,7 +66,7 @@ export function LandingFooter() {
                     <li key={link.label}>
                       <a
                         href={link.href}
-                        className="text-sm text-taurus-sub transition-colors duration-200 hover:text-taurus-text"
+                        className="text-sm text-neutral-500 transition-colors duration-200 hover:text-neutral-900"
                       >
                         {link.label}
                       </a>
@@ -84,20 +77,20 @@ export function LandingFooter() {
             </div>
           ))}
         </div>
-        <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-white/[0.07] pt-6 sm:flex-row sm:items-center">
-          <p className="text-xs text-taurus-faint">
+        <div className="mt-12 flex flex-col items-start justify-between gap-4 border-t border-neutral-200 pt-6 sm:flex-row sm:items-center">
+          <p className="text-xs text-neutral-400">
             © {new Date().getFullYear()} Taurus AI. All rights reserved.
           </p>
           <div className="flex items-center gap-4">
             <Link
               href="/login"
-              className="text-xs text-taurus-faint transition-colors hover:text-taurus-text"
+              className="text-xs text-neutral-400 transition-colors hover:text-neutral-900"
             >
               Sign in
             </Link>
             <Link
               href="/signup"
-              className="rounded-lg border border-white/12 px-3.5 py-1.5 text-xs font-medium text-taurus-text transition-colors hover:border-white/30"
+              className="rounded-lg border border-neutral-300 px-3.5 py-1.5 text-xs font-medium text-neutral-900 transition-colors hover:border-neutral-900"
             >
               Get started
             </Link>

@@ -32,6 +32,7 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  OrganizationOnboardingProgress,
   BillingSubscription,
   BillingCustomer,
   BillingEvent,
@@ -580,6 +581,22 @@ export interface DataStore {
     employeeId: string,
     limit?: number,
   ): Promise<AuditEvent[]>;
+
+  // Onboarding (Sprint 020) — organization-scoped first-run activation state.
+  // Step completion is DERIVED from real data; this only persists dismissal and
+  // the one-time completion milestone.
+  getOnboardingProgress(organizationId: string): Promise<OrganizationOnboardingProgress | null>;
+  /** Dismiss (or resume) the activation checklist for an organization. */
+  setOnboardingDismissed(
+    organizationId: string,
+    dismissed: boolean,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress>;
+  /** Record the completion milestone once (idempotent — keeps the first timestamp). */
+  markOnboardingCompleted(
+    organizationId: string,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress>;
 
   // Performance Review (Sprint 018) — organization-scoped. A child (criterion /
   // case / run / result) can never reference another org's parent.

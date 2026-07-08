@@ -1,51 +1,45 @@
 /**
- * Taurus AI landing page (Premium Landing v2).
+ * Taurus AI landing page (Sprint 020 — Landing Page, light theme).
  *
- * A cinematic, monochrome marketing experience: hero workforce network, the
- * scattered-AI problem, the operating-system grid, an animated six-step product
- * walkthrough, workforce/DNA/Vault/Model Hub/Channels/Inbox showcases,
- * enterprise trust, the future ecosystem, and the closing hire moment.
+ * A bright, editorial marketing home: white background, near-black ink, dark
+ * accents to highlight, oversized type, crisp inline-SVG imagery, and scroll-
+ * revealed sections — with a step-by-step use-cases walkthrough as the centerpiece.
+ * Built on the design system (monochrome tokens, inverted for light) with motion
+ * that respects prefers-reduced-motion via the shell's MotionConfig.
  *
- * Marketing surface only — no product logic. CTAs route to /signup and /login.
+ * Marketing surface only — no product logic, no tenant data. Pricing is read from
+ * the code-authoritative plans catalog. CTAs route to the real /signup and /login.
  */
 
-import { LandingShell } from "@/components/landing/landing-shell";
-import { LandingNavbar } from "@/components/landing/landing-navbar";
-import { Hero } from "@/components/landing/hero";
-import { ProblemSection } from "@/components/landing/problem-section";
-import { SolutionGrid } from "@/components/landing/solution-grid";
-import { AnimatedWorkflow } from "@/components/landing/animated-workflow";
-import { EmployeeCardShowcase } from "@/components/landing/employee-card-showcase";
-import { DnaPanel } from "@/components/landing/dna-panel";
-import { KnowledgeVaultAnimation } from "@/components/landing/knowledge-vault-animation";
-import { ModelHubAnimation } from "@/components/landing/model-hub-animation";
-import { ChannelsAnimation } from "@/components/landing/channels-animation";
-import { InboxAnimation } from "@/components/landing/inbox-animation";
-import { TrustGrid } from "@/components/landing/trust-grid";
-import { EcosystemSection } from "@/components/landing/ecosystem-section";
-import { FinalCta } from "@/components/landing/final-cta";
-import { LandingFooter } from "@/components/landing/landing-footer";
+import { LandingShellLight } from "@/components/landing/light/landing-shell-light";
+import { LandingNavbarLight } from "@/components/landing/light/landing-navbar-light";
+import { HeroLight } from "@/components/landing/light/hero-light";
+import { PositioningSection } from "@/components/landing/light/positioning-section";
+import { HiringStudioSection } from "@/components/landing/light/hiring-studio-section";
+import { UseCasesSection } from "@/components/landing/light/use-cases-section";
+import { ChannelsSection } from "@/components/landing/light/channels-section";
+import { PerformanceSection } from "@/components/landing/light/performance-section";
+import { ModelHubSection } from "@/components/landing/light/model-hub-section";
+import { PricingSection } from "@/components/landing/light/pricing-section";
+import { FinalCtaLight } from "@/components/landing/light/final-cta-light";
+import { LandingFooterLight } from "@/components/landing/light/landing-footer-light";
 
 export default function HomePage() {
   return (
-    <LandingShell>
-      <LandingNavbar />
+    <LandingShellLight>
+      <LandingNavbarLight />
       <main>
-        <Hero />
-        <ProblemSection />
-        <SolutionGrid />
-        <AnimatedWorkflow />
-        <EmployeeCardShowcase />
-        <DnaPanel />
-        <KnowledgeVaultAnimation />
-        <ModelHubAnimation />
-        <ChannelsAnimation />
-        <InboxAnimation />
-        <TrustGrid />
-        <EcosystemSection />
-        <FinalCta />
+        <HeroLight />
+        <PositioningSection />
+        <HiringStudioSection />
+        <UseCasesSection />
+        <ChannelsSection />
+        <PerformanceSection />
+        <ModelHubSection />
+        <PricingSection />
+        <FinalCtaLight />
       </main>
-      <LandingFooter />
-    </LandingShell>
+      <LandingFooterLight />
+    </LandingShellLight>
   );
 }

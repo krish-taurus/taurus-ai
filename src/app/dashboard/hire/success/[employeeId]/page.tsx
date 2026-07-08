@@ -45,15 +45,22 @@ export default async function HireSuccessPage({ params }: { params: { employeeId
         {employee.name} — {employee.roleTitle} has joined {organization.name}.
       </p>
 
+      <p className="mt-4 text-sm text-taurus-sub">
+        Try a conversation to see {employee.name} in action — then deploy across your channels.
+      </p>
+
       <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
         <Link
-          href={`/dashboard/employees/${employee.id}`}
+          href={`/dashboard/employees/${employee.id}/chat`}
           className={buttonClasses("primary", "lg")}
         >
-          View Employee profile
+          Test {employee.name} in chat
         </Link>
-        <Link href="/dashboard" className={buttonClasses("secondary", "lg")}>
-          Go to dashboard
+        <Link
+          href={`/dashboard/employees/${employee.id}`}
+          className={buttonClasses("secondary", "lg")}
+        >
+          View Employee profile
         </Link>
       </div>
 

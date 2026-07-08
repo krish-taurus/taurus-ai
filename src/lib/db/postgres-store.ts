@@ -18,6 +18,7 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  OrganizationOnboardingProgress,
   ChannelAppearance,
   ChannelCredentialMode,
   ChannelCredentialStatus,
@@ -332,6 +333,16 @@ function mapAuditEvent(row: Row): AuditEvent {
     targetId: row.target_id ?? null,
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapOnboardingProgress(row: Row): OrganizationOnboardingProgress {
+  return {
+    organizationId: row.organization_id,
+    dismissedAt: row.dismissed_at ? new Date(row.dismissed_at).toISOString() : null,
+    completedAt: row.completed_at ? new Date(row.completed_at).toISOString() : null,
+    updatedByUserId: row.updated_by_user_id ?? null,
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
@@ -2992,6 +3003,56 @@ export class PostgresStore implements DataStore {
       [organizationId, limit],
     );
     return rows.map(mapAuditEvent);
+  }
+
+  async getOnboardingProgress(
+    organizationId: string,
+  ): Promise<OrganizationOnboardingProgress | null> {
+    const { rows } = await this.query(
+      `select organization_id, dismissed_at, completed_at, updated_by_user_id, updated_at
+       from organization_onboarding
+       where organization_id = $1`,
+      [organizationId],
+    );
+    return rows[0] ? mapOnboardingProgress(rows[0]) : null;
+  }
+
+  async setOnboardingDismissed(
+    organizationId: string,
+    dismissed: boolean,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress> {
+    const { rows } = await this.query(
+      `insert into organization_onboarding
+         (organization_id, dismissed_at, completed_at, updated_by_user_id, updated_at)
+       values ($1, case when $2 then now() else null end, null, $3, now())
+       on conflict (organization_id) do update
+         set dismissed_at = case when $2 then now() else null end,
+             updated_by_user_id = $3,
+             updated_at = now()
+       returning organization_id, dismissed_at, completed_at, updated_by_user_id, updated_at`,
+      [organizationId, dismissed, userId],
+    );
+    return mapOnboardingProgress(rows[0]);
+  }
+
+  async markOnboardingCompleted(
+    organizationId: string,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress> {
+    // Idempotent: keep the first completion timestamp with coalesce.
+    const { rows } = await this.query(
+      `insert into organization_onboarding
+         (organization_id, dismissed_at, completed_at, updated_by_user_id, updated_at)
+       values ($1, null, now(), $2, now())
+       on conflict (organization_id) do update
+         set completed_at = coalesce(organization_onboarding.completed_at, now()),
+             updated_by_user_id = $2,
+             updated_at = now()
+       returning organization_id, dismissed_at, completed_at, updated_by_user_id, updated_at`,
+      [organizationId, userId],
+    );
+    return mapOnboardingProgress(rows[0]);
   }
 
   async listAuditEventsForEmployee(
