@@ -13,6 +13,7 @@
  * storage is configured on the server.
  */
 
+import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import {
   saveProviderCredentialAction,
@@ -21,6 +22,9 @@ import {
   type ModelHubActionState,
 } from "@/modules/model-gateway/actions";
 import { Badge, buttonClasses, Card, Field, FieldError, Input, Notice } from "@/components/ui";
+
+/** Where owners/admins go to change their plan. */
+const PLANS_HREF = "/dashboard/settings/billing/plans";
 
 export interface ProviderCredentialView {
   slug: string;
@@ -74,10 +78,12 @@ function ProviderRow({
   item,
   encryptionConfigured,
   canManage,
+  byokAvailable,
 }: {
   item: ProviderCredentialView;
   encryptionConfigured: boolean;
   canManage: boolean;
+  byokAvailable: boolean;
 }) {
   const [saveState, saveAction] = useFormState(
     saveProviderCredentialAction,
@@ -139,6 +145,18 @@ function ProviderRow({
         <p className="mt-3 text-sm text-taurus-faint">
           Only owners and admins can manage provider keys.
         </p>
+      ) : !byokAvailable ? (
+        <div className="mt-3 rounded-lg border border-taurus-line bg-taurus-muted px-4 py-4">
+          <p className="text-sm text-taurus-text">
+            Bringing your own model provider keys is available on the Growth and Scale plans.
+          </p>
+          <p className="mt-1 text-sm text-taurus-sub">
+            Upgrade your plan to connect your own keys.
+          </p>
+          <Link href={PLANS_HREF} className={buttonClasses("primary", "sm", "mt-3")}>
+            Upgrade plan
+          </Link>
+        </div>
       ) : (
         <div className="mt-4 space-y-3">
           <form action={saveAction} className="space-y-3">
@@ -226,10 +244,12 @@ export function ProviderCredentialsPanel({
   items,
   encryptionConfigured,
   canManage,
+  byokAvailable,
 }: {
   items: ProviderCredentialView[];
   encryptionConfigured: boolean;
   canManage: boolean;
+  byokAvailable: boolean;
 }) {
   return (
     <div className="space-y-4">
@@ -239,6 +259,7 @@ export function ProviderCredentialsPanel({
           item={item}
           encryptionConfigured={encryptionConfigured}
           canManage={canManage}
+          byokAvailable={byokAvailable}
         />
       ))}
     </div>
