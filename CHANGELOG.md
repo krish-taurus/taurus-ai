@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 019 - Embeddings & Semantic Retrieval — 2026-07-08
+
+Added:
+
+- **Embeddings for the Knowledge Vault** — sources are chunked into overlapping
+  passages (`src/modules/knowledge/embeddings.ts`: `chunkPassages`, default ~800
+  tokens / ~100 overlap, configurable) and embedded via an injected `Embedder`
+  port (no provider SDK). A zero-setup deterministic **local embedder** is the
+  default. Each chunk records its embedding model id + dimension so a model change
+  can trigger a re-embed. Migration `0018_embeddings.sql` adds the pgvector column
+  + HNSW index to the chunk table and an indexing state to sources.
+- **Hybrid retrieval** — chat retrieval is now semantic (vector top-k) **merged
+  with** the existing lexical signal, deduped by chunk, keeping the grounded-answer
+  contract. PostgreSQL uses pgvector cosine search; the in-memory store computes
+  cosine in code so behavior is identical in tests/dev. Retrieval stays strictly
+  org- and employee-assignment-scoped.
+- **Indexing service** (`src/modules/knowledge/indexing.ts`) — chunk → embed →
+  store, setting the source's indexing state (Indexing / Ready / Failed). Respects
+  the org's model access mode (managed → budget/mid + cost recorded via a new
+  non-billable `embedding` task type; BYOK → cost 0; frontier is BYOK-only), and a
+  backfill (`backfillOrganization` + `scripts/backfill-embeddings.ts`) that is
+  idempotent and re-embeds on source or model change.
+- **UI** — a Knowledge source card now shows its search-indexing state so a
+  manager knows when a source is searchable. Terminology-clean (no chunk/vector
+  wording in the UI).
+
 ## Sprint 018 - Performance Review (Evaluation) — 2026-07-08
 
 Added:

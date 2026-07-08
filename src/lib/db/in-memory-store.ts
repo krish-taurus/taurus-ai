@@ -75,7 +75,9 @@ import type {
   EmployeeModelSettings,
   KnowledgeDocument,
   KnowledgeRetrievalSegment,
+  KnowledgeIndexingState,
   KnowledgeSource,
+  SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
   ModelAccessMode,
@@ -123,6 +125,7 @@ import {
   modelsByProvider,
 } from "@/modules/model-gateway/catalog";
 import { rankSegments } from "@/modules/employee-chat/scoring";
+import { cosineSimilarity } from "@/modules/knowledge/embeddings";
 import { DEFAULT_PLAN_ID } from "@/modules/billing/plans";
 import { addOneMonthIso, isBillableInteraction } from "@/modules/billing/metadata";
 
@@ -528,12 +531,24 @@ export class InMemoryStore implements DataStore {
       visibility: input.visibility ?? "organization",
       createdByUserId: input.createdByUserId ?? null,
       archivedAt: null,
+      indexingState: "pending",
       metadata: input.metadata ?? {},
       createdAt: timestamp,
       updatedAt: timestamp,
     };
     this.knowledgeSources.set(source.id, source);
     return source;
+  }
+
+  async updateKnowledgeSourceIndexingState(
+    organizationId: string,
+    sourceId: string,
+    state: KnowledgeIndexingState,
+  ): Promise<void> {
+    const source = this.knowledgeSources.get(sourceId);
+    if (source && source.organizationId === organizationId) {
+      this.knowledgeSources.set(sourceId, { ...source, indexingState: state, updatedAt: now() });
+    }
   }
 
   async listKnowledgeSources(organizationId: string): Promise<KnowledgeSource[]> {
@@ -1167,6 +1182,9 @@ export class InMemoryStore implements DataStore {
         contentPreview: input.contentPreview,
         segmentIndex: input.segmentIndex,
         status: "ready",
+        embedding: input.embedding ?? null,
+        embeddingModelId: input.embeddingModelId ?? null,
+        embeddingDim: input.embeddingDim ?? null,
         metadata: input.metadata ?? {},
         createdAt: timestamp,
         updatedAt: timestamp,
@@ -1229,6 +1247,34 @@ export class InMemoryStore implements DataStore {
       employeeId,
     );
     return rankSegments(query, segments, limit);
+  }
+
+  async semanticSearchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    queryVector: number[],
+    limit = 5,
+  ): Promise<SemanticRetrievalSegment[]> {
+    // Cosine similarity in code — identical ranking to the pgvector path. Strictly
+    // org- + assignment-scoped via listKnowledgeRetrievalSegmentsForEmployee.
+    const segments = await this.listKnowledgeRetrievalSegmentsForEmployee(
+      organizationId,
+      employeeId,
+    );
+    const scored: SemanticRetrievalSegment[] = [];
+    for (const segment of segments) {
+      if (!segment.embedding || segment.embedding.length !== queryVector.length) continue;
+      const similarity = cosineSimilarity(queryVector, segment.embedding);
+      if (similarity > 0) scored.push({ segment, similarity });
+    }
+    scored.sort((a, b) => {
+      if (b.similarity !== a.similarity) return b.similarity - a.similarity;
+      if (a.segment.segmentIndex !== b.segment.segmentIndex) {
+        return a.segment.segmentIndex - b.segment.segmentIndex;
+      }
+      return a.segment.id.localeCompare(b.segment.id);
+    });
+    return scored.slice(0, Math.max(1, limit));
   }
 
   async deleteKnowledgeRetrievalSegmentsForSource(

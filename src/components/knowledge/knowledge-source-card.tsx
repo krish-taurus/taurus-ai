@@ -6,7 +6,11 @@ import Link from "next/link";
 import type { KnowledgeSource } from "@/lib/db/types";
 import { formatDate } from "@/lib/format";
 import { Card } from "@/components/ui";
-import { KnowledgeStatusBadge, KnowledgeTypeBadge } from "@/components/knowledge/knowledge-badges";
+import {
+  KnowledgeIndexingBadge,
+  KnowledgeStatusBadge,
+  KnowledgeTypeBadge,
+} from "@/components/knowledge/knowledge-badges";
 
 export function KnowledgeSourceCard({ source }: { source: KnowledgeSource }) {
   return (
@@ -25,10 +29,11 @@ export function KnowledgeSourceCard({ source }: { source: KnowledgeSource }) {
           <p className="mt-2 text-sm text-taurus-faint">No description</p>
         )}
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
           <KnowledgeStatusBadge status={source.status} />
-          <span className="text-xs text-taurus-faint">Updated {formatDate(source.updatedAt)}</span>
+          <KnowledgeIndexingBadge state={source.indexingState} />
         </div>
+        <span className="mt-2 text-xs text-taurus-faint">Updated {formatDate(source.updatedAt)}</span>
       </Card>
     </Link>
   );

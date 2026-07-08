@@ -1186,6 +1186,52 @@ onboarding.
 Enterprise SSO/SAML, SCIM, and multi-factor authentication are out of scope for
 this sprint.
 
+# Embeddings & Semantic Retrieval (Sprint 019)
+
+Retrieval from the Knowledge Vault was lexical (keyword) only, so an AI Employee
+missed answers worded differently from the source. This adds embedding-based
+**semantic** retrieval — the single biggest lift to answer quality across every
+Employee (and it raises Performance Review scores as a side effect).
+
+## What landed
+
+- **Embedding generation** (`src/modules/knowledge/embeddings.ts`) — sources are
+  chunked into overlapping passages (`chunkPassages`, default ~800 tokens / ~100
+  overlap, configurable) and embedded via an injected, provider-agnostic
+  `Embedder` port (no provider SDK). A deterministic **local embedder** is the
+  zero-setup default. Each chunk records its embedding model id + dimension so a
+  model change can trigger a re-embed rather than silently mixing vector spaces.
+- **Vector storage & search** — migration `0018_embeddings.sql` adds a pgvector
+  column + HNSW index to the chunk table (org-scoped). PostgreSQL uses pgvector
+  cosine search; the in-memory store computes cosine in code so ordering is
+  identical in tests/dev. Chunks are dropped + recreated on source change (no
+  orphans).
+- **Hybrid retrieval at chat runtime** — semantic top-k (vector) is merged with
+  the existing lexical signal, deduped by chunk, then grounded into the reply
+  exactly as before. The query is embedded with the same model as the chunks.
+  Retrieval is strictly org- and **employee-assignment-scoped** — never across
+  orgs. `topK`, chunk size, and overlap are configurable.
+- **Indexing service** (`src/modules/knowledge/indexing.ts`) — chunk → embed →
+  store, setting the source's indexing state (Indexing / Ready / Failed). Respects
+  the org's model access mode (managed → budget/mid + cost recorded via a new
+  **non-billable** `embedding` task type; BYOK → cost 0; frontier is BYOK-only),
+  and a backfill (`backfillOrganization` + `scripts/backfill-embeddings.ts`) that
+  is idempotent and re-embeds on source or model change.
+- **UI** — a Knowledge source now shows its search-indexing state so a manager
+  knows when it's searchable. Terminology-clean (no chunk / vector wording).
+
+## Security
+
+Cross-org isolation on every retrieval and chunk query; embedding/backfill run
+under an org context with server-side permission checks (`knowledge.manage`); no
+provider keys in the client; chunk/vector rows are source-derived text + numbers
+only.
+
+## Not in this sprint
+
+Reranking models, multi-vector / late-interaction retrieval, per-source tuning UI,
+OCR/image knowledge, and automatic freshness/recrawl. Future work.
+
 # Performance Review — Evaluation (Sprint 018)
 
 Lets a manager measure an AI Employee's quality: score it against real situations
