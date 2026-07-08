@@ -1,11 +1,11 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { ModelCatalogTable } from "@/components/model-hub/model-catalog-table";
 import { PricingDisclaimer } from "@/components/model-hub/pricing-disclaimer";
-import { buttonClasses, PageHeader } from "@/components/ui";
+import { ModelHubNav } from "@/components/model-hub/model-hub-nav";
+import { PageHeader } from "@/components/ui";
 
 export default async function ModelCatalogPage() {
   const { membership } = await requireCurrentOrganization();
@@ -22,12 +22,8 @@ export default async function ModelCatalogPage() {
         eyebrow="Model Hub"
         title="Model catalog"
         description="Every provider and model Taurus can use, with capabilities and approximate pricing."
-        action={
-          <Link href="/dashboard/settings/models" className={buttonClasses("secondary")}>
-            Back to Model Hub
-          </Link>
-        }
       />
+      <ModelHubNav />
       <div className="mb-4">
         <PricingDisclaimer />
       </div>

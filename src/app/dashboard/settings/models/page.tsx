@@ -9,6 +9,7 @@ import { getModel } from "@/modules/model-gateway/catalog";
 import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
 import { formatUsd } from "@/modules/model-gateway/pricing";
 import { CostEstimateCard } from "@/components/model-hub/cost-estimate-card";
+import { ModelHubNav } from "@/components/model-hub/model-hub-nav";
 import { Badge, buttonClasses, Card, PageHeader, StatCard } from "@/components/ui";
 
 export default async function ModelHubOverviewPage() {
@@ -64,6 +65,8 @@ export default async function ModelHubOverviewPage() {
         }
       />
 
+      <ModelHubNav />
+
       <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="Default Employee Brain" value={defaultBrainLabel} />
         <StatCard
@@ -109,14 +112,6 @@ export default async function ModelHubOverviewPage() {
         </Card>
       </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Link href="/dashboard/settings/models/catalog" className={buttonClasses("secondary")}>
-          View model catalog
-        </Link>
-        <Link href="/dashboard/settings/models/providers" className={buttonClasses("secondary")}>
-          Manage providers
-        </Link>
-      </div>
     </div>
   );
 }

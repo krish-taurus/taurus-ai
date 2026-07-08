@@ -3,6 +3,7 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { OrgModelSettingsForm } from "@/components/model-hub/org-model-settings-form";
+import { ModelHubNav } from "@/components/model-hub/model-hub-nav";
 import { PageHeader } from "@/components/ui";
 
 export default async function ConfigureModelHubPage() {
@@ -25,6 +26,7 @@ export default async function ConfigureModelHubPage() {
         title="Configure Model Hub"
         description="Set the default Employee Brain, allowed providers, and budget for your organization."
       />
+      <ModelHubNav />
       <OrgModelSettingsForm settings={settings} models={models} providers={providers} />
     </div>
   );
