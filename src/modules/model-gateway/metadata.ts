@@ -95,6 +95,7 @@ export const TASK_TYPE_LABELS: Record<LlmTaskType, string> = {
   tool_planning: "Task planning",
   internal_collaboration: "Internal collaboration",
   voice_realtime: "Voice (realtime)",
+  performance_review: "Performance review",
   system_test: "System test",
 };
 

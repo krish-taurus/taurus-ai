@@ -11,6 +11,22 @@
  */
 
 import type {
+  Scorecard,
+  Criterion,
+  ReviewCase,
+  ReviewRun,
+  ReviewResult,
+  ScorecardDetail,
+  PerformancePoint,
+  CreateScorecardInput,
+  CreateCriterionInput,
+  CreateReviewCaseInput,
+  CreateReviewRunInput,
+  CreateReviewResultInput,
+  UpdateReviewRunInput,
+  ReviewRunFilter,
+} from "@/modules/performance/types";
+import type {
   AiEmployee,
   ArchiveDnaVersionInput,
   AssignKnowledgeInput,
@@ -549,6 +565,28 @@ export interface DataStore {
     employeeId: string,
     limit?: number,
   ): Promise<AuditEvent[]>;
+
+  // Performance Review (Sprint 018) — organization-scoped. A child (criterion /
+  // case / run / result) can never reference another org's parent.
+  createScorecard(input: CreateScorecardInput): Promise<Scorecard>;
+  getScorecard(organizationId: string, scorecardId: string): Promise<Scorecard | null>;
+  listScorecards(organizationId: string): Promise<Scorecard[]>;
+  /** A scorecard with its criteria + cases, or null if not in this org. */
+  getScorecardDetail(organizationId: string, scorecardId: string): Promise<ScorecardDetail | null>;
+  createCriterion(input: CreateCriterionInput): Promise<Criterion>;
+  createReviewCase(input: CreateReviewCaseInput): Promise<ReviewCase>;
+  createReviewRun(input: CreateReviewRunInput): Promise<ReviewRun>;
+  updateReviewRun(
+    organizationId: string,
+    runId: string,
+    patch: UpdateReviewRunInput,
+  ): Promise<ReviewRun | null>;
+  getReviewRun(organizationId: string, runId: string): Promise<ReviewRun | null>;
+  listReviewRuns(organizationId: string, filter: ReviewRunFilter): Promise<ReviewRun[]>;
+  createReviewResult(input: CreateReviewResultInput): Promise<ReviewResult>;
+  listReviewResults(organizationId: string, runId: string): Promise<ReviewResult[]>;
+  /** Completed-run trend for one employee (oldest→newest), for the score-over-time chart. */
+  getPerformanceTrend(organizationId: string, employeeId: string): Promise<PerformancePoint[]>;
 }
 
 /**

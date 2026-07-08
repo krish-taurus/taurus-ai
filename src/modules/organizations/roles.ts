@@ -34,6 +34,11 @@ export const PERMISSIONS = [
   // organization's usage vs. plan quota. (Taurus cost/margin is NOT a tenant
   // permission — it is gated by the separate platform-operator allowlist.)
   "usage.view",
+  // Performance Review (Sprint 018). view = see scorecards + runs + trend (all
+  // roles); manage = create scorecards/cases + start runs (owner/admin/builder,
+  // not viewer). A Growth+ feature, also gated server-side by the plan flag.
+  "performance.view",
+  "performance.manage",
   "member.invite",
   "member.manage_roles",
   "audit.view",
@@ -76,6 +81,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "billing.view",
     "billing.manage",
     "usage.view",
+    "performance.view",
+    "performance.manage",
     "member.invite",
     "audit.view",
     "employee.create",
@@ -97,6 +104,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   builder: new Set<Permission>([
     "billing.view",
     "usage.view",
+    "performance.view",
+    "performance.manage",
     "employee.create",
     "employee_dna.edit",
     "knowledge.view",
@@ -113,6 +122,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
   viewer: new Set<Permission>([
     "billing.view",
     "usage.view",
+    "performance.view",
     "employee.view",
     "employee.test",
     "knowledge.view",
