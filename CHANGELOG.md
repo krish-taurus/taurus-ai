@@ -1,5 +1,26 @@
 # Changelog
 
+## Sprint 021 - Knowledge ingestion + app polish — 2026-07-08
+
+Added:
+
+- **Real Knowledge Vault ingestion** (`src/modules/knowledge/extraction.ts`).
+  Previously PDFs/DOCX were stored without their text and website URLs were never
+  fetched, so AI Employees had nothing to ground on. Now:
+  - **PDF** text is extracted (`pdf-parse`) and **DOCX** via `mammoth`; text
+    formats (txt/md/csv/json) decode as before. A file whose text can't be read
+    (e.g. a scanned PDF) is still saved but flagged for attention.
+  - **Websites are fetched** and reduced to readable text, **SSRF-guarded** —
+    http/https only, and every hop must resolve to a public IP (localhost,
+    private ranges, and cloud-metadata endpoints are blocked), with time/size
+    caps. The page text is stored as a searchable document.
+  - Extraction runs in the server action; the service stays pure/testable.
+  Extracted content flows into the existing prepare/index → hybrid retrieval, so
+  Employees can finally answer from uploaded documents and saved websites.
+- **App polish** — the whole dashboard now uses the light (white/black/grey)
+  theme, grouped icon-based navigation (sidebar + a new mobile menu), a Model Hub
+  sub-nav, standardized back links, and a BYOK upgrade call-to-action.
+
 ## Sprint 020 - Onboarding Polish + Landing Page — 2026-07-08
 
 Added:
