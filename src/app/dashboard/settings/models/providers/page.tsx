@@ -9,6 +9,7 @@ import {
   ProviderCredentialsPanel,
   type ProviderCredentialView,
 } from "@/components/model-hub/provider-credentials";
+import { AccessModeToggle } from "@/components/model-hub/access-mode-toggle";
 import { buttonClasses, Notice, PageHeader } from "@/components/ui";
 
 export default async function ModelProvidersPage() {
@@ -64,6 +65,10 @@ export default async function ModelProvidersPage() {
           </Notice>
         </div>
       ) : null}
+
+      <div className="mb-6">
+        <AccessModeToggle current={organization.modelAccessMode} canManage={canManage} />
+      </div>
 
       <ProviderCredentialsPanel
         items={items}

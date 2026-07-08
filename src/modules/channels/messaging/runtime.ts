@@ -161,6 +161,7 @@ export async function handleInboundMessagingMessage(
         employee,
         threadId: session.threadId,
         message: inbound.messageText,
+        channelType: channel.channelType,
       },
     );
     replyText = result.assistantMessage.content;

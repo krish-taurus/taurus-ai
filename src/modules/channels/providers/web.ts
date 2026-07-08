@@ -41,6 +41,7 @@ export const webChannelProvider: ChannelProvider & ChannelRuntime = {
         employee,
         threadId: session.threadId,
         message,
+        channelType: channel.channelType,
       },
     );
 

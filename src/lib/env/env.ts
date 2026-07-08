@@ -82,6 +82,14 @@ const serverSchema = z
     STRIPE_WEBHOOK_SECRET: z.string().optional().or(z.literal("")),
     STRIPE_PRICE_GROWTH: z.string().optional().or(z.literal("")),
     STRIPE_PRICE_SCALE: z.string().optional().or(z.literal("")),
+    // Usage & Margin (Sprint 016). Comma-separated allowlist of platform-OPERATOR
+    // user ids that may see Taurus's cross-tenant cost/margin. SERVER-ONLY (never
+    // NEXT_PUBLIC_*); this is NOT an org role and is never assignable from the
+    // tenant UI. Absent → nobody is an operator (deny-by-default).
+    PLATFORM_OPERATOR_USER_IDS: z.string().optional().or(z.literal("")),
+    // Optional operator-tunable managed sell prices (Sprint 016; displayed only).
+    MANAGED_INTERACTION_PRICE_USD: z.string().optional().or(z.literal("")),
+    MANAGED_INTERACTION_PRICE_BUDGET_USD: z.string().optional().or(z.literal("")),
   })
   .superRefine((env, ctx) => {
     const secret = env.AUTH_SECRET;
@@ -191,6 +199,9 @@ export function getServerEnv(): ServerEnv {
       STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
       STRIPE_PRICE_GROWTH: process.env.STRIPE_PRICE_GROWTH,
       STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE,
+      PLATFORM_OPERATOR_USER_IDS: process.env.PLATFORM_OPERATOR_USER_IDS,
+      MANAGED_INTERACTION_PRICE_USD: process.env.MANAGED_INTERACTION_PRICE_USD,
+      MANAGED_INTERACTION_PRICE_BUDGET_USD: process.env.MANAGED_INTERACTION_PRICE_BUDGET_USD,
     });
   }
   return cachedServerEnv;

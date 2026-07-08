@@ -270,7 +270,9 @@ describe("Employee Brain save persistence", () => {
   it("persists an advanced exact model, then clears the override on inherit", async () => {
     const store = new InMemoryStore();
     const emp = await seedEmployee(store);
-    const model = modelsByProvider("anthropic")[0].modelId;
+    // A non-frontier model — frontier models are BYOK-only in managed mode
+    // (covered in usage-cost-margin.test.ts).
+    const model = "claude-sonnet-5";
 
     const advanced = await updateEmployeeBrain(store, actor, emp.id, {
       selection: "advanced",

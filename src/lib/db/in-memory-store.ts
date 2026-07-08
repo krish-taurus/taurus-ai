@@ -74,8 +74,10 @@ import type {
   KnowledgeSource,
   KnowledgeVaultOverview,
   LlmUsageEvent,
+  ModelAccessMode,
   ModelHubOverview,
   Organization,
+  UsageCostAggregateRow,
   OrganizationMember,
   OrganizationMembershipView,
   OrganizationModelSettings,
@@ -229,6 +231,17 @@ export class InMemoryStore implements DataStore {
     return views;
   }
 
+  async updateOrganizationModelAccessMode(
+    organizationId: string,
+    mode: ModelAccessMode,
+  ): Promise<Organization> {
+    const org = this.organizations.get(organizationId);
+    if (!org) throw new Error(`Organization ${organizationId} not found.`);
+    const updated: Organization = { ...org, modelAccessMode: mode, updatedAt: now() };
+    this.organizations.set(organizationId, updated);
+    return updated;
+  }
+
   async getMembership(organizationId: string, userId: string): Promise<OrganizationMember | null> {
     for (const membership of this.members.values()) {
       if (membership.organizationId === organizationId && membership.userId === userId) {
@@ -255,6 +268,8 @@ export class InMemoryStore implements DataStore {
       industry: input.organization.industry ?? null,
       websiteUrl: input.organization.websiteUrl ?? null,
       sizeRange: input.organization.sizeRange ?? null,
+      // Zero-setup default: managed access mode (Sprint 016).
+      modelAccessMode: "managed",
       createdAt: timestamp,
       updatedAt: timestamp,
     };
@@ -913,6 +928,11 @@ export class InMemoryStore implements DataStore {
       cachedInputTokens: input.cachedInputTokens ?? 0,
       outputTokens: input.outputTokens,
       estimatedCostUsd: input.estimatedCostUsd ?? null,
+      costUsd: input.costUsd ?? null,
+      unitInputPrice: input.unitInputPrice ?? null,
+      unitOutputPrice: input.unitOutputPrice ?? null,
+      byok: input.byok ?? false,
+      channelType: input.channelType ?? null,
       latencyMs: input.latencyMs ?? null,
       status: input.status,
       errorCode: input.errorCode ?? null,
@@ -922,6 +942,57 @@ export class InMemoryStore implements DataStore {
     };
     this.llmUsageEvents.push(event);
     return event;
+  }
+
+  // --- Usage & cost aggregates (Sprint 016) ---------------------------------
+
+  /** Billable usage events for an organization since a timestamp (tenant-scoped). */
+  async listBillableUsageEventsSince(
+    organizationId: string,
+    sinceIso: string,
+  ): Promise<LlmUsageEvent[]> {
+    return this.llmUsageEvents.filter(
+      (e) =>
+        e.organizationId === organizationId &&
+        e.status !== "blocked" &&
+        isBillableInteraction(e.taskType) &&
+        e.createdAt >= sinceIso,
+    );
+  }
+
+  /**
+   * Cross-tenant per-organization usage-cost aggregate since a timestamp.
+   * OPERATOR-ONLY: never call from a tenant route (it is not org-scoped).
+   */
+  async aggregateUsageCostsSince(sinceIso: string): Promise<UsageCostAggregateRow[]> {
+    const byOrg = new Map<string, UsageCostAggregateRow>();
+    for (const e of this.llmUsageEvents) {
+      if (e.status === "blocked" || !isBillableInteraction(e.taskType)) continue;
+      if (e.createdAt < sinceIso) continue;
+      const row =
+        byOrg.get(e.organizationId) ??
+        ({
+          organizationId: e.organizationId,
+          interactionCount: 0,
+          managedInteractionCount: 0,
+          byokInteractionCount: 0,
+          totalCostUsd: 0,
+        } satisfies UsageCostAggregateRow);
+      row.interactionCount += 1;
+      if (e.byok) row.byokInteractionCount += 1;
+      else row.managedInteractionCount += 1;
+      row.totalCostUsd += e.costUsd ?? 0;
+      byOrg.set(e.organizationId, row);
+    }
+    return [...byOrg.values()];
+  }
+
+  /**
+   * Every organization's current subscription. OPERATOR-ONLY (cross-tenant) —
+   * used to compute per-org revenue for the margin view.
+   */
+  async listAllBillingSubscriptions(): Promise<BillingSubscription[]> {
+    return [...this.billingSubscriptions.values()];
   }
 
   async getModelHubOverview(organizationId: string): Promise<ModelHubOverview> {

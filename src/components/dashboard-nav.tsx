@@ -24,6 +24,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/settings/models", label: "Model Hub" },
   { href: "/dashboard/connections", label: "Connections" },
   { href: "/dashboard/collaboration", label: "Collaboration" },
+  { href: "/dashboard/usage", label: "Usage" },
   { href: "/dashboard/settings/billing", label: "Billing" },
   { href: "/dashboard/audit", label: "Audit" },
   { href: "/dashboard/settings", label: "Settings" },

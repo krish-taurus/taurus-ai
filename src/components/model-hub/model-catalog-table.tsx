@@ -9,6 +9,7 @@ import { Card } from "@/components/ui";
 import type { AiModel, ModelProvider } from "@/modules/model-gateway/types";
 import { formatUsd } from "@/modules/model-gateway/pricing";
 import { TIER_LABELS } from "@/modules/model-gateway/metadata";
+import { COST_TIER_LABELS, costTierForModel } from "@/modules/usage/model-pricing";
 
 function featureList(model: AiModel): string {
   const feats: string[] = [];
@@ -44,6 +45,7 @@ export function ModelCatalogTable({
               <th className="px-4 py-3 font-medium">Provider</th>
               <th className="px-4 py-3 font-medium">Model</th>
               <th className="px-4 py-3 font-medium">Tier</th>
+              <th className="px-4 py-3 font-medium">Cost tier</th>
               <th className="px-4 py-3 font-medium">Features</th>
               <th className="px-4 py-3 font-medium">Context</th>
               <th className="px-4 py-3 font-medium">In / Out (per 1M)</th>
@@ -64,6 +66,12 @@ export function ModelCatalogTable({
                   <div className="mt-0.5 font-mono text-xs text-taurus-faint">{model.modelId}</div>
                 </td>
                 <td className="px-4 py-3 text-taurus-sub">{TIER_LABELS[model.modelTier]}</td>
+                <td className="px-4 py-3 text-taurus-sub">
+                  {COST_TIER_LABELS[costTierForModel(model)]}
+                  {costTierForModel(model) === "frontier" ? (
+                    <span className="mt-0.5 block text-xs text-taurus-faint">Requires your own key</span>
+                  ) : null}
+                </td>
                 <td className="px-4 py-3 text-taurus-sub">{featureList(model)}</td>
                 <td className="px-4 py-3 text-taurus-sub">
                   {contextLabel(model.contextWindowTokens)}

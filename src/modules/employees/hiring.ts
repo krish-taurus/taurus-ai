@@ -28,6 +28,7 @@ import {
   TONE_OPTIONS,
 } from "@/modules/employees/hiring-templates";
 import { assertCanHireEmployee } from "@/modules/billing/service";
+import { DEFAULT_EMPLOYEE_MODEL_ID } from "@/modules/usage/model-pricing";
 
 const responsibilitySchema = z.string().trim().min(1).max(200);
 
@@ -93,6 +94,15 @@ export async function hireEmployee(
       escalation: values.escalation as EmployeeEscalation,
     },
     createdBy: actor.userId,
+  });
+
+  // Margin guardrail (Sprint 016): a new AI Employee starts on a budget-tier
+  // model. Owners/admins can switch to a Standard/Premium model later (Model Hub);
+  // this only sets the safe default so a flat plan starts cheap to serve.
+  await store.updateEmployeeModelSettings(actor.organizationId, employee.id, {
+    modelId: DEFAULT_EMPLOYEE_MODEL_ID,
+    routingMode: "manual",
+    updatedByUserId: actor.userId,
   });
 
   await store.createAuditEvent({
