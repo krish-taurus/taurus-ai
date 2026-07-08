@@ -242,6 +242,123 @@ export async function createUrlSource(
   return source;
 }
 
+/** Non-secret + encrypted connector config stored on a database source. */
+export interface DatabaseConnectorMeta {
+  kind: "postgres";
+  /** Host shown in the UI (never the full connection string). */
+  displayHost: string;
+  query: string;
+  /** Encrypted connection string (ciphertext only — never plaintext). */
+  connectionEncrypted: string;
+}
+
+/**
+ * Flow D: create a database knowledge source. The caller (server action) runs the
+ * read-only query and encrypts the connection string, then passes the results in;
+ * the query output is stored as a searchable document. Pure + testable.
+ */
+export async function createDatabaseSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  input: {
+    meta: unknown;
+    connector: DatabaseConnectorMeta;
+    result: ExtractionInput & { rowCount: number };
+  },
+): Promise<KnowledgeSource> {
+  const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
+  if (!parsedMeta.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsedMeta.error, "Invalid details."));
+  }
+  const meta = parsedMeta.data;
+
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
+  const readable = input.result.status === "extracted" && !!input.result.text;
+
+  const source = await store.createKnowledgeSource({
+    organizationId: actor.organizationId,
+    name: meta.name,
+    description: emptyToNull(meta.description),
+    sourceType: "database",
+    status: readable ? "ready" : "failed",
+    visibility: meta.visibility,
+    metadata: {
+      kind: input.connector.kind,
+      displayHost: input.connector.displayHost,
+      query: input.connector.query,
+      connectionEncrypted: input.connector.connectionEncrypted,
+      rowCount: input.result.rowCount,
+    },
+    createdByUserId: actor.userId,
+  });
+
+  await store.createKnowledgeDocument({
+    organizationId: actor.organizationId,
+    knowledgeSourceId: source.id,
+    title: meta.name,
+    contentType: "text/plain",
+    textContent: input.result.text,
+    textPreview: input.result.text ? makePreview(input.result.text) : null,
+    extractionStatus: input.result.status,
+    createdByUserId: actor.userId,
+  });
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.created",
+    targetType: "knowledge_source",
+    targetId: source.id,
+    metadata: { sourceId: source.id, sourceType: source.sourceType, status: source.status },
+  });
+
+  return source;
+}
+
+/** Re-run a database source's query: replace its document with fresh results. */
+export async function syncDatabaseSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  sourceId: string,
+  result: ExtractionInput & { rowCount: number },
+): Promise<KnowledgeSource> {
+  const existing = await store.getKnowledgeSource(actor.organizationId, sourceId);
+  if (!existing || existing.sourceType !== "database") throw new KnowledgeNotFoundError();
+
+  const readable = result.status === "extracted" && !!result.text;
+
+  await store.deleteKnowledgeDocumentsForSource(actor.organizationId, sourceId);
+  await store.createKnowledgeDocument({
+    organizationId: actor.organizationId,
+    knowledgeSourceId: sourceId,
+    title: existing.name,
+    contentType: "text/plain",
+    textContent: result.text,
+    textPreview: result.text ? makePreview(result.text) : null,
+    extractionStatus: result.status,
+    createdByUserId: actor.userId,
+  });
+
+  const updated =
+    (await store.updateKnowledgeSource(actor.organizationId, sourceId, {
+      status: readable ? "ready" : "failed",
+    })) ?? existing;
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.synced",
+    targetType: "knowledge_source",
+    targetId: sourceId,
+    metadata: { sourceId, sourceType: "database", rowCount: result.rowCount, status: updated.status },
+  });
+
+  return updated;
+}
+
 /** Flow B: create a file knowledge source, storing the file via the adapter. */
 export async function createFileSource(
   store: DataStore,

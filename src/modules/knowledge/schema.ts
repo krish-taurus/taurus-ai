@@ -40,6 +40,24 @@ export const createUrlSourceSchema = z.object({
     }),
 });
 
+export const createDatabaseSourceSchema = z.object({
+  name: knowledgeNameSchema,
+  description: knowledgeDescriptionSchema,
+  visibility: knowledgeVisibilitySchema.default("organization"),
+  kind: z.literal("postgres", {
+    errorMap: () => ({ message: "Choose a supported database." }),
+  }),
+  connectionString: z
+    .string()
+    .trim()
+    .min(1, "Enter your database connection string.")
+    .max(4000)
+    .refine((v) => /^postgres(ql)?:\/\//i.test(v), {
+      message: "Enter a PostgreSQL connection string (postgres://…).",
+    }),
+  query: z.string().trim().min(1, "Enter a read-only SQL query.").max(20_000),
+});
+
 export const createFileSourceMetaSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
@@ -54,5 +72,6 @@ export const updateKnowledgeSourceSchema = z.object({
 
 export type CreateTextSourceValues = z.infer<typeof createTextSourceSchema>;
 export type CreateUrlSourceValues = z.infer<typeof createUrlSourceSchema>;
+export type CreateDatabaseSourceValues = z.infer<typeof createDatabaseSourceSchema>;
 export type CreateFileSourceMetaValues = z.infer<typeof createFileSourceMetaSchema>;
 export type UpdateKnowledgeSourceValues = z.infer<typeof updateKnowledgeSourceSchema>;

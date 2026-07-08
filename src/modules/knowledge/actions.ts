@@ -17,12 +17,21 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { localKnowledgeStorage } from "@/modules/knowledge/storage";
 import { extractUploadedFileText, fetchWebsiteText } from "@/modules/knowledge/extraction";
+import { runDatabaseQuery } from "@/modules/knowledge/connectors/database";
+import { createDatabaseSourceSchema } from "@/modules/knowledge/schema";
+import {
+  isEncryptionConfigured,
+  encryptApiKey,
+  decryptApiKey,
+} from "@/modules/model-gateway/credentials";
 import {
   archiveSource,
   assignKnowledgeToEmployee,
+  createDatabaseSource,
   createFileSource,
   createTextSource,
   createUrlSource,
+  syncDatabaseSource,
   unassignKnowledgeFromEmployee,
   updateSourceMetadata,
   type KnowledgeActor,
@@ -131,6 +140,95 @@ export async function createFileSourceAction(
   }
 
   revalidatePath("/dashboard/knowledge");
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function createDatabaseSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  if (!isEncryptionConfigured()) {
+    return { error: "Secure storage is not configured, so database connectors are disabled." };
+  }
+
+  const parsed = createDatabaseSourceSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+    visibility: formData.get("visibility") ?? undefined,
+    kind: formData.get("kind"),
+    connectionString: formData.get("connectionString"),
+    query: formData.get("query"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please review the connection details." };
+  }
+  const values = parsed.data;
+
+  let sourceId: string;
+  try {
+    // Run the read-only query (server-only, SSRF-guarded) and encrypt the secret.
+    const result = await runDatabaseQuery({
+      kind: values.kind,
+      connectionString: values.connectionString,
+      query: values.query,
+    });
+    const connectionEncrypted = await encryptApiKey(values.connectionString);
+    const displayHost = new URL(values.connectionString).host;
+    const source = await createDatabaseSource(getStore(), ctx.actor, {
+      meta: { name: values.name, description: values.description, visibility: values.visibility },
+      connector: { kind: values.kind, displayHost, query: values.query, connectionEncrypted },
+      result: { text: result.text, status: result.status, rowCount: result.rowCount },
+    });
+    sourceId = source.id;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not connect to the database." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function syncDatabaseSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const sourceId = String(formData.get("sourceId") ?? "");
+
+  try {
+    const store = getStore();
+    const source = await store.getKnowledgeSource(ctx.actor.organizationId, sourceId);
+    if (!source || source.sourceType !== "database") {
+      return { error: "This database source could not be found." };
+    }
+    const meta = source.metadata as {
+      kind?: "postgres";
+      query?: string;
+      connectionEncrypted?: string;
+    };
+    if (!meta.connectionEncrypted || !meta.query) {
+      return { error: "This source is missing its connection details." };
+    }
+    const connectionString = await decryptApiKey(meta.connectionEncrypted);
+    const result = await runDatabaseQuery({
+      kind: meta.kind ?? "postgres",
+      connectionString,
+      query: meta.query,
+    });
+    await syncDatabaseSource(store, ctx.actor, sourceId, {
+      text: result.text,
+      status: result.status,
+      rowCount: result.rowCount,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not sync the database." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  revalidatePath(`/dashboard/knowledge/${sourceId}`);
   redirect(`/dashboard/knowledge/${sourceId}`);
 }
 

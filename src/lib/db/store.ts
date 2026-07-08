@@ -208,6 +208,8 @@ export interface DataStore {
     organizationId: string,
     documentId: string,
   ): Promise<KnowledgeDocument | null>;
+  /** Remove all documents for a source (used when re-syncing a connector). */
+  deleteKnowledgeDocumentsForSource(organizationId: string, sourceId: string): Promise<number>;
 
   assignKnowledgeSourceToEmployee(
     input: AssignKnowledgeInput,

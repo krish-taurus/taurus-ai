@@ -1,5 +1,25 @@
 # Changelog
 
+## Sprint 022 - Data connectors (Database) — 2026-07-08
+
+Added:
+
+- **Database knowledge connector** (`src/modules/knowledge/connectors/database.ts`)
+  — the first data-source connector. Connect a **PostgreSQL** database with a
+  read-only SELECT and its rows become searchable Knowledge Vault documents an AI
+  Employee can answer from (a product catalog, an FAQ table, a policy table). A
+  **"Sync now"** action re-runs the query and replaces the stored rows.
+  - **Safe by construction**: the query must be a single read-only statement
+    (validated, comment-stripped) AND runs inside a `READ ONLY` transaction with a
+    statement timeout, so the database itself rejects any write. The host must
+    resolve to a public IP (SSRF-guarded), rows/text are capped, and the
+    connection string is stored **encrypted** (only the host is ever shown).
+    Callers should still use a least-privilege read-only DB user.
+  - Reuses the existing extraction → index → hybrid-retrieval pipeline; a new
+    `database` knowledge source type + a "Connect Database" tab in Add Knowledge.
+  - New store method `deleteKnowledgeDocumentsForSource` (both stores) powers
+    re-sync. MySQL and cloud-storage/SharePoint connectors follow the same shape.
+
 ## Sprint 021 - Knowledge ingestion + app polish — 2026-07-08
 
 Added:

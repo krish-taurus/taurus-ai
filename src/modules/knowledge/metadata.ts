@@ -17,6 +17,7 @@ export const KNOWLEDGE_SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> =
   file: "Document",
   text: "Note",
   url: "Website",
+  database: "Database",
 };
 
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeSourceStatus, string> = {
