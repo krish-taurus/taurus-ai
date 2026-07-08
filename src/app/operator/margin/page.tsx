@@ -71,10 +71,11 @@ export default async function OperatorMarginPage({
       </div>
 
       {/* Aggregate totals */}
-      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Stat label="Revenue" value={usd(totals.revenueUsd)} />
-        <Stat label="Serving cost" value={usd(totals.costUsd)} />
+      <div className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+        <Stat label="Revenue (blended)" value={usd(totals.revenueUsd)} sub={`incl. ${usd(totals.overageRevenueUsd)} overage`} />
+        <Stat label="Serving cost" value={usd(totals.costUsd)} sub={`incl. ${usd(totals.overageCostUsd)} overage`} />
         <Stat label="Gross margin" value={usd(totals.marginUsd)} sub={pct(totals.marginPct)} />
+        <Stat label="Overage revenue" value={usd(totals.overageRevenueUsd)} sub={`vs ${usd(totals.overageCostUsd)} cost`} />
         <Stat label="Organizations" value={String(totals.orgCount)} sub={`${totals.interactionCount.toLocaleString()} interactions`} />
       </div>
 
@@ -124,6 +125,7 @@ export default async function OperatorMarginPage({
               <Th>Access</Th>
               <Th align="right">Interactions</Th>
               <Th align="right">Revenue</Th>
+              <Th align="right">Overage</Th>
               <Th align="right">Cost</Th>
               <Th align="right">Margin %</Th>
               <Th align="right">Markup</Th>
@@ -140,6 +142,18 @@ export default async function OperatorMarginPage({
                 </Td>
                 <Td align="right">{o.interactionCount.toLocaleString()}</Td>
                 <Td align="right">{usd(o.revenueUsd)}</Td>
+                <Td align="right">
+                  {o.overageQuantity > 0 ? (
+                    <>
+                      {usd(o.overageRevenueUsd)}
+                      <span className="block text-xs text-taurus-faint">
+                        {o.overageQuantity.toLocaleString()} extra
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-taurus-faint">—</span>
+                  )}
+                </Td>
                 <Td align="right">{usd(o.costUsd)}</Td>
                 <Td align="right">{pct(o.marginPct)}</Td>
                 <Td align="right">{markup(o.markupMultiple)}</Td>

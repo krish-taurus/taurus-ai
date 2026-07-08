@@ -21,7 +21,9 @@ import type {
   CreateCheckoutInput,
   CreatePortalInput,
   ExternalSubscriptionStatus,
+  OverageUsageReport,
   PortalSession,
+  ReportOverageUsageInput,
 } from "@/modules/billing/providers/types";
 import type { BillingSubscriptionStatus } from "@/lib/db/types";
 
@@ -226,6 +228,12 @@ export class StripeBillingProvider implements BillingProvider {
       base.externalCustomerId = stringField(object.customer);
       base.externalSubscriptionId = stringField(object.subscription);
       base.status = "past_due";
+    } else if (stripeType === "invoice.finalized" || stripeType === "invoice.paid") {
+      // Overage reported earlier in the period is billed on this invoice; used to
+      // reconcile accrued overage lines to "charged" (Sprint 017).
+      type = "invoice.finalized";
+      base.externalCustomerId = stringField(object.customer);
+      base.externalSubscriptionId = stringField(object.subscription);
     }
 
     return { type, ...base };
@@ -250,6 +258,28 @@ export class StripeBillingProvider implements BillingProvider {
       currentPeriodStart: unixToIso(sub.current_period_start),
       currentPeriodEnd: unixToIso(sub.current_period_end),
     };
+  }
+
+  async reportOverageUsage(input: ReportOverageUsageInput): Promise<OverageUsageReport> {
+    // Report metered usage against the subscription's first usage-metered item so
+    // it is billed on the next invoice. Requires a live subscription id.
+    if (!input.externalSubscriptionId || input.quantity <= 0) {
+      throw new Error("Cannot report overage without a live subscription.");
+    }
+    const sub = await this.stripeFetch(`/subscriptions/${input.externalSubscriptionId}`, "GET");
+    const items = (sub.items as { data?: Array<Record<string, unknown>> } | undefined)?.data;
+    const itemId = items?.[0] && typeof items[0].id === "string" ? (items[0].id as string) : null;
+    if (!itemId) throw new Error("No subscription item to report overage against.");
+    const record = await this.stripeFetch(
+      `/subscription_items/${itemId}/usage_records`,
+      "POST",
+      {
+        quantity: String(input.quantity),
+        action: "increment",
+      },
+    );
+    const id = typeof record.id === "string" ? record.id : itemId;
+    return { mode: "reported", externalUsageRecordId: id };
   }
 }
 

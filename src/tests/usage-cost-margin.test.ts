@@ -273,6 +273,8 @@ describe("Usage overview", () => {
         externalSubscriptionId: null,
         externalCustomerId: null,
         provider: "simulated",
+        overagePolicy: "hard_cap",
+        overageSpendCapUsd: null,
         createdAt: "2026-01-01T00:00:00.000Z",
         updatedAt: "2026-01-01T00:00:00.000Z",
       },
@@ -393,6 +395,8 @@ function sub(organizationId: string, planId: "starter" | "growth" | "scale") {
     externalSubscriptionId: null,
     externalCustomerId: null,
     provider: "simulated",
+    overagePolicy: "hard_cap" as const,
+    overageSpendCapUsd: null,
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
   };

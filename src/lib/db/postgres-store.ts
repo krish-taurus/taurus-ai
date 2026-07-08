@@ -131,6 +131,10 @@ import type {
   BillingSubscriptionStatus,
   BillingCustomer,
   BillingEvent,
+  BillingOverageItem,
+  CreateBillingOverageItemInput,
+  OverageItemStatus,
+  OverageAggregateRow,
   CreateBillingSubscriptionInput,
   UpdateBillingSubscriptionInput,
   UpsertBillingCustomerInput,
@@ -191,8 +195,25 @@ function mapBillingSubscription(row: Row): BillingSubscription {
     externalSubscriptionId: row.external_subscription_id ?? null,
     externalCustomerId: row.external_customer_id ?? null,
     provider: row.provider,
+    overagePolicy: (row.overage_policy as BillingSubscription["overagePolicy"]) ?? "hard_cap",
+    overageSpendCapUsd: num(row.overage_spend_cap_usd),
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapBillingOverageItem(row: Row): BillingOverageItem {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    periodStart: new Date(row.period_start).toISOString(),
+    quantity: row.quantity,
+    unitPriceUsd: num(row.unit_price_usd) ?? 0,
+    amountUsd: num(row.amount_usd) ?? 0,
+    status: row.status as OverageItemStatus,
+    provider: row.provider,
+    externalUsageRecordId: row.external_usage_record_id ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -2851,8 +2872,9 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `insert into billing_subscriptions
          (organization_id, plan_id, status, current_period_start, current_period_end,
-          cancel_at_period_end, external_subscription_id, external_customer_id, provider)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          cancel_at_period_end, external_subscription_id, external_customer_id, provider,
+          overage_policy, overage_spend_cap_usd)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
        returning *`,
       [
         input.organizationId,
@@ -2864,6 +2886,8 @@ export class PostgresStore implements DataStore {
         input.externalSubscriptionId ?? null,
         input.externalCustomerId ?? null,
         input.provider ?? "simulated",
+        input.overagePolicy ?? "hard_cap",
+        input.overageSpendCapUsd ?? null,
       ],
     );
     return mapBillingSubscription(rows[0]);
@@ -2891,6 +2915,9 @@ export class PostgresStore implements DataStore {
     if ("externalCustomerId" in patch)
       add("external_customer_id", patch.externalCustomerId ?? null);
     if (patch.provider !== undefined) add("provider", patch.provider);
+    if (patch.overagePolicy !== undefined) add("overage_policy", patch.overagePolicy);
+    if ("overageSpendCapUsd" in patch)
+      add("overage_spend_cap_usd", patch.overageSpendCapUsd ?? null);
     if (sets.length === 0) return this.getBillingSubscription(organizationId);
     sets.push("updated_at = now()");
     values.push(organizationId);
@@ -2969,6 +2996,79 @@ export class PostgresStore implements DataStore {
       [organizationId, limit],
     );
     return rows.map(mapBillingEvent);
+  }
+
+  // --- Metered overage (Sprint 017) -----------------------------------------
+
+  async createBillingOverageItem(
+    input: CreateBillingOverageItemInput,
+  ): Promise<BillingOverageItem> {
+    const { rows } = await this.query(
+      `insert into billing_overage_items
+         (organization_id, period_start, quantity, unit_price_usd, amount_usd, status,
+          provider, external_usage_record_id)
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       returning *`,
+      [
+        input.organizationId,
+        input.periodStart,
+        input.quantity,
+        input.unitPriceUsd,
+        input.amountUsd,
+        input.status ?? "pending",
+        input.provider,
+        input.externalUsageRecordId ?? null,
+      ],
+    );
+    return mapBillingOverageItem(rows[0]);
+  }
+
+  async listBillingOverageItems(
+    organizationId: string,
+    periodStart: string,
+  ): Promise<BillingOverageItem[]> {
+    const { rows } = await this.query(
+      `select * from billing_overage_items
+       where organization_id = $1 and period_start = $2
+       order by created_at asc`,
+      [organizationId, periodStart],
+    );
+    return rows.map(mapBillingOverageItem);
+  }
+
+  async markBillingOverageItemsStatus(
+    organizationId: string,
+    periodStart: string,
+    fromStatus: OverageItemStatus,
+    toStatus: OverageItemStatus,
+    externalUsageRecordId: string | null,
+  ): Promise<number> {
+    const { rowCount } = await this.query(
+      `update billing_overage_items
+       set status = $4,
+           external_usage_record_id = coalesce($5, external_usage_record_id)
+       where organization_id = $1 and period_start = $2 and status = $3`,
+      [organizationId, periodStart, fromStatus, toStatus, externalUsageRecordId],
+    );
+    return rowCount ?? 0;
+  }
+
+  async aggregateOverageSince(sinceIso: string): Promise<OverageAggregateRow[]> {
+    // OPERATOR-ONLY: deliberately cross-tenant (no organization filter).
+    const { rows } = await this.query(
+      `select organization_id,
+              coalesce(sum(quantity), 0)::int as quantity,
+              coalesce(sum(amount_usd), 0) as amount_usd
+       from billing_overage_items
+       where created_at >= $1
+       group by organization_id`,
+      [sinceIso],
+    );
+    return rows.map((row: Row) => ({
+      organizationId: row.organization_id,
+      quantity: row.quantity,
+      amountUsd: num(row.amount_usd) ?? 0,
+    }));
   }
 
   async countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number> {

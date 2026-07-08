@@ -19,6 +19,10 @@ import type {
   BillingSubscription,
   BillingCustomer,
   BillingEvent,
+  BillingOverageItem,
+  CreateBillingOverageItemInput,
+  OverageItemStatus,
+  OverageAggregateRow,
   CreateBillingSubscriptionInput,
   UpdateBillingSubscriptionInput,
   UpsertBillingCustomerInput,
@@ -513,6 +517,24 @@ export interface DataStore {
 
   createBillingEvent(input: CreateBillingEventInput): Promise<BillingEvent>;
   listBillingEvents(organizationId: string, limit?: number): Promise<BillingEvent[]>;
+
+  // Metered overage (Sprint 017) — organization-scoped ledger.
+  createBillingOverageItem(input: CreateBillingOverageItemInput): Promise<BillingOverageItem>;
+  /** Overage lines for an organization in a subscription period. */
+  listBillingOverageItems(
+    organizationId: string,
+    periodStart: string,
+  ): Promise<BillingOverageItem[]>;
+  /** Advance the status of an org's overage lines in a period (report / charge reconcile). */
+  markBillingOverageItemsStatus(
+    organizationId: string,
+    periodStart: string,
+    fromStatus: OverageItemStatus,
+    toStatus: OverageItemStatus,
+    externalUsageRecordId: string | null,
+  ): Promise<number>;
+  /** Cross-tenant per-org overage aggregate since a timestamp. OPERATOR-ONLY. */
+  aggregateOverageSince(sinceIso: string): Promise<OverageAggregateRow[]>;
 
   /** Count billable AI Employee interactions since a timestamp (derived quota). */
   countBillableInteractionsSince(organizationId: string, sinceIso: string): Promise<number>;

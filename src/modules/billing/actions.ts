@@ -19,6 +19,7 @@ import { hasPermission } from "@/modules/organizations/roles";
 import { choosePlanSchema } from "@/modules/billing/schema";
 import { getBillingProvider } from "@/modules/billing/providers";
 import { openBillingPortal, startPlanChange } from "@/modules/billing/service";
+import { setOveragePolicy, setOverageSpendCap } from "@/modules/billing/overage";
 
 export interface BillingActionState {
   error?: string;
@@ -26,6 +27,7 @@ export interface BillingActionState {
 
 const BILLING_PATH = "/dashboard/settings/billing";
 const PLANS_PATH = "/dashboard/settings/billing/plans";
+const USAGE_PATH = "/dashboard/usage";
 
 function baseUrl(): string {
   return getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
@@ -68,6 +70,43 @@ export async function choosePlanAction(
   revalidatePath(PLANS_PATH);
   revalidatePath("/dashboard");
   redirect(redirectTo);
+}
+
+/** Enable/disable pay-as-you-go and set the overage spend cap. Owner/admin only. */
+export async function updateOverageSettingsAction(
+  _prevState: BillingActionState,
+  formData: FormData,
+): Promise<BillingActionState> {
+  const { user, organization, membership } = await requireCurrentOrganization();
+
+  if (!hasPermission(membership.role, "billing.manage")) {
+    return { error: "You do not have permission to change billing for this organization." };
+  }
+
+  const actor = { organizationId: organization.id, userId: user.id };
+  const policy = formData.get("overagePolicy");
+  const capRaw = formData.get("overageSpendCapUsd");
+
+  try {
+    if (policy != null) {
+      await setOveragePolicy(getStore(), actor, policy);
+    }
+    // Empty string clears the cap; a number sets it.
+    if (capRaw != null) {
+      const capStr = String(capRaw).trim();
+      const cap = capStr === "" ? null : Number(capStr);
+      if (cap != null && !Number.isFinite(cap)) {
+        return { error: "Enter a spend cap amount, or leave it blank for no cap." };
+      }
+      await setOverageSpendCap(getStore(), actor, cap);
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not update overage settings." };
+  }
+
+  revalidatePath(USAGE_PATH);
+  revalidatePath(BILLING_PATH);
+  redirect(`${USAGE_PATH}?overage=updated`);
 }
 
 /** Open the billing portal (Stripe) or return to billing in simulated mode. */

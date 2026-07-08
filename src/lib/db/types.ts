@@ -1254,6 +1254,20 @@ export interface VoiceChannelOverview {
 
 export type BillingSubscriptionStatus = "active" | "trialing" | "past_due" | "canceled";
 
+/**
+ * What happens when a managed org exceeds its period interaction quota (Sprint 017):
+ *   - "hard_cap"      — block further interactions with an upgrade prompt (default).
+ *   - "pay_as_you_go" — continue and meter each further managed interaction at the
+ *                       managed per-interaction price, bounded by an optional cap.
+ * Only meaningful for a `managed` org; a BYOK org is never metered for tokens.
+ */
+export const OVERAGE_POLICIES = ["hard_cap", "pay_as_you_go"] as const;
+export type OveragePolicy = (typeof OVERAGE_POLICIES)[number];
+
+export function isOveragePolicy(value: unknown): value is OveragePolicy {
+  return typeof value === "string" && (OVERAGE_POLICIES as readonly string[]).includes(value);
+}
+
 /** One organization's current subscription. Exactly one active row per org. */
 export interface BillingSubscription {
   id: string;
@@ -1269,6 +1283,10 @@ export interface BillingSubscription {
   externalCustomerId: string | null;
   /** "stripe" | "simulated" — which provider produced this state. */
   provider: string;
+  /** Behavior past the interaction quota (Sprint 017). Defaults to hard_cap. */
+  overagePolicy: OveragePolicy;
+  /** Optional monthly overage spend ceiling in USD (owner-set). Null = no cap. */
+  overageSpendCapUsd: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1283,6 +1301,8 @@ export interface CreateBillingSubscriptionInput {
   externalSubscriptionId?: string | null;
   externalCustomerId?: string | null;
   provider?: string;
+  overagePolicy?: OveragePolicy;
+  overageSpendCapUsd?: number | null;
 }
 
 export interface UpdateBillingSubscriptionInput {
@@ -1294,6 +1314,54 @@ export interface UpdateBillingSubscriptionInput {
   externalSubscriptionId?: string | null;
   externalCustomerId?: string | null;
   provider?: string;
+  overagePolicy?: OveragePolicy;
+  overageSpendCapUsd?: number | null;
+}
+
+/** Status of a metered overage line (Sprint 017). */
+export const OVERAGE_ITEM_STATUSES = ["pending", "reported", "charged"] as const;
+export type OverageItemStatus = (typeof OVERAGE_ITEM_STATUSES)[number];
+
+/**
+ * A metered overage line — one billable interaction past quota for a managed
+ * pay-as-you-go org. Metadata only (no card data). Amount = quantity × unit price
+ * snapshot so it stays accurate if the catalog price later changes.
+ */
+export interface BillingOverageItem {
+  id: string;
+  organizationId: string;
+  /** The subscription period this line belongs to (currentPeriodStart). */
+  periodStart: string;
+  quantity: number;
+  unitPriceUsd: number;
+  amountUsd: number;
+  status: OverageItemStatus;
+  /** "stripe" | "simulated" — simulated lines are accrued but never charged. */
+  provider: string;
+  /** Opaque provider usage-record id once reported (metadata only). */
+  externalUsageRecordId: string | null;
+  createdAt: string;
+}
+
+export interface CreateBillingOverageItemInput {
+  organizationId: string;
+  periodStart: string;
+  quantity: number;
+  unitPriceUsd: number;
+  amountUsd: number;
+  provider: string;
+  status?: OverageItemStatus;
+  externalUsageRecordId?: string | null;
+}
+
+/**
+ * Cross-tenant per-organization overage aggregate for the operator margin view
+ * (Sprint 017). OPERATOR-ONLY — never queried from a tenant route.
+ */
+export interface OverageAggregateRow {
+  organizationId: string;
+  quantity: number;
+  amountUsd: number;
 }
 
 /** Organization ↔ external billing customer mapping (never client-supplied). */

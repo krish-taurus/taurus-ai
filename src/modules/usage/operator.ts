@@ -9,7 +9,12 @@
  */
 
 import type { DataStore } from "@/lib/db/store";
-import type { BillingSubscription, ModelAccessMode, UsageCostAggregateRow } from "@/lib/db/types";
+import type {
+  BillingSubscription,
+  ModelAccessMode,
+  OverageAggregateRow,
+  UsageCostAggregateRow,
+} from "@/lib/db/types";
 import type { Plan, PlanId } from "@/modules/billing/plans";
 import { getPlan } from "@/modules/billing/plans";
 import { getServerEnv } from "@/lib/env/env";
@@ -49,8 +54,16 @@ export interface OrgMarginRow {
   interactionCount: number;
   managedInteractionCount: number;
   byokInteractionCount: number;
+  /** Subscription (plan) revenue only. */
+  subscriptionRevenueUsd: number;
+  /** Metered overage revenue this period (Sprint 017). */
+  overageRevenueUsd: number;
+  overageQuantity: number;
+  /** Blended revenue = subscription + overage. */
   revenueUsd: number;
   costUsd: number;
+  /** Approx. serving cost attributable to overage interactions (blended rate). */
+  overageCostUsd: number;
   marginUsd: number;
   /** (revenue - cost) / revenue. Null when revenue is 0 (undefined margin %). */
   marginPct: number | null;
@@ -64,6 +77,7 @@ export interface PlanMarginRow {
   planName: string;
   orgCount: number;
   revenueUsd: number;
+  overageRevenueUsd: number;
   costUsd: number;
   marginUsd: number;
   marginPct: number | null;
@@ -73,6 +87,8 @@ export interface MarginTotals {
   orgCount: number;
   interactionCount: number;
   revenueUsd: number;
+  overageRevenueUsd: number;
+  overageCostUsd: number;
   costUsd: number;
   marginUsd: number;
   marginPct: number | null;
@@ -107,6 +123,8 @@ interface BuildMarginInput {
   subscriptions: BillingSubscription[];
   orgInfo: Map<string, OrgInfo>;
   aggregates: Map<string, UsageCostAggregateRow>;
+  /** Metered overage per org (Sprint 017). Empty when there is no overage. */
+  overageByOrg?: Map<string, OverageAggregateRow>;
   periodStart: string;
   periodEnd: string;
 }
@@ -126,13 +144,23 @@ export function buildMarginReport(input: BuildMarginInput): MarginReport {
     const plan: Plan = getPlan(sub.planId);
     const info = input.orgInfo.get(sub.organizationId);
     const agg = input.aggregates.get(sub.organizationId);
+    const over = input.overageByOrg?.get(sub.organizationId);
 
-    const revenueUsd = plan.monthlyPriceUsd;
+    const subscriptionRevenueUsd = plan.monthlyPriceUsd;
+    const overageRevenueUsd = round(over?.amountUsd ?? 0);
+    const overageQuantity = over?.quantity ?? 0;
+    const revenueUsd = round(subscriptionRevenueUsd + overageRevenueUsd);
     const costUsd = round(agg?.totalCostUsd ?? 0);
+    const interactionCount = agg?.interactionCount ?? 0;
+    // Approximate the overage share of serving cost with the blended per-interaction
+    // cost — overage interactions run on the same managed models as in-quota ones.
+    const overageCostUsd =
+      interactionCount > 0 ? round((costUsd / interactionCount) * overageQuantity) : 0;
     const marginUsd = round(revenueUsd - costUsd);
-    // At-risk applies to MANAGED serving cost: a tenant whose cost exceeds the
-    // configured share of its plan price (BYOK cost is 0, so BYOK never trips it).
-    const atRisk = costUsd > share * revenueUsd && costUsd > 0;
+    // At-risk applies to MANAGED serving cost vs. the flat PLAN price: a tenant
+    // whose cost exceeds the configured share of its plan price (BYOK cost is 0,
+    // so BYOK never trips it).
+    const atRisk = costUsd > share * subscriptionRevenueUsd && costUsd > 0;
 
     byOrganization.push({
       organizationId: sub.organizationId,
@@ -140,11 +168,15 @@ export function buildMarginReport(input: BuildMarginInput): MarginReport {
       planId: plan.id,
       planName: plan.name,
       accessMode: info?.accessMode ?? "managed",
-      interactionCount: agg?.interactionCount ?? 0,
+      interactionCount,
       managedInteractionCount: agg?.managedInteractionCount ?? 0,
       byokInteractionCount: agg?.byokInteractionCount ?? 0,
+      subscriptionRevenueUsd,
+      overageRevenueUsd,
+      overageQuantity,
       revenueUsd,
       costUsd,
+      overageCostUsd,
       marginUsd,
       marginPct: marginPctOf(revenueUsd, costUsd),
       markupMultiple: costUsd > 0 ? round(revenueUsd / costUsd) : null,
@@ -168,12 +200,14 @@ export function buildMarginReport(input: BuildMarginInput): MarginReport {
         planName: row.planName,
         orgCount: 0,
         revenueUsd: 0,
+        overageRevenueUsd: 0,
         costUsd: 0,
         marginUsd: 0,
         marginPct: null,
       } satisfies PlanMarginRow);
     existing.orgCount += 1;
     existing.revenueUsd = round(existing.revenueUsd + row.revenueUsd);
+    existing.overageRevenueUsd = round(existing.overageRevenueUsd + row.overageRevenueUsd);
     existing.costUsd = round(existing.costUsd + row.costUsd);
     existing.marginUsd = round(existing.marginUsd + row.marginUsd);
     planMap.set(row.planId, existing);
@@ -185,6 +219,8 @@ export function buildMarginReport(input: BuildMarginInput): MarginReport {
 
   // --- Aggregate totals ---------------------------------------------------
   const revenueUsd = round(byOrganization.reduce((s, r) => s + r.revenueUsd, 0));
+  const overageRevenueUsd = round(byOrganization.reduce((s, r) => s + r.overageRevenueUsd, 0));
+  const overageCostUsd = round(byOrganization.reduce((s, r) => s + r.overageCostUsd, 0));
   const costUsd = round(byOrganization.reduce((s, r) => s + r.costUsd, 0));
   const interactionCount = byOrganization.reduce((s, r) => s + r.interactionCount, 0);
 
@@ -197,6 +233,8 @@ export function buildMarginReport(input: BuildMarginInput): MarginReport {
       orgCount: byOrganization.length,
       interactionCount,
       revenueUsd,
+      overageRevenueUsd,
+      overageCostUsd,
       costUsd,
       marginUsd: round(revenueUsd - costUsd),
       marginPct: marginPctOf(revenueUsd, costUsd),
@@ -217,12 +255,14 @@ export async function getMarginReport(
   const until = options.until ?? new Date();
   const sinceIso = options.since.toISOString();
 
-  const [subscriptions, aggregateRows] = await Promise.all([
+  const [subscriptions, aggregateRows, overageRows] = await Promise.all([
     store.listAllBillingSubscriptions(),
     store.aggregateUsageCostsSince(sinceIso),
+    store.aggregateOverageSince(sinceIso),
   ]);
 
   const aggregates = new Map(aggregateRows.map((r) => [r.organizationId, r]));
+  const overageByOrg = new Map(overageRows.map((r) => [r.organizationId, r]));
 
   const orgIds = [...new Set(subscriptions.map((s) => s.organizationId))];
   const orgs = await Promise.all(orgIds.map((id) => store.getOrganizationById(id)));
@@ -235,6 +275,7 @@ export async function getMarginReport(
     subscriptions,
     orgInfo,
     aggregates,
+    overageByOrg,
     periodStart: sinceIso,
     periodEnd: until.toISOString(),
   });

@@ -46,7 +46,24 @@ export type BillingWebhookEventType =
   | "subscription.updated"
   | "subscription.deleted"
   | "payment.failed"
+  | "invoice.finalized"
   | "ignored";
+
+/** Report accrued overage usage to the provider for the current period (Sprint 017). */
+export interface ReportOverageUsageInput {
+  externalSubscriptionId: string | null;
+  externalCustomerId: string | null;
+  /** Number of overage interactions to report for the period. */
+  quantity: number;
+  /** The subscription period the usage belongs to. */
+  periodStart: string;
+}
+
+export type OverageUsageReport =
+  /** Simulated mode: accrued + displayed but never charged. */
+  | { mode: "simulated" }
+  /** Live mode: reported to the provider; charged on invoice finalization. */
+  | { mode: "reported"; externalUsageRecordId: string };
 
 export interface BillingWebhookEvent {
   type: BillingWebhookEventType;
@@ -86,4 +103,11 @@ export interface BillingProvider {
 
   /** Fetch current status for a live subscription (null in simulated mode). */
   getSubscriptionStatus(externalSubscriptionId: string): Promise<ExternalSubscriptionStatus | null>;
+
+  /**
+   * Report accrued overage usage for the current period (Sprint 017). Simulated
+   * mode never charges; live mode records usage so it is billed on invoice
+   * finalization. Card data never flows through here — only quantities + ids.
+   */
+  reportOverageUsage(input: ReportOverageUsageInput): Promise<OverageUsageReport>;
 }

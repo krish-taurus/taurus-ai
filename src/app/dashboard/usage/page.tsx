@@ -7,6 +7,7 @@ import { getUsageOverview } from "@/modules/usage/service";
 import { Card, Notice, PageHeader, Progress } from "@/components/ui";
 import { UsageTrend } from "@/components/usage/usage-trend";
 import { UsageBreakdown } from "@/components/usage/usage-breakdown";
+import { OverageSettings } from "@/components/usage/overage-settings";
 
 /**
  * Usage & Limits (Sprint 016) — customer-facing, org-scoped. Every role may view
@@ -27,6 +28,7 @@ export default async function UsagePage() {
   if (!hasPermission(membership.role, "usage.view")) {
     redirect("/dashboard");
   }
+  const canManageBilling = hasPermission(membership.role, "billing.manage");
 
   const overview = await getUsageOverview(getStore(), organization.id);
   const {
@@ -41,9 +43,11 @@ export default async function UsagePage() {
     byEmployee,
     byChannel,
     trend,
+    overage,
   } = overview;
 
   const limitLabel = unlimited ? "Unlimited" : interactionLimit.toLocaleString();
+  const usd = (v: number) => v.toLocaleString(undefined, { style: "currency", currency: "USD" });
 
   return (
     <div>
@@ -91,6 +95,43 @@ export default async function UsagePage() {
           {unlimited ? "Unlimited on your plan" : `${percentUsed}% of your monthly limit used`}
         </p>
       </Card>
+
+      {overage ? (
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card className="p-6">
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="text-sm font-semibold text-taurus-text">Overage this period</h3>
+              {overage.policy === "pay_as_you_go" ? (
+                <span className="text-xs text-taurus-faint">
+                  {overage.simulated ? "Simulated — not charged" : "Pay as you go"}
+                </span>
+              ) : null}
+            </div>
+            {overage.policy === "pay_as_you_go" ? (
+              <>
+                <p className="mt-2 text-2xl font-semibold tabular-nums text-taurus-text">
+                  {usd(overage.amountThisPeriodUsd)}{" "}
+                  <span className="text-base font-normal text-taurus-sub">
+                    · {overage.quantityThisPeriod.toLocaleString()} extra
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-taurus-faint">
+                  {usd(overage.unitPriceUsd)} per interaction past your limit
+                  {overage.spendCapUsd != null
+                    ? ` · cap ${usd(overage.spendCapUsd)}${overage.capReached ? " (reached)" : ""}`
+                    : " · no spend cap set"}
+                </p>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-taurus-sub">
+                Interactions stop at your plan limit. Turn on pay as you go to keep working past it.
+              </p>
+            )}
+          </Card>
+
+          <OverageSettings overage={overage} canManage={canManageBilling} />
+        </div>
+      ) : null}
 
       <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <UsageBreakdown
