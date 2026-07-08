@@ -6,7 +6,7 @@ import { hasPermission } from "@/modules/organizations/roles";
 import { getOrganizationPlan } from "@/modules/billing/service";
 import { planIncludesFeature } from "@/modules/billing/entitlements";
 import { PerformanceService } from "@/modules/performance";
-import { Card, PageHeader } from "@/components/ui";
+import { Card, EmptyState, PageHeader } from "@/components/ui";
 import { PerformanceLocked } from "@/components/performance/performance-locked";
 import { NewScorecardForm } from "@/components/performance/forms";
 
@@ -37,7 +37,16 @@ export default async function PerformanceOverviewPage() {
 
       <h2 className="mt-6 text-sm font-semibold text-taurus-text">Scorecards</h2>
       {scorecards.length === 0 ? (
-        <p className="mt-2 text-sm text-taurus-faint">No scorecards yet.</p>
+        <div className="mt-3">
+          <EmptyState
+            title="No scorecards yet."
+            description={
+              canManage
+                ? "Create a scorecard to measure how well an AI Employee handles real situations."
+                : "Ask an owner, admin, or builder to create a scorecard for your AI Employees."
+            }
+          />
+        </div>
       ) : (
         <ul className="mt-3 flex flex-col gap-2">
           {scorecards.map((s) => (

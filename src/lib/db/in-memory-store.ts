@@ -12,6 +12,7 @@ import type {
   AssignKnowledgeInput,
   AuditEvent,
   AuditEventInput,
+  OrganizationOnboardingProgress,
   BillingSubscription,
   BillingCustomer,
   BillingEvent,
@@ -190,6 +191,7 @@ export class InMemoryStore implements DataStore {
   private reviewRuns: ReviewRun[] = [];
   private reviewResults: ReviewResult[] = [];
   private auditEvents: AuditEvent[] = [];
+  private onboardingProgress = new Map<string, OrganizationOnboardingProgress>();
 
   async getUserById(id: string): Promise<User | null> {
     return this.users.get(id) ?? null;
@@ -2534,6 +2536,46 @@ export class InMemoryStore implements DataStore {
       .slice()
       .reverse()
       .slice(0, limit);
+  }
+
+  async getOnboardingProgress(
+    organizationId: string,
+  ): Promise<OrganizationOnboardingProgress | null> {
+    return this.onboardingProgress.get(organizationId) ?? null;
+  }
+
+  async setOnboardingDismissed(
+    organizationId: string,
+    dismissed: boolean,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress> {
+    const existing = this.onboardingProgress.get(organizationId);
+    const next: OrganizationOnboardingProgress = {
+      organizationId,
+      dismissedAt: dismissed ? now() : null,
+      completedAt: existing?.completedAt ?? null,
+      updatedByUserId: userId,
+      updatedAt: now(),
+    };
+    this.onboardingProgress.set(organizationId, next);
+    return next;
+  }
+
+  async markOnboardingCompleted(
+    organizationId: string,
+    userId: string,
+  ): Promise<OrganizationOnboardingProgress> {
+    const existing = this.onboardingProgress.get(organizationId);
+    const next: OrganizationOnboardingProgress = {
+      organizationId,
+      dismissedAt: existing?.dismissedAt ?? null,
+      // Keep the first completion timestamp — the milestone is recorded once.
+      completedAt: existing?.completedAt ?? now(),
+      updatedByUserId: userId,
+      updatedAt: now(),
+    };
+    this.onboardingProgress.set(organizationId, next);
+    return next;
   }
 
   // --- Test/dev helpers (not part of DataStore) -----------------------------

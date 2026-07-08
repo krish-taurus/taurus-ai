@@ -7,10 +7,23 @@ import { getModel } from "@/modules/model-gateway/catalog";
 import { brainModeForRoutingMode, ROUTING_MODE_LABELS } from "@/modules/model-gateway/metadata";
 import { formatUsd } from "@/modules/model-gateway/pricing";
 import { buttonClasses, EmptyState, PageHeader, SectionHeader, StatCard } from "@/components/ui";
+import { getOnboardingState, recordOnboardingCompletion } from "@/modules/onboarding/service";
+import { OnboardingChecklist } from "@/components/onboarding/onboarding-checklist";
 
 export default async function DashboardPage() {
-  const { organization, membership } = await requireCurrentOrganization();
+  const { user, organization, membership } = await requireCurrentOrganization();
   const store = getStore();
+
+  // First-run activation checklist — derived from real data, dismissible/resumable.
+  const onboardingCtx = {
+    organizationId: organization.id,
+    userId: user.id,
+    role: membership.role,
+  };
+  const onboarding = await getOnboardingState(store, onboardingCtx);
+  if (onboarding.complete && !onboarding.completionRecorded) {
+    await recordOnboardingCompletion(store, onboardingCtx);
+  }
   const employees = await store.listEmployees(organization.id);
   const canHire = hasPermission(membership.role, "employee.create");
   const preview = employees.slice(0, 3);
@@ -52,6 +65,8 @@ export default async function DashboardPage() {
           ) : undefined
         }
       />
+
+      <OnboardingChecklist state={onboarding} />
 
       <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard label="AI Employees" value={employees.length} />

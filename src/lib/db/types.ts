@@ -1422,3 +1422,26 @@ export interface CreateBillingEventInput {
   provider: string;
   metadata?: Record<string, unknown>;
 }
+
+/* ==========================================================================
+   Onboarding (Sprint 020) — first-run activation.
+   ========================================================================== */
+
+/**
+ * Per-organization onboarding state. The activation checklist derives *step*
+ * completion from real data (hired Employees, published DNA, Knowledge Vault
+ * sources, chat tests, live web channels) — this record only holds the two bits
+ * that cannot be derived: whether the org has dismissed the checklist, and when
+ * it first became fully complete (so the completion milestone is audited once).
+ * Org-scoped: the organization id is the primary key.
+ */
+export interface OrganizationOnboardingProgress {
+  organizationId: string;
+  /** When the checklist was dismissed, or null if it is showing. Resumable. */
+  dismissedAt: string | null;
+  /** When all required steps were first complete (milestone), or null. */
+  completedAt: string | null;
+  /** Last member who dismissed/resumed/completed, for the audit trail. */
+  updatedByUserId: string | null;
+  updatedAt: string;
+}

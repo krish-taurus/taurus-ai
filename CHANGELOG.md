@@ -1,5 +1,39 @@
 # Changelog
 
+## Sprint 020 - Onboarding Polish + Landing Page — 2026-07-08
+
+Added:
+
+- **First-run activation checklist** (`src/modules/onboarding/`) — a dismissible,
+  resumable checklist on the dashboard overview that guides a new organization to
+  its first live AI Employee: hire, give DNA, add a Knowledge Vault source
+  (optional), test in chat, and deploy the web widget. Step completion is
+  **derived entirely from real data** (hired Employees, published DNA, Vault
+  sources, chat threads, active website channels) — no parallel per-step flags.
+  The only persisted state is per-org dismissal + the completion milestone
+  (`organization_onboarding`, migration `0019_onboarding.sql`, org-scoped in both
+  stores). Role-respecting: a viewer sees progress but no owner/admin-only CTAs.
+  Dismiss/resume are audited; the completion milestone emits a one-time
+  `onboarding.completed` audit event.
+- **Test-in-chat moment** — the hire success page now leads with a primary
+  "Test {name} in chat" action that drops the user straight into a live
+  conversation, then points them at deploying across channels.
+- **Better empty states** — the Performance overview now uses the shared
+  `EmptyState` primitive (role-aware copy) instead of a bare line of text.
+- **New landing page** (`src/app/page.tsx`, `src/components/landing/light/`) —
+  ported to a bright, editorial theme: **white background, near-black ink, dark
+  accents to highlight**, oversized type, crisp inline-SVG imagery, and
+  scroll-revealed sections. Sections: hero ("Hire AI employees. Not another
+  chatbot." with a word-by-word rise-in), the "a quarter → an afternoon"
+  positioning, the four-step Hiring Studio, a **step-by-step use-cases
+  walkthrough** across five domains (problem → solution → illustrative stat, with
+  an honest "illustrative scenarios" disclosure and no fabricated customers),
+  Channels (web / WhatsApp + SMS / phone), an animated Performance Review
+  scorecard, the Model Hub "any model, no lock-in" band, pricing read from the
+  code-authoritative plans catalog (no hard-coded prices), and the final CTA. All
+  motion respects `prefers-reduced-motion`; CTAs route to the real `/signup` and
+  `/login`. The previous dark landing components were removed.
+
 ## Sprint 019 - Embeddings & Semantic Retrieval — 2026-07-08
 
 Added:
