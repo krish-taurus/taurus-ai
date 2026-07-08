@@ -17,7 +17,8 @@ import { hasPermission } from "@/modules/organizations/roles";
 import { createLlmGateway } from "@/modules/model-gateway/credential-resolver";
 import { sendChatMessage, ChatBlockedError } from "@/modules/employee-chat/service";
 import { EntitlementError } from "@/modules/billing/service";
-import { rebuildKnowledgeRetrievalSegmentsForEmployee } from "@/modules/employee-chat/preparation";
+import { indexKnowledgeSource } from "@/modules/knowledge/indexing";
+import { createLocalEmbedder } from "@/modules/knowledge/embeddings";
 import { chatMessageSchema } from "@/modules/employee-chat/schema";
 import type { ChatBlockReason } from "@/modules/employee-chat/metadata";
 
@@ -93,11 +94,24 @@ export async function prepareEmployeeKnowledgeAction(
   const employee = await store.getEmployee(organization.id, employeeId);
   if (!employee) return { error: "This AI Employee could not be found." };
 
-  const result = await rebuildKnowledgeRetrievalSegmentsForEmployee(
-    store,
-    organization.id,
-    employee.id,
-  );
+  // Chunk + embed each assigned source so retrieval is hybrid (semantic + lexical).
+  // Uses the zero-setup local embedder by default; indexing enforces access mode
+  // and records cost (Sprint 019).
+  const ctx = { organizationId: organization.id, userId: user.id, role: membership.role };
+  const embedder = createLocalEmbedder();
+  let preparedSources = 0;
+  let totalSegments = 0;
+  try {
+    const sources = await store.listKnowledgeSourcesForEmployee(organization.id, employee.id);
+    for (const source of sources) {
+      if (source.status === "archived") continue;
+      const result = await indexKnowledgeSource(store, embedder, ctx, source.id);
+      if (result.ready) preparedSources += 1;
+      totalSegments += result.chunkCount;
+    }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not prepare knowledge." };
+  }
 
   await store.createAuditEvent({
     organizationId: organization.id,
@@ -106,11 +120,7 @@ export async function prepareEmployeeKnowledgeAction(
     action: "knowledge_retrieval.prepared",
     targetType: "employee",
     targetId: employee.id,
-    metadata: {
-      employeeId: employee.id,
-      preparedSources: result.preparedSources,
-      totalSegments: result.totalSegments,
-    },
+    metadata: { employeeId: employee.id, preparedSources, totalSegments },
   });
 
   revalidatePath(`/dashboard/employees/${employeeId}/chat`);

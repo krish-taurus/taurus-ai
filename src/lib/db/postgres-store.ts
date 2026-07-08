@@ -117,6 +117,8 @@ import type {
   ProviderSlug,
   PublishDnaInput,
   RankedRetrievalSegment,
+  SemanticRetrievalSegment,
+  KnowledgeIndexingState,
   RetrievalSegmentStatus,
   RoutingMode,
   SaveDnaDraftInput,
@@ -406,6 +408,7 @@ function mapKnowledgeSource(row: Row): KnowledgeSource {
     visibility: row.visibility as KnowledgeVisibility,
     createdByUserId: row.created_by_user_id,
     archivedAt: row.archived_at ? new Date(row.archived_at).toISOString() : null,
+    indexingState: (row.indexing_state as KnowledgeSource["indexingState"]) ?? "pending",
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -569,6 +572,20 @@ function mapChatMessage(row: Row): EmployeeChatMessage {
   };
 }
 
+/** pgvector returns a "[1,2,3]" string; parse it back to a number[] (or null). */
+function parseVector(value: unknown): number[] | null {
+  if (Array.isArray(value)) return value as number[];
+  if (typeof value === "string" && value.length > 0) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? (parsed as number[]) : null;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 function mapRetrievalSegment(row: Row): KnowledgeRetrievalSegment {
   return {
     id: row.id,
@@ -580,6 +597,9 @@ function mapRetrievalSegment(row: Row): KnowledgeRetrievalSegment {
     contentPreview: row.content_preview,
     segmentIndex: row.segment_index,
     status: row.status as RetrievalSegmentStatus,
+    embedding: parseVector(row.embedding),
+    embeddingModelId: row.embedding_model_id ?? null,
+    embeddingDim: row.embedding_dim ?? null,
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
@@ -1932,11 +1952,13 @@ export class PostgresStore implements DataStore {
   ): Promise<KnowledgeRetrievalSegment[]> {
     const created: KnowledgeRetrievalSegment[] = [];
     for (const input of inputs) {
+      const embedding =
+        input.embedding && input.embedding.length > 0 ? `[${input.embedding.join(",")}]` : null;
       const { rows } = await this.query(
         `insert into knowledge_retrieval_segments
            (organization_id, knowledge_source_id, knowledge_document_id, title, content,
-            content_preview, segment_index, status, metadata)
-         values ($1,$2,$3,$4,$5,$6,$7,'ready',$8)
+            content_preview, segment_index, status, metadata, embedding, embedding_model_id, embedding_dim)
+         values ($1,$2,$3,$4,$5,$6,$7,'ready',$8,$9,$10,$11)
          returning *`,
         [
           input.organizationId,
@@ -1947,6 +1969,9 @@ export class PostgresStore implements DataStore {
           input.contentPreview,
           input.segmentIndex,
           JSON.stringify(input.metadata ?? {}),
+          embedding,
+          input.embeddingModelId ?? null,
+          input.embeddingDim ?? null,
         ],
       );
       created.push(mapRetrievalSegment(rows[0]));
@@ -2002,6 +2027,51 @@ export class PostgresStore implements DataStore {
       employeeId,
     );
     return rankSegments(query, segments, limit);
+  }
+
+  async semanticSearchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    queryVector: number[],
+    limit = 5,
+  ): Promise<SemanticRetrievalSegment[]> {
+    // pgvector cosine similarity, strictly org- + assignment-scoped. Same cosine
+    // metric + tie-breaks as the in-memory path, so ordering matches.
+    const vec = `[${queryVector.join(",")}]`;
+    const { rows } = await this.query(
+      `select seg.*, 1 - (seg.embedding <=> $3::vector) as similarity
+       from knowledge_retrieval_segments seg
+         join employee_knowledge_sources eks
+           on eks.knowledge_source_id = seg.knowledge_source_id
+          and eks.organization_id = seg.organization_id
+         join knowledge_sources src
+           on src.id = seg.knowledge_source_id
+          and src.organization_id = seg.organization_id
+       where seg.organization_id = $1
+         and eks.employee_id = $2
+         and seg.status = 'ready'
+         and src.status <> 'archived'
+         and seg.embedding is not null
+         and (1 - (seg.embedding <=> $3::vector)) > 0
+       order by seg.embedding <=> $3::vector asc, seg.segment_index asc, seg.id asc
+       limit $4`,
+      [organizationId, employeeId, vec, Math.max(1, limit)],
+    );
+    return rows.map((row: Row) => ({
+      segment: mapRetrievalSegment(row),
+      similarity: num(row.similarity) ?? 0,
+    }));
+  }
+
+  async updateKnowledgeSourceIndexingState(
+    organizationId: string,
+    sourceId: string,
+    state: KnowledgeIndexingState,
+  ): Promise<void> {
+    await this.query(
+      "update knowledge_sources set indexing_state = $3, updated_at = now() where id = $2 and organization_id = $1",
+      [organizationId, sourceId, state],
+    );
   }
 
   async deleteKnowledgeRetrievalSegmentsForSource(

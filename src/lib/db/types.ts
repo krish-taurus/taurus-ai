@@ -252,6 +252,8 @@ export interface KnowledgeSource {
   visibility: KnowledgeVisibility;
   createdByUserId: string | null;
   archivedAt: string | null;
+  /** Chunk + embed state for semantic search (Sprint 019). */
+  indexingState: KnowledgeIndexingState;
   /** Non-sensitive structured metadata (e.g. url for url sources). */
   metadata: Record<string, unknown>;
   createdAt: string;
@@ -390,6 +392,7 @@ export type LlmTaskType =
   | "internal_collaboration"
   | "voice_realtime"
   | "performance_review"
+  | "embedding"
   | "system_test";
 
 export type LlmUsageStatus = "success" | "error" | "blocked";
@@ -659,6 +662,11 @@ export interface KnowledgeRetrievalSegment {
   contentPreview: string;
   segmentIndex: number;
   status: RetrievalSegmentStatus;
+  /** Embedding vector for semantic retrieval (Sprint 019). Null until embedded. */
+  embedding: number[] | null;
+  /** The embedding model + dimension, so a model change can trigger a re-embed. */
+  embeddingModelId: string | null;
+  embeddingDim: number | null;
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
@@ -672,7 +680,20 @@ export interface CreateKnowledgeRetrievalSegmentInput {
   content: string;
   contentPreview: string;
   segmentIndex: number;
+  embedding?: number[] | null;
+  embeddingModelId?: string | null;
+  embeddingDim?: number | null;
   metadata?: Record<string, unknown>;
+}
+
+/** Whether a Knowledge source has been chunked + embedded for search (Sprint 019). */
+export const KNOWLEDGE_INDEXING_STATES = ["pending", "indexing", "ready", "failed"] as const;
+export type KnowledgeIndexingState = (typeof KNOWLEDGE_INDEXING_STATES)[number];
+
+/** A semantic search hit — a segment with its cosine similarity (0–1). */
+export interface SemanticRetrievalSegment {
+  segment: KnowledgeRetrievalSegment;
+  similarity: number;
 }
 
 export interface CreateEmployeeChatRetrievalEventInput {

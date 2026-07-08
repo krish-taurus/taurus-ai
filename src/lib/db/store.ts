@@ -108,6 +108,8 @@ import type {
   ProviderSlug,
   PublishDnaInput,
   RankedRetrievalSegment,
+  SemanticRetrievalSegment,
+  KnowledgeIndexingState,
   SaveDnaDraftInput,
   SaveProviderCredentialInput,
   UpdateEmployeeInput,
@@ -333,10 +335,23 @@ export interface DataStore {
     query: string,
     limit?: number,
   ): Promise<RankedRetrievalSegment[]>;
+  /** Semantic (vector) search over an employee's assigned segments (Sprint 019). */
+  semanticSearchKnowledgeRetrievalSegments(
+    organizationId: string,
+    employeeId: string,
+    queryVector: number[],
+    limit?: number,
+  ): Promise<SemanticRetrievalSegment[]>;
   deleteKnowledgeRetrievalSegmentsForSource(
     organizationId: string,
     knowledgeSourceId: string,
   ): Promise<number>;
+  /** Set a source's indexing state (Sprint 019). */
+  updateKnowledgeSourceIndexingState(
+    organizationId: string,
+    sourceId: string,
+    state: KnowledgeIndexingState,
+  ): Promise<void>;
 
   createEmployeeChatRetrievalEvent(
     input: CreateEmployeeChatRetrievalEventInput,
