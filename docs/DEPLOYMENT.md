@@ -25,20 +25,22 @@ persistent deployment, set these in the Vercel project's Environment Variables:
 
 ## Database migrations
 
-Migrations run **automatically on deploy**. The Vercel Build Command (see
-`vercel.json`) runs `scripts/predeploy-migrate.mjs` before `next build`:
+Migrations run **automatically on production deploys**. The Vercel Build Command
+(see `vercel.json`) runs `scripts/predeploy-migrate.mjs` before `next build`:
 
-- If `DATABASE_URL` is set for the environment, it applies pending migrations
-  first. If a migration fails, the **build fails** — a bad or unreachable schema
-  blocks the deploy instead of shipping code that expects a table that isn't
-  there (the failure mode that took production down after Sprint 020 added
-  `organization_onboarding`).
-- If `DATABASE_URL` is not set (e.g. a preview using the in-memory store), it
-  skips quietly and the build proceeds.
+- **Production build with `DATABASE_URL`** → applies pending migrations first.
+- **Preview / development builds** → skipped (they may share the production
+  connection string and must never migrate it). Gated on `VERCEL_ENV`.
+- **No `DATABASE_URL`** (in-memory store) → skipped.
+
+The step **never fails the build**: if a migration can't complete (unreachable
+database, a provider without a required extension, a transient error) it logs a
+warning and the deploy proceeds. The app degrades gracefully when a table is
+missing, so a delayed migration never hard-crashes a page — a frozen deploy
+pipeline would be worse. Recover by running the migration manually (below).
 
 The runner (`scripts/migrate.mjs`) is idempotent and tracks applied files in a
-`schema_migrations` table, so re-running is safe. Feature reads also degrade
-gracefully if a table is somehow still missing, so a page never hard-crashes.
+`schema_migrations` table, so re-running is safe.
 
 To run migrations manually against any environment (e.g. a one-off backfill or a
 database the deploy can't reach):
