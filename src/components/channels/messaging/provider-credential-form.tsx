@@ -41,6 +41,10 @@ const FIELDS: Partial<
     { name: "domain", label: "Domain" },
     { name: "signingKey", label: "Signing Key", optional: true },
   ],
+  telegram: [
+    { name: "botToken", label: "Access Token (from @BotFather)" },
+    { name: "webhookSecret", label: "Webhook Secret", optional: true },
+  ],
   custom_webhook: [{ name: "apiKey", label: "Shared secret", optional: true }],
 };
 

@@ -1,5 +1,118 @@
 # Changelog
 
+## Sprint 038 - Slack channel ("Add to Slack" one-tap connect) — 2026-07-09
+
+Added:
+
+- **Slack connection** — the flagship true one-tap connect. The owner clicks
+  **"Add to Slack"**, authorizes the app in their workspace (OAuth — no tokens to
+  paste), and the AI Employee replies to messages and @-mentions in Slack.
+  - **OAuth install** (`/api/channels/slack/install` → Slack consent →
+    `/api/channels/slack/callback`) with an **HMAC-signed state** (AUTH_SECRET)
+    bound to user + org + employee and a CSRF cookie. The per-workspace bot token
+    is exchanged via `oauth.v2.access` and **stored encrypted** (never shown to the
+    client).
+  - **Events API** (`/api/webhooks/slack`): answers the `url_verification`
+    handshake, **verifies the v0 request signature** (HMAC over
+    `v0:{timestamp}:{body}`, with replay/skew protection), routes each event to the
+    right workspace by **team id**, skips Slack **retries** so it never
+    double-replies, and reuses the shared messaging runtime to answer via
+    `chat.postMessage`.
+  - Implemented as a `MessagingProvider` adapter (`slack/provider.ts`) — ignores
+    other bots and message edits to avoid loops — plus an OAuth + events service.
+    New `getEmployeeChannelBySlackTeam` on both stores (no migration; reuses
+    `employee_channels` + `provider_config`). A **Workplace** section + Slack setup
+    page surface the connect flow; Slack now shows **available** in the catalog and
+    Connections. New optional server-only `SLACK_CLIENT_ID` /
+    `SLACK_CLIENT_SECRET` / `SLACK_SIGNING_SECRET`; without them the connect is
+    hidden and the channel runs in simulated mode.
+  - Verified by unit tests (signed-state sign/verify + tamper, install URL,
+    v0 signature valid/tampered/stale, event parsing incl. bot/edit ignores,
+    url_verification challenge, team-id routing end to end, retry skip) and the
+    live-PG team-id lookup. `tsc` clean · `next lint` clean · **551 tests + 6
+    skipped** · build compiles.
+
+## Sprint 037 - "Scan to chat" QR codes for channels — 2026-07-09
+
+Added:
+
+- **"Reach me" QR codes** — the safe, ToS-compliant flavor of "connect by QR": a
+  code customers **scan to open a chat** with the AI Employee (not an auth code
+  that links a private account). Shown on the channel setup pages with the link +
+  copy button:
+  - **Web** → the live hosted chat page (works once the web connection is active).
+  - **Telegram** → `t.me/<username>`, **WhatsApp** → `wa.me/<number>`, **SMS** →
+    `sms:<number>` (whenever the channel's username/number is configured).
+  - QR is generated **server-side as inline SVG** (`qrcode`) from our own data —
+    no external image request, renders under a strict CSP, and always dark-on-white
+    so scanners stay reliable in either theme. Reach-link logic is pure + unit
+    tested. `tsc` clean · `next lint` clean · **543 tests + 6 skipped** · build compiles.
+
+## Sprint 036 - Telegram channel (first "coming soon" connection shipped) — 2026-07-09
+
+Added:
+
+- **Telegram connection** — the first of the "coming soon" channels made real. An
+  owner creates a bot with **@BotFather**, pastes the **access token**, and the AI
+  Employee answers Telegram messages end to end. Chosen first because it is the
+  lowest-friction real channel (token + webhook, **no business verification**),
+  per a review of how Intercom / Tidio / ManyChat / Botpress expose channels.
+  - Implemented as a `MessagingProvider` adapter
+    (`providers/telegram.ts`) that plugs into the existing messaging pipeline:
+    parses Telegram **Update** JSON, verifies the optional
+    `X-Telegram-Bot-Api-Secret-Token` (and treats the unguessable webhook URL as
+    the shared secret when no secret is set), and replies via the Bot API
+    `sendMessage`. No delivery receipts (Telegram doesn't send them).
+  - Reuses the whole existing surface: the `messaging/telegram` setup page
+    (create → credentials → webhook URL → **simulate** → go live), BYOK encrypted
+    credential storage, webhook route `…/channels/telegram/{publicKey}`, and the
+    Connections catalog. Telegram now shows as **available/foundation** instead of
+    "coming soon"; runs in **simulated mode** with no token (dev/tests never call
+    the network). New `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` env
+    (optional, server-only).
+  - Verified by unit tests (inbound Update parsing, non-text ignored, secret-token
+    verification with/without a secret, live/simulated status) and an end-to-end
+    JSON-webhook test through the runtime. `tsc` clean · `next lint` clean ·
+    **539 tests + 6 skipped** · build compiles.
+
+## Sprint 035 - Marketplace seller payouts (Connect / Route) — 2026-07-09
+
+Added:
+
+- **Seller payouts** — closes the money loop from Sprint 034. A seller **connects
+  a payout account** (Stripe Connect / Razorpay Route — KYC handled by the
+  provider via hosted onboarding) and **withdraws** their accrued revenue-share
+  balance to it.
+  - **Balance is derived, never stored**: `available(currency) = Σ paid
+    seller_net − Σ (paid + pending) payouts`, per currency. An **Earnings** page
+    shows the connect status, per-currency available balance, a **Withdraw**
+    button, and payout history.
+  - **Balance-and-withdraw** (not at-purchase split): a withdrawal records a
+    payout row **first** (so a concurrent request can't double-spend), then moves
+    the money. Simulated + successful live transfers settle immediately; failures
+    are reconciled by webhook. Fulfillment is **idempotent**.
+  - **Safe by default**: money only moves with live keys. With none, the
+    simulated provider activates the account instantly and settles withdrawals
+    in-process — **no network, no transfer**. Bank details never touch Taurus
+    (they live with the provider); we store only the opaque connected-account id.
+  - The three provider classes now implement a `MarketplacePayoutProvider`
+    interface (`createConnectedAccount` / `createOnboardingLink` /
+    `getAccountStatus` / `createTransfer` / `parsePayoutWebhookEvent`) —
+    Stripe via **Connect Express transfers**, Razorpay via **Route**. Account +
+    payout webhooks share `POST /api/webhooks/marketplace/{provider}` (payment
+    events first, then account/payout events).
+  - New `0026_marketplace_payouts.sql` (`marketplace_payout_accounts` +
+    `marketplace_payouts`, each with the right unique/partial indexes), store
+    methods on both backends, and `startPayoutOnboarding` / `getSellerBalances` /
+    `requestPayout` / `fulfillPayoutWebhook` service functions (pure; the provider
+    is injected at the action layer).
+  - Verified end-to-end on a **live PostgreSQL** (0026 applies; onboarding →
+    withdraw drains the $85 net balance, records the payout with its transfer id,
+    and refuses a second empty withdrawal) and by unit tests (balance math,
+    simulated + redirect onboarding, withdraw idempotency + insufficient balance,
+    account.updated + payout.failed webhooks). `tsc` clean · `next lint` clean ·
+    **534 tests + 6 skipped** · build compiles.
+
 ## Sprint 034 - Marketplace paid lease / revenue-share (Stripe + Razorpay) — 2026-07-09
 
 Added:

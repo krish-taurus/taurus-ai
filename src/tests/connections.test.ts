@@ -92,15 +92,15 @@ describe("connection catalog metadata", () => {
       "whatsapp",
       "sms",
       "email",
+      "telegram",
       "phone_call",
       "slack",
       "microsoft_teams",
       "instagram_dm",
-      "telegram",
     ]);
   });
 
-  it("marks web as available, messaging/voice as foundation, and the rest as coming soon", () => {
+  it("marks web as available, messaging/voice/telegram as foundation, and the rest as coming soon", () => {
     for (const type of [
       "website_widget",
       "hosted_chat",
@@ -109,10 +109,10 @@ describe("connection catalog metadata", () => {
     ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("available");
     }
-    for (const type of ["whatsapp", "sms", "email", "phone_call"] as ChannelType[]) {
+    for (const type of ["whatsapp", "sms", "email", "telegram", "phone_call", "slack"] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("foundation");
     }
-    for (const type of ["slack", "microsoft_teams", "instagram_dm", "telegram"] as ChannelType[]) {
+    for (const type of ["microsoft_teams", "instagram_dm"] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("coming_soon");
     }
   });
@@ -126,10 +126,13 @@ describe("connection catalog metadata", () => {
       "whatsapp",
       "sms",
       "email",
+      "telegram",
       "phone_call",
+      "slack",
     ]);
-    expect(isConfigurableType("slack")).toBe(false);
+    expect(isConfigurableType("microsoft_teams")).toBe(false);
     expect(isConfigurableType("website_widget")).toBe(true);
+    expect(isConfigurableType("slack")).toBe(true);
   });
 });
 
@@ -150,6 +153,10 @@ describe("connectionSetupHref", () => {
     expect(connectionSetupHref("emp-1", "email")).toBe(
       "/dashboard/employees/emp-1/channels/messaging/email",
     );
+    expect(connectionSetupHref("emp-1", "telegram")).toBe(
+      "/dashboard/employees/emp-1/channels/messaging/telegram",
+    );
+    expect(connectionSetupHref("emp-1", "slack")).toBe("/dashboard/employees/emp-1/channels/slack");
   });
 });
 

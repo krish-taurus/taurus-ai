@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "node scripts/migrate.mjs",
-    "db:migrate:seed": "node scripts/migrate.mjs --seed"
+    "db:migrate:seed": "node scripts/migrate.mjs --seed",
+    "db:seed:marketplace": "npx tsx scripts/seed-marketplace.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
@@ -25,6 +26,7 @@
     "next": "14.2.5",
     "pdf-parse": "^1.1.1",
     "pg": "8.12.0",
+    "qrcode": "^1.5.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "zod": "3.23.8"
@@ -34,6 +36,7 @@
     "@testing-library/react": "16.0.0",
     "@types/node": "20.14.12",
     "@types/pg": "8.11.6",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "@vitejs/plugin-react": "4.3.1",

@@ -91,7 +91,7 @@ export const CHANNEL_DEFINITIONS: ChannelDefinition[] = [
     label: "Telegram",
     description: "Connect your AI Employee to a Telegram bot.",
     providerType: "telegram",
-    availability: "coming_soon",
+    availability: "available",
   },
   {
     type: "instagram_dm",
@@ -127,7 +127,7 @@ export const CHANNEL_DEFINITIONS: ChannelDefinition[] = [
     label: "Slack",
     description: "Bring your AI Employee into your Slack workspace.",
     providerType: "slack",
-    availability: "coming_soon",
+    availability: "available",
   },
   {
     type: "microsoft_teams",

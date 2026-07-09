@@ -9,6 +9,10 @@ import {
   startHirePurchase,
   fulfillMarketplacePayment,
   listSellerPayments,
+  startPayoutOnboarding,
+  requestPayout,
+  getSellerBalances,
+  listPayouts,
 } from "@/modules/marketplace/service";
 import type { ChannelAppearance } from "@/lib/db/types";
 
@@ -236,5 +240,39 @@ describe.skipIf(!DATABASE_URL)("PostgresStore parity on a fresh schema", () => {
     expect(await store.listVaultsForEmployee(buyerOrg.id, clonedId)).toHaveLength(0);
     const clonedDna = await store.getPublishedEmployeeDna(buyerOrg.id, clonedId);
     expect(clonedDna?.dna.identity.roleSummary).toBe("Senior Support Specialist");
+
+    // --- Seller payout (Sprint 035) on real Postgres ---
+    const onboarding = await startPayoutOnboarding(
+      store,
+      { organizationId: sellerOrg.id, userId: sellerUser.id },
+      {
+        provider: "simulated",
+        returnUrl: "https://app/r",
+        refreshUrl: "https://app/f",
+        createConnectedAccount: async () => ({
+          externalAccountId: `acct_${stamp}`,
+          status: "active",
+        }),
+        createOnboardingLink: async () => ({ mode: "simulated" }),
+      },
+    );
+    expect(onboarding.status).toBe("active");
+
+    const beforeWithdraw = await getSellerBalances(store, sellerOrg.id);
+    expect(beforeWithdraw.find((b) => b.currency === "usd")?.available).toBe(8500);
+
+    const payout = await requestPayout(
+      store,
+      { organizationId: sellerOrg.id, userId: sellerUser.id },
+      { currency: "usd" },
+      { createTransfer: async () => ({ mode: "transferred", externalTransferId: `tr_${stamp}` }) },
+    );
+    expect(payout.status).toBe("paid");
+    expect(payout.amount).toBe(8500);
+    expect(payout.externalTransferId).toBe(`tr_${stamp}`);
+
+    // Balance drained + payout recorded; a second withdrawal is refused.
+    expect((await getSellerBalances(store, sellerOrg.id)).find((b) => b.currency === "usd")?.available).toBe(0);
+    expect(await listPayouts(store, sellerOrg.id)).toHaveLength(1);
   });
 });

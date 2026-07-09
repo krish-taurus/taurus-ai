@@ -15,6 +15,7 @@ import {
 } from "@/modules/channels/messaging/catalog";
 import { twilioProvider } from "@/modules/channels/messaging/providers/twilio";
 import { sendgridProvider } from "@/modules/channels/messaging/providers/sendgrid-email";
+import { telegramProvider } from "@/modules/channels/messaging/providers/telegram";
 import { htmlToSafeText } from "@/modules/channels/messaging/html";
 import { hmacBase64 } from "@/modules/channels/messaging/crypto";
 import type { ChatGateway } from "@/modules/employee-chat/service";
@@ -125,13 +126,14 @@ afterEach(() => {
 // --- Catalog metadata -------------------------------------------------------
 
 describe("Messaging catalog", () => {
-  it("supports whatsapp, sms and email with the right providers", () => {
-    expect(MESSAGING_CHANNEL_TYPES).toEqual(["whatsapp", "sms", "email"]);
+  it("supports whatsapp, sms, email and telegram with the right providers", () => {
+    expect(MESSAGING_CHANNEL_TYPES).toEqual(["whatsapp", "sms", "email", "telegram"]);
     expect(providersForChannelType("whatsapp")).toContain("twilio");
     expect(providersForChannelType("whatsapp")).toContain("meta_whatsapp_cloud");
     expect(providersForChannelType("sms")).toContain("twilio");
     expect(providersForChannelType("email")).toContain("sendgrid");
     expect(providersForChannelType("email")).toContain("mailgun");
+    expect(providersForChannelType("telegram")).toEqual(["telegram"]);
   });
 });
 
@@ -392,6 +394,90 @@ describe("Twilio adapter", () => {
   });
 });
 
+describe("Telegram adapter", () => {
+  const update = {
+    update_id: 1,
+    message: {
+      message_id: 42,
+      from: { id: 555, first_name: "Ada", username: "ada" },
+      chat: { id: 555, type: "private" },
+      date: 1_700_000_000,
+      text: "Hi there",
+    },
+  };
+
+  it("parses an inbound Telegram text message from the JSON body", () => {
+    const inbound = telegramProvider.parseInboundWebhook({
+      method: "POST",
+      url: "https://x",
+      headers: {},
+      query: {},
+      rawBody: JSON.stringify(update),
+      form: {},
+      json: update,
+    });
+    expect(inbound?.channelType).toBe("telegram");
+    expect(inbound?.messageText).toBe("Hi there");
+    expect(inbound?.senderExternalId).toBe("555");
+    expect(inbound?.senderLabel).toBe("Ada");
+    expect(
+      telegramProvider.parseDeliveryStatus({
+        method: "POST",
+        url: "https://x",
+        headers: {},
+        query: {},
+        rawBody: "",
+        form: {},
+        json: update,
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores non-text updates (edits, joins, callbacks)", () => {
+    const edited = { edited_message: update.message };
+    expect(
+      telegramProvider.parseInboundWebhook({
+        method: "POST",
+        url: "https://x",
+        headers: {},
+        query: {},
+        rawBody: "",
+        form: {},
+        json: edited,
+      }),
+    ).toBeNull();
+  });
+
+  it("verifies the secret token when configured, and treats the URL as the secret otherwise", async () => {
+    const base: WebhookRequest = {
+      method: "POST",
+      url: "https://x",
+      headers: { "x-telegram-bot-api-secret-token": "s3cret" },
+      query: {},
+      rawBody: "",
+      form: {},
+      json: update,
+    };
+    const withSecret = { mode: "live" as const, secrets: { botToken: "t", webhookSecret: "s3cret" }, channelConfig: {} };
+    expect((await telegramProvider.verifyWebhook(base, withSecret)).verified).toBe(true);
+    expect(
+      (await telegramProvider.verifyWebhook({ ...base, headers: { "x-telegram-bot-api-secret-token": "wrong" } }, withSecret)).verified,
+    ).toBe(false);
+    // No secret configured → accepted (the unguessable webhook URL is the secret).
+    const noSecret = { mode: "live" as const, secrets: { botToken: "t" }, channelConfig: {} };
+    expect((await telegramProvider.verifyWebhook({ ...base, headers: {} }, noSecret)).verified).toBe(true);
+  });
+
+  it("reports simulated mode without a bot token and live with one", () => {
+    expect(telegramProvider.getProviderStatus({ mode: "simulated", secrets: {}, channelConfig: {} }).mode).toBe(
+      "simulated",
+    );
+    expect(
+      telegramProvider.getProviderStatus({ mode: "live", secrets: { botToken: "t" }, channelConfig: {} }).mode,
+    ).toBe("live");
+  });
+});
+
 describe("Email safety", () => {
   it("strips HTML to safe text (no tags, no scripts)", () => {
     const out = htmlToSafeText("<p>Hello <b>world</b></p><script>alert(1)</script>");
@@ -470,6 +556,47 @@ describe("Messaging webhook processing", () => {
     const result = await processMessagingWebhook(
       { store, gateway, isProduction: () => false },
       { providerSlug: "twilio", publicKey: channel.publicKey, request },
+    );
+    expect(result.status).toBe(200);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("runs the runtime for a Telegram JSON webhook (no secret needed)", async () => {
+    const store = new InMemoryStore();
+    const employee = await seedEmployee(store, "org-1");
+    await publishDna(store, "org-1", employee.id);
+    const channel = await createMessagingChannel(store, actor, employee, {
+      channelType: "telegram",
+      provider: "telegram",
+      name: "Telegram",
+    });
+    await store.activateEmployeeChannel("org-1", channel.id);
+    const active = (await store.getEmployeeChannel("org-1", channel.id))!;
+    const { gateway, calls } = fakeGateway("Hello from Nova");
+
+    const update = {
+      update_id: 7,
+      message: {
+        message_id: 1,
+        from: { id: 999, first_name: "Sam" },
+        chat: { id: 999, type: "private" },
+        date: 1_700_000_000,
+        text: "Are you open on weekends?",
+      },
+    };
+    const request: WebhookRequest = {
+      method: "POST",
+      url: `https://app/api/webhooks/channels/telegram/${active.publicKey}`,
+      headers: { "content-type": "application/json" },
+      query: {},
+      rawBody: JSON.stringify(update),
+      form: {},
+      json: update,
+    };
+    // No token → simulated mode; no secret configured → verification passes.
+    const result = await processMessagingWebhook(
+      { store, gateway, isProduction: () => false },
+      { providerSlug: "telegram", publicKey: active.publicKey, request },
     );
     expect(result.status).toBe(200);
     expect(calls).toHaveLength(1);

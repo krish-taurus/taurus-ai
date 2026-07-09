@@ -31,11 +31,11 @@ export const CONNECTION_TYPE_ORDER: ChannelType[] = [
   "whatsapp",
   "sms",
   "email",
+  "telegram",
   "phone_call",
   "slack",
   "microsoft_teams",
   "instagram_dm",
-  "telegram",
 ];
 
 const AVAILABILITY: Record<ChannelType, ConnectionAvailability> = {
@@ -47,10 +47,10 @@ const AVAILABILITY: Record<ChannelType, ConnectionAvailability> = {
   sms: "foundation",
   email: "foundation",
   phone_call: "foundation",
-  slack: "coming_soon",
+  telegram: "foundation",
+  slack: "foundation",
   microsoft_teams: "coming_soon",
   instagram_dm: "coming_soon",
-  telegram: "coming_soon",
   facebook_messenger: "coming_soon",
 };
 
@@ -125,7 +125,9 @@ export const CONFIGURABLE_CONNECTION_TYPES: ChannelType[] =
 export function connectionSetupHref(employeeId: string, type: ChannelType): string {
   const base = `/dashboard/employees/${employeeId}/channels`;
   if (type === "phone_call") return `${base}/voice`;
-  if (type === "whatsapp" || type === "sms" || type === "email") return `${base}/messaging/${type}`;
+  if (type === "slack") return `${base}/slack`;
+  if (type === "whatsapp" || type === "sms" || type === "email" || type === "telegram")
+    return `${base}/messaging/${type}`;
   // Web surfaces (and any fallback) are managed on the main channels page.
   return base;
 }

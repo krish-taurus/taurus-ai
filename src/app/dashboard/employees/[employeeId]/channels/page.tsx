@@ -13,6 +13,9 @@ import { ChannelStatusControls } from "@/components/channels/channel-status-cont
 import { ChannelSettingsForm } from "@/components/channels/channel-settings-form";
 import { MessagingChannelCards } from "@/components/channels/messaging/messaging-channel-cards";
 import { VoiceChannelCard } from "@/components/channels/voice/voice-channel-card";
+import { buildReachLink } from "@/modules/channels/reach";
+import { renderQrSvg } from "@/lib/qr";
+import { ReachQr } from "@/components/channels/reach-qr";
 import { Badge, buttonClasses, Card, Notice, PageHeader, StatusDot } from "@/components/ui";
 
 function ChecklistRow({ done, label, hint }: { done: boolean; label: string; hint: string }) {
@@ -56,6 +59,11 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
     : null;
 
   const brainReady = readiness.brainMode !== "unavailable";
+
+  // A "reach me" QR for the live hosted chat (once the web channel is active).
+  const webReach = webChannel ? buildReachLink(webChannel, appUrl) : null;
+  const webReachSvg =
+    webChannel?.status === "active" && webReach ? await renderQrSvg(webReach.url) : null;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -168,6 +176,10 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
 
             {snippets ? <InstallSnippetsView snippets={snippets} /> : null}
 
+            {webReachSvg && webReach ? (
+              <ReachQr svg={webReachSvg} url={webReach.url} label={webReach.label} hint={webReach.hint} />
+            ) : null}
+
             <div className="flex flex-wrap gap-3">
               <a
                 href={snippets?.hostedLink}
@@ -196,9 +208,10 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
           <Badge tone="soft">Foundation</Badge>
         </div>
         <p className="mb-3 text-xs text-taurus-faint">
-          Connect this AI Employee to WhatsApp, SMS, and email. Provider setup may require an
-          account with Twilio, Meta WhatsApp Cloud, SendGrid, or Mailgun. You can test each channel
-          in simulated mode before going live.
+          Connect this AI Employee to Telegram, WhatsApp, SMS, and email. Telegram just needs an
+          access token from @BotFather; WhatsApp/SMS/email may require an account with Twilio, Meta
+          WhatsApp Cloud, SendGrid, or Mailgun. You can test each channel in simulated mode before
+          going live.
         </p>
         <MessagingChannelCards employeeId={employee.id} summaries={messagingOverview.summaries} />
       </section>
@@ -218,7 +231,31 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
         </div>
       </section>
 
-      {/* Full channel catalog (Workplace apps are coming soon) */}
+      {/* Workplace apps (Slack live; Teams coming soon). */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-taurus-text">Workplace apps</h2>
+          <Badge tone="soft">Foundation</Badge>
+        </div>
+        <p className="mb-3 text-xs text-taurus-faint">
+          Bring this AI Employee into Slack with one tap — authorize the app and it replies to
+          messages and mentions in your workspace.
+        </p>
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h3 className="text-sm font-medium text-taurus-text">Slack</h3>
+            <p className="text-xs text-taurus-faint">Replies to messages &amp; @-mentions in your workspace.</p>
+          </div>
+          <Link
+            href={`/dashboard/employees/${employee.id}/channels/slack`}
+            className={buttonClasses("secondary", "sm")}
+          >
+            {canManage ? "Set up Slack" : "View Slack"}
+          </Link>
+        </Card>
+      </section>
+
+      {/* Full channel catalog (remaining apps are coming soon) */}
       <ChannelCatalogCards />
     </div>
   );

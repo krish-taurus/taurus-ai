@@ -9,7 +9,10 @@
  */
 
 import type { MarketplacePaymentProviderId } from "@/lib/db/types";
-import type { MarketplacePaymentProvider } from "@/modules/marketplace/payments/types";
+import type {
+  MarketplacePaymentProvider,
+  MarketplacePayoutProvider,
+} from "@/modules/marketplace/payments/types";
 import { SimulatedPaymentProvider } from "@/modules/marketplace/payments/simulated";
 import { StripeMarketplacePaymentProvider } from "@/modules/marketplace/payments/stripe";
 import { RazorpayPaymentProvider } from "@/modules/marketplace/payments/razorpay";
@@ -66,6 +69,31 @@ export function getWebhookProvider(
   return getMarketplacePaymentProvider(provider);
 }
 
+/**
+ * Resolve a payout provider (Connect/Route). Honors the requested provider only
+ * when its live keys are configured; otherwise falls back to simulated so no
+ * transfer is ever attempted without a real configuration. The three provider
+ * classes implement both the payment and payout interfaces.
+ */
+export function getMarketplacePayoutProvider(
+  requested?: MarketplacePaymentProviderId,
+): MarketplacePayoutProvider {
+  if (requested === "stripe" && isStripeConfigured()) {
+    return new StripeMarketplacePaymentProvider({
+      secretKey: process.env.STRIPE_SECRET_KEY as string,
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? null,
+    });
+  }
+  if (requested === "razorpay" && isRazorpayConfigured()) {
+    return new RazorpayPaymentProvider({
+      keyId: process.env.RAZORPAY_KEY_ID as string,
+      keySecret: process.env.RAZORPAY_KEY_SECRET as string,
+      webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET ?? null,
+    });
+  }
+  return new SimulatedPaymentProvider();
+}
+
 /** The platform's revenue-share cut in basis points (0–10000). */
 export function platformFeeBps(): number {
   const raw = Number(process.env.MARKETPLACE_PLATFORM_FEE_BPS);
@@ -86,4 +114,4 @@ export function computeRevenueSplit(
   return { platformFee, sellerNet: safeAmount - platformFee };
 }
 
-export type { MarketplacePaymentProvider };
+export type { MarketplacePaymentProvider, MarketplacePayoutProvider };

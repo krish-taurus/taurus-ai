@@ -15,6 +15,9 @@ import {
   providersForChannelType,
 } from "@/modules/channels/messaging/catalog";
 import { CHANNEL_STATUS_LABELS } from "@/modules/channels/metadata";
+import { buildReachLink } from "@/modules/channels/reach";
+import { renderQrSvg } from "@/lib/qr";
+import { ReachQr } from "@/components/channels/reach-qr";
 import { CreateMessagingChannelForm } from "@/components/channels/messaging/create-messaging-channel-form";
 import { MessagingSettingsForm } from "@/components/channels/messaging/messaging-settings-form";
 import { MessagingStatusControls } from "@/components/channels/messaging/messaging-status-controls";
@@ -28,6 +31,7 @@ const PROVIDER_TO_SLUG: Record<string, string> = {
   meta_whatsapp_cloud: "meta-whatsapp",
   sendgrid: "sendgrid",
   mailgun: "mailgun",
+  telegram: "telegram",
   custom_webhook: "custom",
 };
 
@@ -35,6 +39,7 @@ const SENDER_PLACEHOLDER: Record<string, string> = {
   whatsapp: "+15551234567",
   sms: "+15551234567",
   email: "customer@example.com",
+  telegram: "123456789",
 };
 
 export default async function MessagingSetupPage({
@@ -116,6 +121,10 @@ export default async function MessagingSetupPage({
     8,
   );
 
+  // A "reach me" QR customers scan to open a chat (Telegram/WhatsApp/SMS).
+  const reach = buildReachLink(channel, appUrl);
+  const reachSvg = reach ? await renderQrSvg(reach.url) : null;
+
   return (
     <div className="mx-auto max-w-2xl">
       {backLink}
@@ -182,9 +191,15 @@ export default async function MessagingSetupPage({
             verificationNote={
               channel.channelProvider === "meta_whatsapp_cloud"
                 ? "Meta also calls this URL with a GET verification challenge."
-                : undefined
+                : channel.channelProvider === "telegram"
+                  ? "Point Telegram here: call setWebhook with this URL (and your Webhook Secret, if set)."
+                  : undefined
             }
           />
+        ) : null}
+
+        {reachSvg && reach ? (
+          <ReachQr svg={reachSvg} url={reach.url} label={reach.label} hint={reach.hint} />
         ) : null}
 
         {canTest ? (
