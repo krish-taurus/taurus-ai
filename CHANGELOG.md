@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 023 - Data connectors (Google Drive) — 2026-07-08
+
+Added:
+
+- **Google Drive knowledge connector** (`src/modules/knowledge/connectors/google-drive.ts`)
+  — connect a Google account (read-only) and import a Drive **file or folder**;
+  each file's text becomes a searchable Knowledge Vault document an AI Employee can
+  answer from. A **"Sync now"** action re-reads Drive and refreshes the documents.
+  - **OAuth 2.0** flow with two route handlers — `start` (builds a signed,
+    user/org-bound `state` + CSRF cookie and redirects to Google) and `callback`
+    (verifies state, exchanges the code, stashes the account for the Add Knowledge
+    form). Scope is `drive.readonly` only — the app can never modify a user's Drive.
+  - **Secrets protected**: the refresh token is AES-GCM **encrypted at rest** (same
+    key store as model credentials) and never sent to the browser; only the
+    connected account email is shown. The short-lived connect handoff uses an
+    encrypted, httpOnly cookie.
+  - **Bounded ingestion**: a folder is read one level deep (up to 50 files),
+    oversized files are skipped, and Google-native Docs/Sheets/Slides are exported
+    (Doc→DOCX, Sheet→CSV, Slides→text) then run through the existing extraction →
+    index → hybrid-retrieval pipeline. New `google_drive` knowledge source type +
+    a "Google Drive" tab in Add Knowledge.
+  - Setup: `docs/connectors/google-drive.md` (Google Cloud OAuth app) +
+    `GOOGLE_DRIVE_CLIENT_ID` / `GOOGLE_DRIVE_CLIENT_SECRET` (optional
+    `GOOGLE_DRIVE_REDIRECT_URI`). Absent config hides the connector; other sources
+    are unaffected.
+
 ## Sprint 022 - Data connectors (Database) — 2026-07-08
 
 Added:

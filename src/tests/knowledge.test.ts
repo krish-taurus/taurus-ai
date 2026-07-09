@@ -7,12 +7,14 @@ import {
   assignKnowledgeToEmployee,
   createDatabaseSource,
   createFileSource,
+  createGoogleDriveSource,
   createTextSource,
   createUrlSource,
   getVaultOverview,
   KnowledgeNotFoundError,
   KnowledgeValidationError,
   syncDatabaseSource,
+  syncGoogleDriveSource,
   unassignKnowledgeFromEmployee,
   validateUpload,
   type KnowledgeStorage,
@@ -254,6 +256,79 @@ describe("database source", () => {
     expect(docs).toHaveLength(1); // replaced, not duplicated
     expect(docs[0].textContent).toContain("45 days");
     expect(store._auditEvents().some((e) => e.action === "knowledge_source.synced")).toBe(true);
+  });
+});
+
+describe("google drive source", () => {
+  const connector = {
+    email: "owner@example.com",
+    rootId: "1AbCfolder",
+    rootName: "Sales playbooks",
+    connectionEncrypted: "ENC(refresh-token)",
+  };
+
+  it("stores one document per Drive file and marks the source ready", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createGoogleDriveSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Sales playbooks" },
+      connector,
+      documents: [
+        { title: "Pricing.pdf", text: "Enterprise pricing is custom.", status: "extracted" },
+        { title: "Old.key", text: null, status: "unsupported" },
+      ],
+      skipped: 1,
+    });
+    expect(source.sourceType).toBe("google_drive");
+    expect(source.status).toBe("ready");
+    // The refresh token is only stored as ciphertext, never in plaintext.
+    expect(source.metadata.connectionEncrypted).toBe(connector.connectionEncrypted);
+    expect(source.metadata.email).toBe("owner@example.com");
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(2);
+    expect(docs.some((d) => d.textContent?.includes("Enterprise pricing"))).toBe(true);
+  });
+
+  it("marks the source failed when no file yielded text", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createGoogleDriveSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Empty folder" },
+      connector,
+      documents: [{ title: "scan.pdf", text: null, status: "failed" }],
+      skipped: 0,
+    });
+    expect(source.status).toBe("failed");
+  });
+
+  it("re-syncs by replacing documents with fresh files", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createGoogleDriveSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Sales playbooks" },
+      connector,
+      documents: [{ title: "v1.pdf", text: "first version", status: "extracted" }],
+      skipped: 0,
+    });
+    await syncGoogleDriveSource(store, actor(aliceOrg.id, alice.id), source.id, {
+      documents: [{ title: "v2.pdf", text: "second version", status: "extracted" }],
+      skipped: 0,
+    });
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1); // replaced, not duplicated
+    expect(docs[0].textContent).toContain("second version");
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.synced")).toBe(true);
+  });
+
+  it("refuses to sync a non-drive source", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const text = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Note",
+      text: "hello",
+    });
+    await expect(
+      syncGoogleDriveSource(store, actor(aliceOrg.id, alice.id), text.id, {
+        documents: [],
+        skipped: 0,
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
   });
 });
 

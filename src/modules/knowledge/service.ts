@@ -359,6 +359,143 @@ export async function syncDatabaseSource(
   return updated;
 }
 
+/** Non-secret + encrypted connector config stored on a Google Drive source. */
+export interface GoogleDriveConnectorMeta {
+  /** Connected account email, shown in the UI (never a token). */
+  email: string | null;
+  /** Drive file/folder id this source ingests. */
+  rootId: string;
+  /** Display name of the Drive file/folder. */
+  rootName: string;
+  /** Encrypted refresh token (ciphertext only — never plaintext). */
+  connectionEncrypted: string;
+}
+
+/** One extracted Drive file → a knowledge document. */
+export interface GoogleDriveDocumentInput {
+  title: string;
+  text: string | null;
+  status: DocumentExtractionStatus;
+}
+
+function statusForDocuments(documents: GoogleDriveDocumentInput[]): "ready" | "failed" {
+  return documents.some((d) => d.status === "extracted" && !!d.text) ? "ready" : "failed";
+}
+
+async function writeGoogleDriveDocuments(
+  store: DataStore,
+  actor: KnowledgeActor,
+  sourceId: string,
+  documents: GoogleDriveDocumentInput[],
+): Promise<void> {
+  for (const doc of documents) {
+    await store.createKnowledgeDocument({
+      organizationId: actor.organizationId,
+      knowledgeSourceId: sourceId,
+      title: doc.title,
+      contentType: "text/plain",
+      textContent: doc.text,
+      textPreview: doc.text ? makePreview(doc.text) : null,
+      extractionStatus: doc.status,
+      createdByUserId: actor.userId,
+    });
+  }
+}
+
+/**
+ * Flow E: create a Google Drive knowledge source. The caller (server action) runs
+ * the OAuth-authenticated Drive read + extraction and encrypts the refresh token,
+ * then passes the results in; each file becomes a searchable document. Pure + testable.
+ */
+export async function createGoogleDriveSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  input: {
+    meta: unknown;
+    connector: GoogleDriveConnectorMeta;
+    documents: GoogleDriveDocumentInput[];
+    skipped: number;
+  },
+): Promise<KnowledgeSource> {
+  const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
+  if (!parsedMeta.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsedMeta.error, "Invalid details."));
+  }
+  const meta = parsedMeta.data;
+
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
+  const status = statusForDocuments(input.documents);
+
+  const source = await store.createKnowledgeSource({
+    organizationId: actor.organizationId,
+    name: meta.name,
+    description: emptyToNull(meta.description),
+    sourceType: "google_drive",
+    status,
+    visibility: meta.visibility,
+    metadata: {
+      email: input.connector.email,
+      rootId: input.connector.rootId,
+      rootName: input.connector.rootName,
+      connectionEncrypted: input.connector.connectionEncrypted,
+      fileCount: input.documents.length,
+      skipped: input.skipped,
+    },
+    createdByUserId: actor.userId,
+  });
+
+  await writeGoogleDriveDocuments(store, actor, source.id, input.documents);
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.created",
+    targetType: "knowledge_source",
+    targetId: source.id,
+    metadata: { sourceId: source.id, sourceType: source.sourceType, status: source.status },
+  });
+
+  return source;
+}
+
+/** Re-run a Google Drive source's read: replace its documents with fresh files. */
+export async function syncGoogleDriveSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  sourceId: string,
+  input: { documents: GoogleDriveDocumentInput[]; skipped: number },
+): Promise<KnowledgeSource> {
+  const existing = await store.getKnowledgeSource(actor.organizationId, sourceId);
+  if (!existing || existing.sourceType !== "google_drive") throw new KnowledgeNotFoundError();
+
+  const status = statusForDocuments(input.documents);
+
+  await store.deleteKnowledgeDocumentsForSource(actor.organizationId, sourceId);
+  await writeGoogleDriveDocuments(store, actor, sourceId, input.documents);
+
+  const updated =
+    (await store.updateKnowledgeSource(actor.organizationId, sourceId, { status })) ?? existing;
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.synced",
+    targetType: "knowledge_source",
+    targetId: sourceId,
+    metadata: {
+      sourceId,
+      sourceType: "google_drive",
+      fileCount: input.documents.length,
+      status: updated.status,
+    },
+  });
+
+  return updated;
+}
+
 /** Flow B: create a file knowledge source, storing the file via the adapter. */
 export async function createFileSource(
   store: DataStore,

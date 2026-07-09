@@ -18,6 +18,7 @@ export const KNOWLEDGE_SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> =
   text: "Note",
   url: "Website",
   database: "Database",
+  google_drive: "Google Drive",
 };
 
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeSourceStatus, string> = {

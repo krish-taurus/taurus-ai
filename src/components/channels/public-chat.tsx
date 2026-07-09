@@ -29,6 +29,7 @@ const SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> = {
   file: "Document",
   url: "Website",
   database: "Database",
+  google_drive: "Google Drive",
 };
 
 export function PublicChat({

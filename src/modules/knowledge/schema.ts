@@ -58,6 +58,16 @@ export const createDatabaseSourceSchema = z.object({
   query: z.string().trim().min(1, "Enter a read-only SQL query.").max(20_000),
 });
 
+export const createGoogleDriveSourceSchema = z.object({
+  name: knowledgeNameSchema,
+  description: knowledgeDescriptionSchema,
+  visibility: knowledgeVisibilitySchema.default("organization"),
+  link: z
+    .string()
+    .trim()
+    .min(1, "Paste a Google Drive file or folder link."),
+});
+
 export const createFileSourceMetaSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
@@ -73,5 +83,6 @@ export const updateKnowledgeSourceSchema = z.object({
 export type CreateTextSourceValues = z.infer<typeof createTextSourceSchema>;
 export type CreateUrlSourceValues = z.infer<typeof createUrlSourceSchema>;
 export type CreateDatabaseSourceValues = z.infer<typeof createDatabaseSourceSchema>;
+export type CreateGoogleDriveSourceValues = z.infer<typeof createGoogleDriveSourceSchema>;
 export type CreateFileSourceMetaValues = z.infer<typeof createFileSourceMetaSchema>;
 export type UpdateKnowledgeSourceValues = z.infer<typeof updateKnowledgeSourceSchema>;

@@ -25,6 +25,7 @@ export const SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> = {
   file: "Document",
   url: "Website",
   database: "Database",
+  google_drive: "Google Drive",
 };
 
 /** Why chat is blocked, if it is — drives the readiness UI + CTAs. */

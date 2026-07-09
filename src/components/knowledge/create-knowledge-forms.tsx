@@ -9,10 +9,12 @@
  */
 
 import { useState } from "react";
+import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import {
   createDatabaseSourceAction,
   createFileSourceAction,
+  createGoogleDriveSourceAction,
   createTextSourceAction,
   createUrlSourceAction,
   type KnowledgeActionState,
@@ -20,14 +22,26 @@ import {
 import { ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/modules/knowledge/metadata";
 import { buttonClasses, cn, Field, FieldError, Input, Select, Textarea } from "@/components/ui";
 
-type Tab = "text" | "file" | "url" | "database";
+type Tab = "text" | "file" | "url" | "database" | "google_drive";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "text", label: "Add Text" },
   { key: "file", label: "Upload File" },
   { key: "url", label: "Add Website" },
   { key: "database", label: "Connect Database" },
+  { key: "google_drive", label: "Google Drive" },
 ];
+
+const GOOGLE_DRIVE_START = "/api/knowledge/connectors/google-drive/start";
+
+/** Connection state for the Google Drive tab, resolved on the server. */
+export interface GoogleDriveConnectState {
+  configured: boolean;
+  connected: boolean;
+  email: string | null;
+  /** Friendly message when a previous connect attempt failed. */
+  errorMessage: string | null;
+}
 
 const MAX_MB = MAX_UPLOAD_BYTES / (1024 * 1024);
 
@@ -51,12 +65,22 @@ function VisibilityField() {
   );
 }
 
-export function CreateKnowledgeForms() {
-  const [tab, setTab] = useState<Tab>("text");
+export function CreateKnowledgeForms({
+  defaultTab = "text",
+  googleDrive,
+}: {
+  defaultTab?: Tab;
+  googleDrive?: GoogleDriveConnectState;
+}) {
+  const [tab, setTab] = useState<Tab>(defaultTab);
   const [textState, textAction] = useFormState(createTextSourceAction, {} as KnowledgeActionState);
   const [fileState, fileAction] = useFormState(createFileSourceAction, {} as KnowledgeActionState);
   const [urlState, urlAction] = useFormState(createUrlSourceAction, {} as KnowledgeActionState);
   const [dbState, dbAction] = useFormState(createDatabaseSourceAction, {} as KnowledgeActionState);
+  const [driveState, driveAction] = useFormState(
+    createGoogleDriveSourceAction,
+    {} as KnowledgeActionState,
+  );
 
   return (
     <div>
@@ -242,6 +266,81 @@ export function CreateKnowledgeForms() {
           <SubmitButton label="Connect & import" />
         </form>
       ) : null}
+
+      {tab === "google_drive" ? (
+        <GoogleDriveTab state={googleDrive} action={driveAction} formState={driveState} />
+      ) : null}
     </div>
+  );
+}
+
+function GoogleDriveTab({
+  state,
+  action,
+  formState,
+}: {
+  state?: GoogleDriveConnectState;
+  action: (formData: FormData) => void;
+  formState: KnowledgeActionState;
+}) {
+  if (!state?.configured) {
+    return (
+      <div className="rounded-lg border border-taurus-line bg-taurus-muted p-5 text-sm text-taurus-sub">
+        Google Drive isn’t set up for this workspace yet. An admin needs to add Google credentials
+        before you can connect a Drive account.
+      </div>
+    );
+  }
+
+  if (!state.connected) {
+    return (
+      <div className="space-y-4">
+        <p className="text-sm text-taurus-sub">
+          Connect a Google account (read-only) and import a file or a whole folder. Its text is
+          saved so your AI Employees can answer from it.
+        </p>
+        {state.errorMessage ? <FieldError>{state.errorMessage}</FieldError> : null}
+        <a href={GOOGLE_DRIVE_START} className={buttonClasses("primary", "lg")}>
+          Connect Google Drive
+        </a>
+        <p className="text-xs text-taurus-faint">
+          We only request read-only access. You can revoke it any time from your Google account.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <form action={action} className="space-y-5">
+      <div className="flex items-center justify-between gap-3 rounded-lg border border-taurus-line bg-taurus-muted px-4 py-3 text-sm">
+        <span className="text-taurus-text">
+          Connected{state.email ? ` as ${state.email}` : ""}
+        </span>
+        <Link href={GOOGLE_DRIVE_START} className="font-medium text-taurus-sub hover:text-taurus-text">
+          Use a different account
+        </Link>
+      </div>
+      <Field label="Name" htmlFor="drive-name">
+        <Input id="drive-name" name="name" required minLength={2} placeholder="e.g. Sales playbooks" />
+      </Field>
+      <Field label="Description" htmlFor="drive-description" optional>
+        <Input id="drive-description" name="description" placeholder="A short note about this data" />
+      </Field>
+      <Field
+        label="Google Drive file or folder link"
+        htmlFor="drive-link"
+        hint="Paste a link to a file or a folder. Folders import supported files one level deep (up to 50)."
+      >
+        <Input
+          id="drive-link"
+          name="link"
+          required
+          placeholder="https://drive.google.com/drive/folders/…"
+        />
+      </Field>
+      <VisibilityField />
+      {formState?.error ? <FieldError>{formState.error}</FieldError> : null}
+      <SubmitButton label="Import from Drive" />
+    </form>
   );
 }
