@@ -6,21 +6,27 @@ import { hasPermission } from "@/modules/organizations/roles";
 import {
   CreateKnowledgeForms,
   type GoogleDriveConnectState,
+  type SharePointConnectState,
 } from "@/components/knowledge/create-knowledge-forms";
 import {
   decodePendingConnection,
   isGoogleDriveConfigured,
   PENDING_COOKIE,
 } from "@/modules/knowledge/connectors/google-drive";
+import {
+  decodePendingConnection as decodeSharePointPending,
+  isSharePointConfigured,
+  PENDING_COOKIE as SHAREPOINT_PENDING_COOKIE,
+} from "@/modules/knowledge/connectors/sharepoint";
 import { Card, PageHeader } from "@/components/ui";
 
-/** Friendly copy for a failed Google Drive connect attempt. */
+/** Friendly copy for a failed connect attempt (Google Drive / SharePoint). */
 const DRIVE_ERRORS: Record<string, string> = {
-  denied: "Google sign-in was cancelled. Please try connecting again.",
+  denied: "Sign-in was cancelled. Please try connecting again.",
   state: "That sign-in link expired. Please connect again.",
-  unavailable: "Google Drive isn’t available right now. Please try again later.",
-  norefresh: "Google didn’t return offline access. Please connect again and allow access.",
-  exchange: "We couldn’t complete the Google connection. Please try again.",
+  unavailable: "This connector isn’t available right now. Please try again later.",
+  norefresh: "The provider didn’t return offline access. Please connect again and allow access.",
+  exchange: "We couldn’t complete the connection. Please try again.",
 };
 
 export default async function NewKnowledgePage({
@@ -34,17 +40,32 @@ export default async function NewKnowledgePage({
     redirect("/dashboard/knowledge");
   }
 
-  const onDriveTab = searchParams?.connect === "google-drive";
-  const pending = onDriveTab
+  const connect = searchParams?.connect;
+  const onDriveTab = connect === "google-drive";
+  const onSharePointTab = connect === "sharepoint";
+  const errorMessage = searchParams?.error ? (DRIVE_ERRORS[searchParams.error] ?? null) : null;
+
+  const drivePending = onDriveTab
     ? await decodePendingConnection(cookies().get(PENDING_COOKIE)?.value)
     : null;
-
   const googleDrive: GoogleDriveConnectState = {
     configured: isGoogleDriveConfigured(),
-    connected: !!pending,
-    email: pending?.email ?? null,
-    errorMessage: searchParams?.error ? (DRIVE_ERRORS[searchParams.error] ?? null) : null,
+    connected: !!drivePending,
+    email: drivePending?.email ?? null,
+    errorMessage: onDriveTab ? errorMessage : null,
   };
+
+  const spPending = onSharePointTab
+    ? await decodeSharePointPending(cookies().get(SHAREPOINT_PENDING_COOKIE)?.value)
+    : null;
+  const sharePoint: SharePointConnectState = {
+    configured: isSharePointConfigured(),
+    connected: !!spPending,
+    email: spPending?.email ?? null,
+    errorMessage: onSharePointTab ? errorMessage : null,
+  };
+
+  const defaultTab = onDriveTab ? "google_drive" : onSharePointTab ? "sharepoint" : "text";
 
   return (
     <div className="max-w-2xl">
@@ -65,8 +86,9 @@ export default async function NewKnowledgePage({
 
       <Card className="p-6 sm:p-8">
         <CreateKnowledgeForms
-          defaultTab={onDriveTab ? "google_drive" : "text"}
+          defaultTab={defaultTab}
           googleDrive={googleDrive}
+          sharePoint={sharePoint}
         />
       </Card>
     </div>

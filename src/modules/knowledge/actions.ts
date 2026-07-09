@@ -28,9 +28,17 @@ import {
 } from "@/modules/knowledge/connectors/google-drive";
 import { ingestCloudStorage } from "@/modules/knowledge/connectors/cloud-storage";
 import {
+  decodePendingConnection as decodeSharePointPending,
+  ingestDriveItem as ingestSharePointItem,
+  refreshAccessToken as refreshSharePointToken,
+  resolveShareLink as resolveSharePointLink,
+  PENDING_COOKIE as SHAREPOINT_PENDING_COOKIE,
+} from "@/modules/knowledge/connectors/sharepoint";
+import {
   createCloudStorageSourceSchema,
   createDatabaseSourceSchema,
   createGoogleDriveSourceSchema,
+  createSharePointSourceSchema,
 } from "@/modules/knowledge/schema";
 import {
   isEncryptionConfigured,
@@ -44,11 +52,13 @@ import {
   createDatabaseSource,
   createFileSource,
   createGoogleDriveSource,
+  createSharePointSource,
   createTextSource,
   createUrlSource,
   syncCloudStorageSource,
   syncDatabaseSource,
   syncGoogleDriveSource,
+  syncSharePointSource,
   unassignKnowledgeFromEmployee,
   updateSourceMetadata,
   type KnowledgeActor,
@@ -501,6 +511,106 @@ export async function syncCloudStorageSourceAction(
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not sync from cloud storage." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  revalidatePath(`/dashboard/knowledge/${sourceId}`);
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function createSharePointSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  if (!isEncryptionConfigured()) {
+    return { error: "Secure storage is not configured, so connectors are disabled." };
+  }
+
+  const pending = await decodeSharePointPending(cookies().get(SHAREPOINT_PENDING_COOKIE)?.value);
+  if (!pending) {
+    return { error: "The Microsoft connection expired. Please connect the account again." };
+  }
+
+  const parsed = createSharePointSourceSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+    visibility: formData.get("visibility") ?? undefined,
+    link: formData.get("link"),
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please review the details." };
+  }
+  const values = parsed.data;
+
+  let sourceId: string;
+  try {
+    const accessToken = await refreshSharePointToken(pending.refreshToken);
+    const ref = await resolveSharePointLink(accessToken, values.link);
+    const ingest = await ingestSharePointItem({ accessToken, ref });
+    if (ingest.documents.length === 0) {
+      return {
+        error: "No supported files were found there. Add PDFs, Word, text, CSV, or JSON files.",
+      };
+    }
+    const connectionEncrypted = await encryptApiKey(pending.refreshToken);
+    const source = await createSharePointSource(getStore(), ctx.actor, {
+      meta: { name: values.name, description: values.description, visibility: values.visibility },
+      connector: {
+        email: pending.email,
+        driveId: ref.driveId,
+        itemId: ref.itemId,
+        rootName: ingest.rootName,
+        connectionEncrypted,
+      },
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+    sourceId = source.id;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not import from SharePoint / OneDrive." };
+  }
+
+  cookies().delete(SHAREPOINT_PENDING_COOKIE);
+  revalidatePath("/dashboard/knowledge");
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function syncSharePointSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const sourceId = String(formData.get("sourceId") ?? "");
+
+  try {
+    const store = getStore();
+    const source = await store.getKnowledgeSource(ctx.actor.organizationId, sourceId);
+    if (!source || source.sourceType !== "sharepoint") {
+      return { error: "This SharePoint / OneDrive source could not be found." };
+    }
+    const meta = source.metadata as {
+      driveId?: string;
+      itemId?: string;
+      connectionEncrypted?: string;
+    };
+    if (!meta.connectionEncrypted || !meta.driveId || !meta.itemId) {
+      return { error: "This source is missing its connection details. Please reconnect it." };
+    }
+    const refreshToken = await decryptApiKey(meta.connectionEncrypted);
+    const accessToken = await refreshSharePointToken(refreshToken);
+    const ingest = await ingestSharePointItem({
+      accessToken,
+      ref: { driveId: meta.driveId, itemId: meta.itemId },
+    });
+    await syncSharePointSource(store, ctx.actor, sourceId, {
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not sync from SharePoint / OneDrive." };
   }
 
   revalidatePath("/dashboard/knowledge");

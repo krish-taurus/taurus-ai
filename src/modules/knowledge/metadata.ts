@@ -20,6 +20,7 @@ export const KNOWLEDGE_SOURCE_TYPE_LABELS: Record<KnowledgeSourceType, string> =
   database: "Database",
   google_drive: "Google Drive",
   cloud_storage: "Cloud storage",
+  sharepoint: "SharePoint / OneDrive",
 };
 
 export const KNOWLEDGE_STATUS_LABELS: Record<KnowledgeSourceStatus, string> = {

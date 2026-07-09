@@ -9,6 +9,7 @@ import {
   createDatabaseSource,
   createFileSource,
   createGoogleDriveSource,
+  createSharePointSource,
   createTextSource,
   createUrlSource,
   getVaultOverview,
@@ -17,6 +18,7 @@ import {
   syncCloudStorageSource,
   syncDatabaseSource,
   syncGoogleDriveSource,
+  syncSharePointSource,
   unassignKnowledgeFromEmployee,
   validateUpload,
   type KnowledgeStorage,
@@ -330,6 +332,62 @@ describe("google drive source", () => {
         documents: [],
         skipped: 0,
       }),
+    ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
+  });
+});
+
+describe("sharepoint source", () => {
+  const connector = {
+    email: "user@contoso.com",
+    driveId: "D1",
+    itemId: "ROOT",
+    rootName: "Team Docs",
+    connectionEncrypted: "ENC(refresh-token)",
+  };
+
+  it("stores one document per file and marks the source ready", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createSharePointSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Team Docs" },
+      connector,
+      documents: [{ title: "handbook.pdf", text: "Refunds within 30 days.", status: "extracted" }],
+      skipped: 1,
+    });
+    expect(source.sourceType).toBe("sharepoint");
+    expect(source.status).toBe("ready");
+    expect(source.metadata.driveId).toBe("D1");
+    expect(source.metadata.connectionEncrypted).toBe(connector.connectionEncrypted);
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].textContent).toContain("30 days");
+  });
+
+  it("re-syncs by replacing documents", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createSharePointSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Team Docs" },
+      connector,
+      documents: [{ title: "v1.txt", text: "first", status: "extracted" }],
+      skipped: 0,
+    });
+    await syncSharePointSource(store, actor(aliceOrg.id, alice.id), source.id, {
+      documents: [{ title: "v2.txt", text: "second", status: "extracted" }],
+      skipped: 0,
+    });
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].textContent).toContain("second");
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.synced")).toBe(true);
+  });
+
+  it("refuses to sync a non-sharepoint source", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const text = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Note",
+      text: "hello",
+    });
+    await expect(
+      syncSharePointSource(store, actor(aliceOrg.id, alice.id), text.id, { documents: [], skipped: 0 }),
     ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
   });
 });

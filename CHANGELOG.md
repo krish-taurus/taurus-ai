@@ -1,5 +1,30 @@
 # Changelog
 
+## Sprint 027 - Data connectors (SharePoint / OneDrive) — 2026-07-09
+
+Added:
+
+- **SharePoint / OneDrive knowledge connector** (`src/modules/knowledge/connectors/sharepoint.ts`)
+  — connect a Microsoft account (read-only) and import a OneDrive or SharePoint
+  **file or folder from a sharing link**; each file's text becomes a searchable
+  Knowledge Vault document. A **"Sync now"** action re-reads and refreshes.
+  - **Microsoft OAuth 2.0** with two route handlers — `start` (signed, user/org-bound
+    `state` + CSRF cookie → Microsoft consent) and `callback` (verify state, exchange
+    code, stash the account in an encrypted httpOnly cookie for the Add Knowledge
+    form). Delegated scopes are read-only: `Files.Read.All` + `Sites.Read.All`
+    (+ `offline_access`, `User.Read`).
+  - A single **sharing link** covers both OneDrive and SharePoint — Microsoft Graph's
+    `/shares/{id}/driveItem` resolves it to a drive item, then we read the file (or
+    list a folder one level deep, ≤ 50 files) via the drive and reuse the existing
+    extraction → index → hybrid-retrieval pipeline.
+  - **Secrets protected**: the refresh token is AES-GCM encrypted at rest and never
+    sent to the browser; only the connected account email is shown.
+  - New `sharepoint` source type + a "SharePoint / OneDrive" tab in Add Knowledge
+    (the OAuth connect tab is now shared with Google Drive). Setup guide:
+    `docs/connectors/sharepoint.md` + `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET`
+    (optional `MICROSOFT_TENANT`, `MICROSOFT_REDIRECT_URI`). Absent config hides the
+    connector. Dependency-free (REST over `fetch` + `node:crypto`).
+
 ## Sprint 026 - Data connectors (Cloud storage: Amazon S3) — 2026-07-09
 
 Added:
