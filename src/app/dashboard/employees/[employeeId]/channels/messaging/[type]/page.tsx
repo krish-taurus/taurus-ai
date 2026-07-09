@@ -15,6 +15,9 @@ import {
   providersForChannelType,
 } from "@/modules/channels/messaging/catalog";
 import { CHANNEL_STATUS_LABELS } from "@/modules/channels/metadata";
+import { buildReachLink } from "@/modules/channels/reach";
+import { renderQrSvg } from "@/lib/qr";
+import { ReachQr } from "@/components/channels/reach-qr";
 import { CreateMessagingChannelForm } from "@/components/channels/messaging/create-messaging-channel-form";
 import { MessagingSettingsForm } from "@/components/channels/messaging/messaging-settings-form";
 import { MessagingStatusControls } from "@/components/channels/messaging/messaging-status-controls";
@@ -118,6 +121,10 @@ export default async function MessagingSetupPage({
     8,
   );
 
+  // A "reach me" QR customers scan to open a chat (Telegram/WhatsApp/SMS).
+  const reach = buildReachLink(channel, appUrl);
+  const reachSvg = reach ? await renderQrSvg(reach.url) : null;
+
   return (
     <div className="mx-auto max-w-2xl">
       {backLink}
@@ -189,6 +196,10 @@ export default async function MessagingSetupPage({
                   : undefined
             }
           />
+        ) : null}
+
+        {reachSvg && reach ? (
+          <ReachQr svg={reachSvg} url={reach.url} label={reach.label} hint={reach.hint} />
         ) : null}
 
         {canTest ? (

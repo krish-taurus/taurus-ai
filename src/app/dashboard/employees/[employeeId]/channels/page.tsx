@@ -13,6 +13,9 @@ import { ChannelStatusControls } from "@/components/channels/channel-status-cont
 import { ChannelSettingsForm } from "@/components/channels/channel-settings-form";
 import { MessagingChannelCards } from "@/components/channels/messaging/messaging-channel-cards";
 import { VoiceChannelCard } from "@/components/channels/voice/voice-channel-card";
+import { buildReachLink } from "@/modules/channels/reach";
+import { renderQrSvg } from "@/lib/qr";
+import { ReachQr } from "@/components/channels/reach-qr";
 import { Badge, buttonClasses, Card, Notice, PageHeader, StatusDot } from "@/components/ui";
 
 function ChecklistRow({ done, label, hint }: { done: boolean; label: string; hint: string }) {
@@ -56,6 +59,11 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
     : null;
 
   const brainReady = readiness.brainMode !== "unavailable";
+
+  // A "reach me" QR for the live hosted chat (once the web channel is active).
+  const webReach = webChannel ? buildReachLink(webChannel, appUrl) : null;
+  const webReachSvg =
+    webChannel?.status === "active" && webReach ? await renderQrSvg(webReach.url) : null;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -167,6 +175,10 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
             </Card>
 
             {snippets ? <InstallSnippetsView snippets={snippets} /> : null}
+
+            {webReachSvg && webReach ? (
+              <ReachQr svg={webReachSvg} url={webReach.url} label={webReach.label} hint={webReach.hint} />
+            ) : null}
 
             <div className="flex flex-wrap gap-3">
               <a

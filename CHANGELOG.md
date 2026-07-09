@@ -1,5 +1,21 @@
 # Changelog
 
+## Sprint 037 - "Scan to chat" QR codes for channels — 2026-07-09
+
+Added:
+
+- **"Reach me" QR codes** — the safe, ToS-compliant flavor of "connect by QR": a
+  code customers **scan to open a chat** with the AI Employee (not an auth code
+  that links a private account). Shown on the channel setup pages with the link +
+  copy button:
+  - **Web** → the live hosted chat page (works once the web connection is active).
+  - **Telegram** → `t.me/<username>`, **WhatsApp** → `wa.me/<number>`, **SMS** →
+    `sms:<number>` (whenever the channel's username/number is configured).
+  - QR is generated **server-side as inline SVG** (`qrcode`) from our own data —
+    no external image request, renders under a strict CSP, and always dark-on-white
+    so scanners stay reliable in either theme. Reach-link logic is pure + unit
+    tested. `tsc` clean · `next lint` clean · **543 tests + 6 skipped** · build compiles.
+
 ## Sprint 036 - Telegram channel (first "coming soon" connection shipped) — 2026-07-09
 
 Added:
