@@ -4,6 +4,7 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { listMarketplace } from "@/modules/marketplace/service";
+import { formatMoney, isPricedListing } from "@/modules/marketplace/pricing";
 import { RatingSummary } from "@/components/marketplace/rating-stars";
 import { buttonClasses, Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 
@@ -24,11 +25,16 @@ export default async function MarketplacePage() {
         title="Hire a proven AI Employee"
         description="Browse AI Employees published by organizations across the network. Hiring clones their DNA into your workspace — its knowledge vault is never shared."
         action={
-          hasPermission(membership.role, "employee.manage") ? (
-            <Link href="/dashboard/marketplace/listings" className={buttonClasses("secondary")}>
-              My listings
+          <div className="flex items-center gap-2">
+            <Link href="/dashboard/marketplace/earnings" className={buttonClasses("secondary")}>
+              Earnings
             </Link>
-          ) : undefined
+            {hasPermission(membership.role, "employee.manage") ? (
+              <Link href="/dashboard/marketplace/listings" className={buttonClasses("secondary")}>
+                My listings
+              </Link>
+            ) : null}
+          </div>
         }
       />
 
@@ -60,6 +66,13 @@ export default async function MarketplacePage() {
                   ) : null}
                   <RatingSummary avg={l.ratingAvg} count={l.ratingCount} />
                   <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                    {isPricedListing(l) ? (
+                      <Badge tone="soft">
+                        {formatMoney(l.priceAmount as number, l.priceCurrency as string)}
+                      </Badge>
+                    ) : (
+                      <Badge tone="outline">Free</Badge>
+                    )}
                     <Badge tone="soft">Best {scorePct(l.performanceSnapshot.bestScore)}</Badge>
                     <Badge tone="outline">
                       {l.performanceSnapshot.reviewCount}{" "}

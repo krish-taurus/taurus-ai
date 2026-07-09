@@ -1,5 +1,45 @@
 # Changelog
 
+## Sprint 034 - Marketplace paid lease / revenue-share (Stripe + Razorpay) — 2026-07-09
+
+Added:
+
+- **Paid AI Employees with revenue-share** — a seller can put a **one-time hire
+  price** on a listing. A priced listing becomes **buy-now**: the buyer pays
+  through a hosted checkout and, on a **verified `paid` webhook**, the hire is
+  auto-created and the DNA is cloned into their org. **Free listings are
+  unchanged** (request → approve).
+  - **Two payment providers + safe default**: **Stripe** (Checkout, one-time
+    `payment` mode) and **Razorpay** (Payment Links), behind a
+    `MarketplacePaymentProvider` adapter (mirrors the billing-provider pattern).
+    With **no keys configured, a Simulated provider** completes the purchase
+    in-process — local dev and tests **never touch the network and never charge**.
+    Card data never touches Taurus (hosted checkout); webhook signatures are
+    verified (Stripe + Razorpay HMAC); fulfillment is **idempotent** (a replayed
+    webhook never creates a second clone).
+  - **Revenue-share ledger**: every payment records `platform_fee` + `seller_net`
+    in minor units (fee = `MARKETPLACE_PLATFORM_FEE_BPS`, default **1500 = 15%**,
+    floored so the seller is never short-changed). A seller **Earnings** view and
+    a buyer **Purchases** view surface the ledger. **Payouts/disbursement** to
+    sellers (Stripe Connect / Razorpay Route, which need seller KYC onboarding)
+    are a **documented follow-up** — v1 records what is owed and never auto-moves
+    money to a third party.
+  - **Security unchanged**: only the **DNA** is ever sold — the knowledge vault is
+    **never shared** (a purchased clone starts with zero vaults; unit- and
+    Postgres-verified). The webhook resolves the payment from **our own opaque
+    reference**, never trusting the body for identity.
+  - New `0025_marketplace_payments.sql` (price columns on `marketplace_listings`
+    + `marketplace_payments` table with a unique reference and a partial unique
+    `(provider, external_payment_id)` index), store methods on both backends,
+    `POST /api/webhooks/marketplace/{provider}`, and `RAZORPAY_*` /
+    `MARKETPLACE_PLATFORM_FEE_BPS` env (all server-only).
+  - Verified end-to-end on a **live PostgreSQL** (0025 applies; the priced
+    purchase → webhook-settlement flow clones the DNA, records the 15% split, and
+    is idempotent on replay) and by unit tests (split math, pricing helpers,
+    simulated purchase → clone, redirect + webhook settlement, failed/unknown
+    events, provider parsing + signature verification). `tsc` clean · `next lint`
+    clean · **526 tests + 5 skipped** · build compiles.
+
 ## Sprint 033 - Public shareable resume links — 2026-07-09
 
 Added:

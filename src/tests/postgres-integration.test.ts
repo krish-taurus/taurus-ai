@@ -3,7 +3,26 @@ import { PostgresStore } from "@/lib/db/postgres-store";
 import { createOrganizationForUser } from "@/modules/organizations/service";
 import { createEmptyDnaV1, type EmployeeDnaV1 } from "@/modules/employee-dna/schema";
 import { getOnboardingState, recordOnboardingCompletion } from "@/modules/onboarding/service";
+import {
+  publishListing,
+  setListingPrice,
+  startHirePurchase,
+  fulfillMarketplacePayment,
+  listSellerPayments,
+} from "@/modules/marketplace/service";
 import type { ChannelAppearance } from "@/lib/db/types";
+
+function dnaFixture(): EmployeeDnaV1 {
+  return {
+    ...createEmptyDnaV1(),
+    identity: {
+      mission: "Help customers succeed.",
+      roleSummary: "Senior Support Specialist",
+      primaryGoals: ["Resolve tickets fast"],
+      successCriteria: ["CSAT > 90%"],
+    },
+  };
+}
 
 /**
  * PostgreSQL integration parity (Sprint 020 follow-up).
@@ -129,5 +148,93 @@ describe.skipIf(!DATABASE_URL)("PostgresStore parity on a fresh schema", () => {
     const audits = await store.listAuditEvents(organization.id, 100);
     expect(audits.filter((e) => e.action === "onboarding.completed")).toHaveLength(1);
     expect((await store.getOnboardingProgress(organization.id))?.completedAt).toBeTruthy();
+  });
+
+  it("runs the marketplace priced-purchase flow on real Postgres (Sprint 034)", async () => {
+    const sellerUser = await store.createUser({ email: `seller+${stamp}@x.com`, fullName: "S" });
+    const buyerUser = await store.createUser({ email: `buyer+${stamp}@x.com`, fullName: "B" });
+    const sellerOrg = (
+      await createOrganizationForUser(store, sellerUser.id, { name: `Sell ${stamp}` })
+    ).organization;
+    const buyerOrg = (await createOrganizationForUser(store, buyerUser.id, { name: `Buy ${stamp}` }))
+      .organization;
+
+    const employee = await store.createEmployee({
+      organizationId: sellerOrg.id,
+      name: "Nova",
+      roleTitle: "Support",
+    });
+    await store.saveEmployeeDnaDraft({
+      organizationId: sellerOrg.id,
+      employeeId: employee.id,
+      dna: dnaFixture(),
+      userId: sellerUser.id,
+    });
+    await store.publishEmployeeDna({
+      organizationId: sellerOrg.id,
+      employeeId: employee.id,
+      userId: sellerUser.id,
+    });
+
+    const listing = await publishListing(
+      store,
+      { organizationId: sellerOrg.id, userId: sellerUser.id },
+      { employeeId: employee.id },
+    );
+    await setListingPrice(
+      store,
+      { organizationId: sellerOrg.id, userId: sellerUser.id },
+      { listingId: listing.id, priceModel: "one_time", priceAmount: 10_000, priceCurrency: "usd" },
+    );
+    const priced = await store.getMarketplaceListing(listing.id);
+    expect(priced?.priceAmount).toBe(10_000);
+    expect(priced?.priceModel).toBe("one_time");
+
+    // Redirect flow → pending payment persisted with the external id.
+    const result = await startHirePurchase(
+      store,
+      { organizationId: buyerOrg.id, userId: buyerUser.id },
+      { listingId: listing.id },
+      {
+        provider: "stripe",
+        feeBps: 1500,
+        successUrl: "https://app/s",
+        cancelUrl: "https://app/c",
+        createCheckout: async (input) => ({
+          mode: "redirect",
+          url: `https://checkout/${input.reference}`,
+          externalPaymentId: `cs_${stamp}`,
+        }),
+      },
+    );
+    expect(result.status).toBe("redirect");
+    if (result.status !== "redirect") throw new Error("unreachable");
+
+    // Webhook settles it: DNA cloned, split recorded, idempotent on replay.
+    const first = await fulfillMarketplacePayment(store, "stripe", {
+      type: "paid",
+      reference: result.payment.reference,
+      externalPaymentId: `cs_${stamp}`,
+    });
+    expect(first).toEqual({ handled: true, status: "paid" });
+    await fulfillMarketplacePayment(store, "stripe", {
+      type: "paid",
+      reference: result.payment.reference,
+      externalPaymentId: `cs_${stamp}`,
+    });
+
+    const earnings = await listSellerPayments(store, sellerOrg.id);
+    expect(earnings).toHaveLength(1);
+    expect(earnings[0].platformFee).toBe(1500);
+    expect(earnings[0].sellerNet).toBe(8500);
+    expect(earnings[0].status).toBe("paid");
+
+    // Exactly one hire/clone despite the replayed webhook.
+    const hires = await store.listMarketplaceHiresForHirerOrg(buyerOrg.id);
+    expect(hires).toHaveLength(1);
+    const clonedId = hires[0].hirerEmployeeId as string;
+    expect(await store.listVaultsForEmployee(buyerOrg.id, clonedId)).toHaveLength(0);
+    const clonedDna = await store.getPublishedEmployeeDna(buyerOrg.id, clonedId);
+    expect(clonedDna?.dna.identity.roleSummary).toBe("Senior Support Specialist");
   });
 });

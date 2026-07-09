@@ -17,10 +17,15 @@ import type {
   MarketplaceListing,
   MarketplaceHire,
   MarketplaceReview,
+  MarketplacePayment,
+  MarketplacePaymentProviderId,
+  MarketplacePricingModel,
   PerformanceSnapshot,
   VaultSnapshotItem,
 } from "@/lib/db/types";
 import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
+import type { CheckoutResult, PaymentWebhookEvent } from "@/modules/marketplace/payments/types";
+import { isSupportedCurrency, isPricedListing } from "@/modules/marketplace/pricing";
 
 export interface MarketplaceActor {
   organizationId: string;
@@ -252,6 +257,40 @@ export async function getPublicResumeByKey(
   return listing;
 }
 
+/**
+ * Clone a listing's DNA snapshot into a target org as a new (published-DNA)
+ * employee. NO knowledge vault is copied — only the DNA. Shared by free-listing
+ * approval and paid-purchase fulfillment.
+ */
+async function cloneListingIntoOrg(
+  store: DataStore,
+  listing: MarketplaceListing,
+  targetOrganizationId: string,
+  ownerUserId: string,
+) {
+  const dna = listing.dnaSnapshot;
+  const employee = await store.createEmployee({
+    organizationId: targetOrganizationId,
+    name: listing.title,
+    roleTitle: listing.roleTitle || dna.identity.roleSummary || "AI Employee",
+    status: "draft",
+    visibility: "private",
+    createdBy: ownerUserId,
+  });
+  await store.saveEmployeeDnaDraft({
+    organizationId: targetOrganizationId,
+    employeeId: employee.id,
+    dna,
+    userId: ownerUserId,
+  });
+  await store.publishEmployeeDna({
+    organizationId: targetOrganizationId,
+    employeeId: employee.id,
+    userId: ownerUserId,
+  });
+  return employee;
+}
+
 /** Request to hire a listed agent. The owner approves to clone it into your org. */
 export async function requestHire(
   store: DataStore,
@@ -304,30 +343,12 @@ export async function approveHire(
   const listing = await store.getMarketplaceListing(hire.listingId);
   if (!listing) throw new MarketplaceError("The listing no longer exists.");
 
-  const dna = listing.dnaSnapshot;
-  const cloneOwnerUserId = hire.requestedByUserId ?? null;
-
-  // Create the clone in the HIRER's organization (not the seller's).
-  const employee = await store.createEmployee({
-    organizationId: hire.hirerOrganizationId,
-    name: listing.title,
-    roleTitle: listing.roleTitle || dna.identity.roleSummary || "AI Employee",
-    status: "draft",
-    visibility: "private",
-    createdBy: cloneOwnerUserId,
-  });
-  // Clone the DNA (draft → publish) so the hired agent is ready to configure.
-  await store.saveEmployeeDnaDraft({
-    organizationId: hire.hirerOrganizationId,
-    employeeId: employee.id,
-    dna,
-    userId: cloneOwnerUserId ?? actor.userId,
-  });
-  await store.publishEmployeeDna({
-    organizationId: hire.hirerOrganizationId,
-    employeeId: employee.id,
-    userId: cloneOwnerUserId ?? actor.userId,
-  });
+  const employee = await cloneListingIntoOrg(
+    store,
+    listing,
+    hire.hirerOrganizationId,
+    hire.requestedByUserId ?? actor.userId,
+  );
 
   const updated = await store.updateMarketplaceHire(hireId, {
     status: "approved",
@@ -474,4 +495,270 @@ export async function submitReview(
   });
 
   return review;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Paid lease / revenue-share (Sprint 034)                                    */
+/* -------------------------------------------------------------------------- */
+
+function newPaymentReference(): string {
+  return `mp_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+}
+
+/** Split a gross amount (minor units) into platform fee + seller net. */
+function splitRevenue(amount: number, feeBps: number): { platformFee: number; sellerNet: number } {
+  const safe = Math.max(0, Math.round(amount));
+  const bps = Math.min(10_000, Math.max(0, Math.round(feeBps)));
+  const platformFee = Math.floor((safe * bps) / 10_000);
+  return { platformFee, sellerNet: safe - platformFee };
+}
+
+export interface SetListingPriceInput {
+  listingId: string;
+  priceModel: MarketplacePricingModel;
+  /** Major-unit-derived minor amount (e.g. cents). Required when one_time. */
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
+}
+
+/** Set (or clear) the one-time hire price on a listing. Owner only. */
+export async function setListingPrice(
+  store: DataStore,
+  actor: MarketplaceActor,
+  input: SetListingPriceInput,
+): Promise<MarketplaceListing> {
+  const listing = await store.getMarketplaceListing(input.listingId);
+  if (!listing || listing.organizationId !== actor.organizationId) {
+    throw new MarketplaceError("This listing could not be found.");
+  }
+  if (input.priceModel === "free") {
+    const updated = await store.updateMarketplaceListing(listing.id, {
+      priceModel: "free",
+      priceAmount: null,
+      priceCurrency: null,
+    });
+    return updated ?? listing;
+  }
+  const amount = input.priceAmount ?? 0;
+  const currency = (input.priceCurrency ?? "").toLowerCase();
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throw new MarketplaceError("Enter a price greater than zero.");
+  }
+  if (!isSupportedCurrency(currency)) {
+    throw new MarketplaceError("Choose a supported currency.");
+  }
+  const updated = await store.updateMarketplaceListing(listing.id, {
+    priceModel: "one_time",
+    priceAmount: Math.round(amount),
+    priceCurrency: currency,
+  });
+  return updated ?? listing;
+}
+
+export interface StartHirePurchaseOptions {
+  provider: MarketplacePaymentProviderId;
+  /** Platform revenue-share cut in basis points (0–10000). */
+  feeBps: number;
+  successUrl: string;
+  cancelUrl: string;
+  /** Injected by the action layer (gateway to the real/simulated provider). */
+  createCheckout: (input: {
+    reference: string;
+    amount: number;
+    currency: string;
+    description: string;
+    successUrl: string;
+    cancelUrl: string;
+  }) => Promise<CheckoutResult>;
+}
+
+export type StartHirePurchaseResult =
+  | { status: "redirect"; url: string; payment: MarketplacePayment }
+  | { status: "completed"; hire: MarketplaceHire; payment: MarketplacePayment };
+
+/**
+ * Begin buying a priced listing. Records a pending payment + starts a hosted
+ * checkout. In simulated mode the purchase completes in-process (no charge) and
+ * the DNA is cloned immediately; otherwise the buyer is redirected to pay and
+ * fulfillment happens on the verified webhook.
+ */
+export async function startHirePurchase(
+  store: DataStore,
+  actor: MarketplaceActor,
+  input: { listingId: string },
+  opts: StartHirePurchaseOptions,
+): Promise<StartHirePurchaseResult> {
+  const listing = await store.getMarketplaceListing(input.listingId);
+  if (!listing || listing.status !== "published") {
+    throw new MarketplaceError("This listing is no longer available.");
+  }
+  if (listing.organizationId === actor.organizationId) {
+    throw new MarketplaceError("This AI Employee already belongs to your organization.");
+  }
+  if (!isPricedListing(listing)) {
+    throw new MarketplaceError("This listing is free — request to hire it instead.");
+  }
+
+  const amount = listing.priceAmount as number;
+  const currency = listing.priceCurrency as string;
+  const { platformFee, sellerNet } = splitRevenue(amount, opts.feeBps);
+  const reference = newPaymentReference();
+
+  const payment = await store.createMarketplacePayment({
+    listingId: listing.id,
+    buyerOrganizationId: actor.organizationId,
+    sellerOrganizationId: listing.organizationId,
+    provider: opts.provider,
+    reference,
+    amount,
+    currency,
+    platformFee,
+    sellerNet,
+    status: "pending",
+    createdByUserId: actor.userId,
+  });
+
+  const checkout = await opts.createCheckout({
+    reference,
+    amount,
+    currency,
+    description: `Hire: ${listing.title}`,
+    successUrl: opts.successUrl,
+    cancelUrl: opts.cancelUrl,
+  });
+
+  if (checkout.mode === "redirect") {
+    const patched = await store.updateMarketplacePayment(payment.id, {
+      externalPaymentId: checkout.externalPaymentId ?? null,
+    });
+    return { status: "redirect", url: checkout.url, payment: patched ?? payment };
+  }
+
+  // Simulated: settle immediately.
+  const settled = await settlePaidPayment(store, payment);
+  const hire = settled.hireId ? await store.getMarketplaceHire(settled.hireId) : null;
+  if (!hire) throw new MarketplaceError("Could not complete the purchase.");
+  return { status: "completed", hire, payment: settled };
+}
+
+/**
+ * Idempotently mark a payment paid: clone the DNA into the buyer's org and link
+ * the resulting hire. Safe to call more than once (a second call is a no-op).
+ */
+async function settlePaidPayment(
+  store: DataStore,
+  payment: MarketplacePayment,
+): Promise<MarketplacePayment> {
+  const fresh = (await store.getMarketplacePayment(payment.id)) ?? payment;
+  if (fresh.status === "paid" && fresh.hireId) return fresh;
+
+  const listing = await store.getMarketplaceListing(fresh.listingId);
+  if (!listing) throw new MarketplaceError("The listing no longer exists.");
+
+  const ownerUserId = fresh.createdByUserId;
+  if (!ownerUserId) {
+    throw new MarketplaceError("This purchase is missing its buyer — cannot fulfill.");
+  }
+
+  // Create the hire (record) and clone the DNA into the buyer org.
+  const hire = await store.createMarketplaceHire({
+    listingId: listing.id,
+    listingOrganizationId: listing.organizationId,
+    hirerOrganizationId: fresh.buyerOrganizationId,
+    note: "Purchased",
+    requestedByUserId: ownerUserId,
+  });
+  const employee = await cloneListingIntoOrg(store, listing, fresh.buyerOrganizationId, ownerUserId);
+  await store.updateMarketplaceHire(hire.id, {
+    status: "approved",
+    hirerEmployeeId: employee.id,
+    decidedByUserId: ownerUserId,
+    decidedAt: new Date().toISOString(),
+  });
+
+  const paid = await store.updateMarketplacePayment(fresh.id, {
+    status: "paid",
+    paidAt: new Date().toISOString(),
+    hireId: hire.id,
+  });
+
+  await store.createAuditEvent({
+    organizationId: fresh.buyerOrganizationId,
+    actorType: "user",
+    actorId: ownerUserId,
+    action: "marketplace_payment.paid",
+    targetType: "marketplace_payment",
+    targetId: fresh.id,
+    metadata: {
+      paymentId: fresh.id,
+      listingId: listing.id,
+      hireId: hire.id,
+      amount: fresh.amount,
+      currency: fresh.currency,
+      platformFee: fresh.platformFee,
+      sellerNet: fresh.sellerNet,
+      provider: fresh.provider,
+    },
+  });
+
+  return paid ?? fresh;
+}
+
+export interface FulfillResult {
+  handled: boolean;
+  status: MarketplacePayment["status"] | "ignored" | "unknown";
+}
+
+/**
+ * Apply a normalized payment webhook event. Resolves the payment from the event
+ * (never trusting the body for identity beyond our own reference / provider id),
+ * then settles or fails it. Idempotent.
+ */
+export async function fulfillMarketplacePayment(
+  store: DataStore,
+  provider: MarketplacePaymentProviderId,
+  event: PaymentWebhookEvent,
+): Promise<FulfillResult> {
+  if (event.type === "ignored") return { handled: false, status: "ignored" };
+
+  let payment: MarketplacePayment | null = null;
+  if (event.reference) payment = await store.getMarketplacePaymentByReference(event.reference);
+  if (!payment && event.externalPaymentId) {
+    payment = await store.getMarketplacePaymentByExternalId(provider, event.externalPaymentId);
+  }
+  if (!payment || payment.provider !== provider) {
+    return { handled: false, status: "unknown" };
+  }
+
+  // Record the provider's id if we resolved by our own reference.
+  if (event.externalPaymentId && !payment.externalPaymentId) {
+    payment =
+      (await store.updateMarketplacePayment(payment.id, {
+        externalPaymentId: event.externalPaymentId,
+      })) ?? payment;
+  }
+
+  if (event.type === "failed") {
+    if (payment.status === "pending") {
+      await store.updateMarketplacePayment(payment.id, { status: "failed" });
+    }
+    return { handled: true, status: "failed" };
+  }
+
+  const settled = await settlePaidPayment(store, payment);
+  return { handled: true, status: settled.status };
+}
+
+export function listBuyerPayments(
+  store: DataStore,
+  organizationId: string,
+): Promise<MarketplacePayment[]> {
+  return store.listMarketplacePaymentsForBuyer(organizationId);
+}
+
+export function listSellerPayments(
+  store: DataStore,
+  organizationId: string,
+): Promise<MarketplacePayment[]> {
+  return store.listMarketplacePaymentsForSeller(organizationId);
 }
