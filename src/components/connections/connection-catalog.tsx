@@ -43,13 +43,18 @@ export function ConnectionCatalog({ canManage }: { canManage: boolean }) {
             <p className="flex-1 text-xs leading-relaxed text-taurus-faint">
               {connectionTypeDescription(type)}
             </p>
+            {availability === "foundation" ? (
+              <p className="mt-2 text-xs text-taurus-faint">
+                Needs a provider account to go live — test it in simulated mode first.
+              </p>
+            ) : null}
             <div className="mt-4">
               {configurable && canManage ? (
                 <Link
                   href={`/dashboard/connections/new?type=${type}`}
                   className={buttonClasses("secondary", "sm")}
                 >
-                  Configure
+                  {availability === "available" ? "Connect" : "Set up"}
                 </Link>
               ) : configurable ? (
                 <span className="text-xs text-taurus-faint">Ask an admin to configure this.</span>

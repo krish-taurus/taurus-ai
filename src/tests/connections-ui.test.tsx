@@ -98,15 +98,18 @@ describe("ConnectionCatalog (Sprint 014)", () => {
       expect(text).toContain(label);
     }
     expect(text).toContain("Available now");
-    expect(text).toContain("Foundation");
+    expect(text).toContain("Ready to set up");
     expect(text).toContain("Coming soon");
-    expect(text).toContain("Configure");
+    // Available channels say "Connect"; provider-needed ones say "Set up".
+    expect(text).toContain("Connect");
+    expect(text).toContain("Set up");
   });
 
-  it("offers no Configure action to non-managers", () => {
+  it("offers no setup action to non-managers", () => {
     const { container } = render(<ConnectionCatalog canManage={false} />);
     const links = [...container.querySelectorAll("a")].map((a) => a.textContent);
-    expect(links).not.toContain("Configure");
+    expect(links).not.toContain("Connect");
+    expect(links).not.toContain("Set up");
     expect(container.textContent).toContain("Ask an admin to configure this.");
   });
 });

@@ -43,12 +43,14 @@ const AVAILABILITY: Record<ChannelType, ConnectionAvailability> = {
   hosted_chat: "available",
   iframe_embed: "available",
   public_api: "available",
+  // Telegram + Slack are live one-tap/one-token connects — genuinely available.
+  telegram: "available",
+  slack: "available",
+  // These work end to end but need the owner's provider account to go live.
   whatsapp: "foundation",
   sms: "foundation",
   email: "foundation",
   phone_call: "foundation",
-  telegram: "foundation",
-  slack: "foundation",
   microsoft_teams: "coming_soon",
   instagram_dm: "coming_soon",
   facebook_messenger: "coming_soon",
@@ -56,7 +58,7 @@ const AVAILABILITY: Record<ChannelType, ConnectionAvailability> = {
 
 export const CONNECTION_AVAILABILITY_LABELS: Record<ConnectionAvailability, string> = {
   available: "Available now",
-  foundation: "Foundation",
+  foundation: "Ready to set up",
   coming_soon: "Coming soon",
 };
 
