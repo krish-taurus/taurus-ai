@@ -48,6 +48,7 @@ const PROVIDER_SECRET_FIELDS: Record<string, { required: string[]; primary: stri
   meta_whatsapp_cloud: { required: ["accessToken"], primary: "accessToken" },
   sendgrid: { required: ["apiKey"], primary: "apiKey" },
   mailgun: { required: ["apiKey"], primary: "apiKey" },
+  telegram: { required: ["botToken"], primary: "botToken" },
   custom_webhook: { required: [], primary: "apiKey" },
 };
 

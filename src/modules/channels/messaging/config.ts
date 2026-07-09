@@ -38,6 +38,10 @@ function envSecretsFor(providerType: ChannelProviderType): Record<string, string
       set("apiKey", process.env.MAILGUN_API_KEY);
       set("domain", process.env.MAILGUN_DOMAIN);
       break;
+    case "telegram":
+      set("botToken", process.env.TELEGRAM_BOT_TOKEN);
+      set("webhookSecret", process.env.TELEGRAM_WEBHOOK_SECRET);
+      break;
     default:
       break;
   }

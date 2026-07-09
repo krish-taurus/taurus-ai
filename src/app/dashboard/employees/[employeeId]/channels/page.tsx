@@ -196,9 +196,10 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
           <Badge tone="soft">Foundation</Badge>
         </div>
         <p className="mb-3 text-xs text-taurus-faint">
-          Connect this AI Employee to WhatsApp, SMS, and email. Provider setup may require an
-          account with Twilio, Meta WhatsApp Cloud, SendGrid, or Mailgun. You can test each channel
-          in simulated mode before going live.
+          Connect this AI Employee to Telegram, WhatsApp, SMS, and email. Telegram just needs an
+          access token from @BotFather; WhatsApp/SMS/email may require an account with Twilio, Meta
+          WhatsApp Cloud, SendGrid, or Mailgun. You can test each channel in simulated mode before
+          going live.
         </p>
         <MessagingChannelCards employeeId={employee.id} summaries={messagingOverview.summaries} />
       </section>

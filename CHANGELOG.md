@@ -1,5 +1,32 @@
 # Changelog
 
+## Sprint 036 - Telegram channel (first "coming soon" connection shipped) — 2026-07-09
+
+Added:
+
+- **Telegram connection** — the first of the "coming soon" channels made real. An
+  owner creates a bot with **@BotFather**, pastes the **access token**, and the AI
+  Employee answers Telegram messages end to end. Chosen first because it is the
+  lowest-friction real channel (token + webhook, **no business verification**),
+  per a review of how Intercom / Tidio / ManyChat / Botpress expose channels.
+  - Implemented as a `MessagingProvider` adapter
+    (`providers/telegram.ts`) that plugs into the existing messaging pipeline:
+    parses Telegram **Update** JSON, verifies the optional
+    `X-Telegram-Bot-Api-Secret-Token` (and treats the unguessable webhook URL as
+    the shared secret when no secret is set), and replies via the Bot API
+    `sendMessage`. No delivery receipts (Telegram doesn't send them).
+  - Reuses the whole existing surface: the `messaging/telegram` setup page
+    (create → credentials → webhook URL → **simulate** → go live), BYOK encrypted
+    credential storage, webhook route `…/channels/telegram/{publicKey}`, and the
+    Connections catalog. Telegram now shows as **available/foundation** instead of
+    "coming soon"; runs in **simulated mode** with no token (dev/tests never call
+    the network). New `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` env
+    (optional, server-only).
+  - Verified by unit tests (inbound Update parsing, non-text ignored, secret-token
+    verification with/without a secret, live/simulated status) and an end-to-end
+    JSON-webhook test through the runtime. `tsc` clean · `next lint` clean ·
+    **539 tests + 6 skipped** · build compiles.
+
 ## Sprint 035 - Marketplace seller payouts (Connect / Route) — 2026-07-09
 
 Added:

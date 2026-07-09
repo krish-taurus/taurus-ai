@@ -7,12 +7,13 @@
 
 import type { ChannelProviderType, ChannelType } from "@/lib/db/types";
 
-export const MESSAGING_CHANNEL_TYPES: ChannelType[] = ["whatsapp", "sms", "email"];
+export const MESSAGING_CHANNEL_TYPES: ChannelType[] = ["whatsapp", "sms", "email", "telegram"];
 
 export const MESSAGING_CHANNEL_LABELS: Partial<Record<ChannelType, string>> = {
   whatsapp: "WhatsApp",
   sms: "SMS",
   email: "Email",
+  telegram: "Telegram",
 };
 
 export const MESSAGING_PROVIDER_LABELS: Partial<Record<ChannelProviderType, string>> = {
@@ -20,6 +21,7 @@ export const MESSAGING_PROVIDER_LABELS: Partial<Record<ChannelProviderType, stri
   meta_whatsapp_cloud: "Meta WhatsApp Cloud",
   sendgrid: "SendGrid",
   mailgun: "Mailgun",
+  telegram: "Telegram Bot",
   custom_webhook: "Custom webhook",
 };
 
@@ -28,6 +30,7 @@ export const PROVIDERS_FOR_CHANNEL: Record<string, ChannelProviderType[]> = {
   whatsapp: ["twilio", "meta_whatsapp_cloud", "custom_webhook"],
   sms: ["twilio", "custom_webhook"],
   email: ["sendgrid", "mailgun", "custom_webhook"],
+  telegram: ["telegram"],
 };
 
 export function providersForChannelType(channelType: ChannelType): ChannelProviderType[] {
@@ -47,4 +50,5 @@ export const SENDER_ID_LABELS: Partial<Record<ChannelType, string>> = {
   whatsapp: "WhatsApp business number",
   sms: "SMS phone number",
   email: "From email address",
+  telegram: "Telegram username (optional)",
 };

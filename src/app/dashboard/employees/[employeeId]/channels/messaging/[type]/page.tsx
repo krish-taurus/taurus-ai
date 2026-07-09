@@ -28,6 +28,7 @@ const PROVIDER_TO_SLUG: Record<string, string> = {
   meta_whatsapp_cloud: "meta-whatsapp",
   sendgrid: "sendgrid",
   mailgun: "mailgun",
+  telegram: "telegram",
   custom_webhook: "custom",
 };
 
@@ -35,6 +36,7 @@ const SENDER_PLACEHOLDER: Record<string, string> = {
   whatsapp: "+15551234567",
   sms: "+15551234567",
   email: "customer@example.com",
+  telegram: "123456789",
 };
 
 export default async function MessagingSetupPage({
@@ -182,7 +184,9 @@ export default async function MessagingSetupPage({
             verificationNote={
               channel.channelProvider === "meta_whatsapp_cloud"
                 ? "Meta also calls this URL with a GET verification challenge."
-                : undefined
+                : channel.channelProvider === "telegram"
+                  ? "Point Telegram here: call setWebhook with this URL (and your Webhook Secret, if set)."
+                  : undefined
             }
           />
         ) : null}
