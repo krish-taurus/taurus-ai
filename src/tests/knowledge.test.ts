@@ -12,6 +12,12 @@ import {
   createSharePointSource,
   createTextSource,
   createUrlSource,
+  createKnowledgeVault,
+  listKnowledgeVaults,
+  listKnowledgeVaultSummaries,
+  deleteKnowledgeVault,
+  ensureDefaultVault,
+  updateSourceMetadata,
   getVaultOverview,
   KnowledgeNotFoundError,
   KnowledgeValidationError,
@@ -333,6 +339,81 @@ describe("google drive source", () => {
         skipped: 0,
       }),
     ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
+  });
+});
+
+describe("knowledge vaults", () => {
+  it("files a source into an auto-created default vault when none is chosen", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const src = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Note",
+      text: "hi",
+    });
+    const vaults = await listKnowledgeVaults(store, aliceOrg.id);
+    expect(vaults).toHaveLength(1);
+    expect(vaults[0].isDefault).toBe(true);
+    expect(vaults[0].name).toBe("General");
+    expect(src.vaultId).toBe(vaults[0].id);
+  });
+
+  it("creates a vault and files a source into it, with correct summary counts", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const vault = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "Sales" });
+    const src = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Playbook",
+      text: "x",
+      vaultId: vault.id,
+    });
+    expect(src.vaultId).toBe(vault.id);
+    const summaries = await listKnowledgeVaultSummaries(store, aliceOrg.id);
+    const sales = summaries.find((s) => s.vault.id === vault.id);
+    expect(sales?.sourceCount).toBe(1);
+    expect(sales?.readyCount).toBe(1); // a text source is immediately 'ready'
+  });
+
+  it("rejects a source pointed at a vault from another organization", async () => {
+    const { store, alice, aliceOrg, bob, bobOrg } = await setup();
+    const bobVault = await createKnowledgeVault(store, actor(bobOrg.id, bob.id), { name: "Bob" });
+    await expect(
+      createTextSource(store, actor(aliceOrg.id, alice.id), {
+        name: "X",
+        text: "y",
+        vaultId: bobVault.id,
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
+  });
+
+  it("moves a source to another vault via update", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const src = await createTextSource(store, actor(aliceOrg.id, alice.id), { name: "Note", text: "t" });
+    const vault = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "Ops" });
+    const moved = await updateSourceMetadata(store, actor(aliceOrg.id, alice.id), src.id, {
+      name: "Note",
+      description: "",
+      visibility: "organization",
+      vaultId: vault.id,
+    });
+    expect(moved.vaultId).toBe(vault.id);
+  });
+
+  it("deleting a vault moves its sources to the default and refuses to delete the default", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const def = await ensureDefaultVault(store, actor(aliceOrg.id, alice.id));
+    const vault = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "Temp" });
+    const src = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Note",
+      text: "t",
+      vaultId: vault.id,
+    });
+    await deleteKnowledgeVault(store, actor(aliceOrg.id, alice.id), vault.id);
+    const reloaded = await store.getKnowledgeSource(aliceOrg.id, src.id);
+    expect(reloaded?.vaultId).toBe(def.id);
+    expect((await listKnowledgeVaults(store, aliceOrg.id)).some((v) => v.id === vault.id)).toBe(
+      false,
+    );
+    await expect(
+      deleteKnowledgeVault(store, actor(aliceOrg.id, alice.id), def.id),
+    ).rejects.toBeInstanceOf(KnowledgeValidationError);
   });
 });
 

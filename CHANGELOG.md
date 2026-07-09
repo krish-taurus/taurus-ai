@@ -1,5 +1,34 @@
 # Changelog
 
+## Sprint 028 - Multiple Knowledge Vaults (organizing layer) — 2026-07-09
+
+Added:
+
+- **Multiple Knowledge Vaults** — a vault is a named collection (folder) of
+  knowledge sources within an organization, so knowledge can be categorized and
+  found easily. Every source belongs to exactly one vault.
+  - New `knowledge_vaults` table + a `vault_id` on `knowledge_sources`
+    (`db/migrations/0021_knowledge_vaults.sql`). The migration backfills a per-org
+    default **"General"** vault and files all existing sources into it, so current
+    data is unchanged. A partial unique index enforces one default vault per org;
+    `vault_id` uses `on delete restrict` so sources are never orphaned.
+  - Store methods (both backends): create/list/get/update/delete vaults, the
+    default vault, and per-vault source-count summaries; `createKnowledgeSource`
+    files into a vault; `updateKnowledgeSource` can move a source between vaults.
+  - Service: vault CRUD (`createKnowledgeVault`, `renameKnowledgeVault`,
+    `deleteKnowledgeVault` — which reassigns the vault's sources to the default and
+    refuses to delete the default), `ensureDefaultVault`, and vault resolution in
+    every Add-Knowledge flow (defaults to "General" when none is chosen; a vault
+    from another org is rejected).
+  - UI: the Knowledge list is now **grouped by vault** with per-vault counts and
+    create / rename / delete controls; the Add Knowledge form has an **"Add to
+    vault"** picker (all source types, incl. the OAuth connectors); the edit form
+    can **move** a source to another vault.
+  - Verified end-to-end against a live PostgreSQL: the full 0001→0021 migration
+    chain applies cleanly and the backfill files existing sources into a new
+    default vault with no orphans. (Assigning a whole vault to an AI Employee is
+    the next change; retrieval is unchanged in this one.)
+
 ## Sprint 027 - Data connectors (SharePoint / OneDrive) — 2026-07-09
 
 Added:

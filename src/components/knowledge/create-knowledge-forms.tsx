@@ -94,14 +94,40 @@ function VisibilityField() {
   );
 }
 
+/** A vault (collection) choice for the Add Knowledge picker. */
+export interface VaultChoice {
+  id: string;
+  name: string;
+}
+
+/** Only one Add-Knowledge tab renders at a time, so a single fixed id is safe. */
+function VaultField({ vaults, defaultVaultId }: { vaults: VaultChoice[]; defaultVaultId?: string }) {
+  if (vaults.length === 0) return null; // no vaults yet → the source files into the default
+  return (
+    <Field label="Add to vault" htmlFor="vaultId">
+      <Select id="vaultId" name="vaultId" defaultValue={defaultVaultId ?? vaults[0]?.id}>
+        {vaults.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.name}
+          </option>
+        ))}
+      </Select>
+    </Field>
+  );
+}
+
 export function CreateKnowledgeForms({
   defaultTab = "text",
   googleDrive,
   sharePoint,
+  vaults = [],
+  defaultVaultId,
 }: {
   defaultTab?: Tab;
   googleDrive?: GoogleDriveConnectState;
   sharePoint?: SharePointConnectState;
+  vaults?: VaultChoice[];
+  defaultVaultId?: string;
 }) {
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [dbKind, setDbKind] = useState<"postgres" | "mysql">("postgres");
@@ -177,7 +203,8 @@ export function CreateKnowledgeForms({
               placeholder="Paste or write the knowledge here."
             />
           </Field>
-          <VisibilityField />
+          <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
+      <VisibilityField />
           {textState?.error ? <FieldError>{textState.error}</FieldError> : null}
           <SubmitButton label="Save knowledge" />
         </form>
@@ -215,7 +242,8 @@ export function CreateKnowledgeForms({
               className="block w-full text-sm text-taurus-sub file:mr-4 file:rounded-md file:border file:border-taurus-line file:bg-taurus-elevated file:px-4 file:py-2 file:text-sm file:font-medium file:text-taurus-text hover:file:border-taurus-strong"
             />
           </Field>
-          <VisibilityField />
+          <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
+      <VisibilityField />
           {fileState?.error ? <FieldError>{fileState.error}</FieldError> : null}
           <SubmitButton label="Upload file" />
         </form>
@@ -252,7 +280,8 @@ export function CreateKnowledgeForms({
               placeholder="https://example.com/help"
             />
           </Field>
-          <VisibilityField />
+          <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
+      <VisibilityField />
           {urlState?.error ? <FieldError>{urlState.error}</FieldError> : null}
           <SubmitButton label="Save website" />
         </form>
@@ -311,7 +340,8 @@ export function CreateKnowledgeForms({
               placeholder="SELECT question, answer FROM faqs WHERE published = true"
             />
           </Field>
-          <VisibilityField />
+          <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
+      <VisibilityField />
           {dbState?.error ? <FieldError>{dbState.error}</FieldError> : null}
           <SubmitButton label="Connect & import" />
         </form>
@@ -323,6 +353,8 @@ export function CreateKnowledgeForms({
           state={googleDrive}
           action={driveAction}
           formState={driveState}
+          vaults={vaults}
+          defaultVaultId={defaultVaultId}
         />
       ) : null}
 
@@ -332,6 +364,8 @@ export function CreateKnowledgeForms({
           state={sharePoint}
           action={spAction}
           formState={spState}
+          vaults={vaults}
+          defaultVaultId={defaultVaultId}
         />
       ) : null}
 
@@ -423,7 +457,8 @@ export function CreateKnowledgeForms({
           >
             <Input id="cs-prefix" name="prefix" placeholder="reports/2026/" />
           </Field>
-          <VisibilityField />
+          <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
+      <VisibilityField />
           {csState?.error ? <FieldError>{csState.error}</FieldError> : null}
           <SubmitButton label="Connect & import" />
         </form>
@@ -468,11 +503,15 @@ function OAuthConnectTab({
   state,
   action,
   formState,
+  vaults,
+  defaultVaultId,
 }: {
   config: OAuthConnectConfig;
   state?: OAuthConnectState;
   action: (formData: FormData) => void;
   formState: KnowledgeActionState;
+  vaults: VaultChoice[];
+  defaultVaultId?: string;
 }) {
   if (!state?.configured) {
     return (
@@ -527,6 +566,7 @@ function OAuthConnectTab({
           placeholder={config.linkPlaceholder}
         />
       </Field>
+      <VaultField vaults={vaults} defaultVaultId={defaultVaultId} />
       <VisibilityField />
       {formState?.error ? <FieldError>{formState.error}</FieldError> : null}
       <SubmitButton label={config.submitLabel} />

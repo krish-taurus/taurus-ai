@@ -19,7 +19,13 @@ function SubmitButton() {
   );
 }
 
-export function EditKnowledgeForm({ source }: { source: KnowledgeSource }) {
+export function EditKnowledgeForm({
+  source,
+  vaults = [],
+}: {
+  source: KnowledgeSource;
+  vaults?: { id: string; name: string }[];
+}) {
   const [state, formAction] = useFormState(updateSourceAction, {} as KnowledgeActionState);
 
   return (
@@ -33,6 +39,18 @@ export function EditKnowledgeForm({ source }: { source: KnowledgeSource }) {
       <Field label="Description" htmlFor="description" optional>
         <Input id="description" name="description" defaultValue={source.description ?? ""} />
       </Field>
+
+      {vaults.length > 0 ? (
+        <Field label="Vault" htmlFor="vaultId">
+          <Select id="vaultId" name="vaultId" defaultValue={source.vaultId ?? vaults[0]?.id}>
+            {vaults.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </Select>
+        </Field>
+      ) : null}
 
       <Field label="Who can see this?" htmlFor="visibility">
         <Select id="visibility" name="visibility" defaultValue={source.visibility}>

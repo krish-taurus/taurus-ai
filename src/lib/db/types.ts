@@ -252,6 +252,8 @@ export type DocumentExtractionStatus =
 export interface KnowledgeSource {
   id: string;
   organizationId: string;
+  /** The vault (collection) this source belongs to (Sprint 028). */
+  vaultId: string | null;
   name: string;
   description: string | null;
   sourceType: KnowledgeSourceType;
@@ -265,6 +267,39 @@ export interface KnowledgeSource {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A vault: a named collection of knowledge sources within an org (Sprint 028). */
+export interface KnowledgeVault {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  /** The auto "General" vault existing sources migrate into; cannot be deleted. */
+  isDefault: boolean;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateKnowledgeVaultInput {
+  organizationId: string;
+  name: string;
+  description?: string | null;
+  isDefault?: boolean;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateKnowledgeVaultInput {
+  name?: string;
+  description?: string | null;
+}
+
+/** A vault plus its source counts, for the Knowledge list grouping. */
+export interface KnowledgeVaultSummary {
+  vault: KnowledgeVault;
+  sourceCount: number;
+  readyCount: number;
 }
 
 /** A stored document belonging to a knowledge source. */
@@ -301,6 +336,7 @@ export interface EmployeeKnowledgeAssignment {
 
 export interface CreateKnowledgeSourceInput {
   organizationId: string;
+  vaultId?: string | null;
   name: string;
   description?: string | null;
   sourceType: KnowledgeSourceType;
@@ -315,6 +351,8 @@ export interface UpdateKnowledgeSourceInput {
   description?: string | null;
   visibility?: KnowledgeVisibility;
   status?: KnowledgeSourceStatus;
+  /** Move the source to a different vault (Sprint 028). */
+  vaultId?: string;
 }
 
 export interface CreateKnowledgeDocumentInput {

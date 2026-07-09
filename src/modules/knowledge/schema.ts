@@ -19,10 +19,24 @@ export const knowledgeVisibilitySchema = z.enum(["private", "organization"], {
   errorMap: () => ({ message: "Please choose who can see this knowledge." }),
 });
 
+/** Optional target vault id shared by the Add Knowledge flows (Sprint 028). */
+export const vaultIdSchema = z.string().trim().min(1).optional().or(z.literal(""));
+
+export const createKnowledgeVaultSchema = z.object({
+  name: knowledgeNameSchema,
+  description: knowledgeDescriptionSchema,
+});
+
+export const updateKnowledgeVaultSchema = z.object({
+  name: knowledgeNameSchema,
+  description: knowledgeDescriptionSchema,
+});
+
 export const createTextSourceSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
   visibility: knowledgeVisibilitySchema.default("organization"),
+  vaultId: vaultIdSchema,
   text: z.string().trim().min(1, "Please enter some text to save.").max(200_000),
 });
 
@@ -30,6 +44,7 @@ export const createUrlSourceSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
   visibility: knowledgeVisibilitySchema.default("organization"),
+  vaultId: vaultIdSchema,
   url: z
     .string()
     .trim()
@@ -137,6 +152,7 @@ export const updateKnowledgeSourceSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
   visibility: knowledgeVisibilitySchema,
+  vaultId: vaultIdSchema,
 });
 
 export type CreateTextSourceValues = z.infer<typeof createTextSourceSchema>;

@@ -2,7 +2,9 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireCurrentOrganization } from "@/lib/security/guards";
+import { getStore } from "@/lib/db/store";
 import { hasPermission } from "@/modules/organizations/roles";
+import { listKnowledgeVaults } from "@/modules/knowledge/service";
 import {
   CreateKnowledgeForms,
   type GoogleDriveConnectState,
@@ -32,13 +34,22 @@ const DRIVE_ERRORS: Record<string, string> = {
 export default async function NewKnowledgePage({
   searchParams,
 }: {
-  searchParams?: { connect?: string; connected?: string; error?: string };
+  searchParams?: { connect?: string; connected?: string; error?: string; vault?: string };
 }) {
-  const { membership } = await requireCurrentOrganization();
+  const { organization, membership } = await requireCurrentOrganization();
   // Least privilege: only roles that can manage the vault may add knowledge.
   if (!hasPermission(membership.role, "knowledge.manage")) {
     redirect("/dashboard/knowledge");
   }
+
+  const vaults = (await listKnowledgeVaults(getStore(), organization.id)).map((v) => ({
+    id: v.id,
+    name: v.name,
+  }));
+  // Preselect the vault the manager came from (e.g. "Add to this vault"), else default.
+  const requestedVault = searchParams?.vault;
+  const defaultVaultId =
+    vaults.find((v) => v.id === requestedVault)?.id ?? vaults[0]?.id ?? undefined;
 
   const connect = searchParams?.connect;
   const onDriveTab = connect === "google-drive";
@@ -89,6 +100,8 @@ export default async function NewKnowledgePage({
           defaultTab={defaultTab}
           googleDrive={googleDrive}
           sharePoint={sharePoint}
+          vaults={vaults}
+          defaultVaultId={defaultVaultId}
         />
       </Card>
     </div>
