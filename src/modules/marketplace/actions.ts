@@ -19,6 +19,7 @@ import {
   declineHire,
   publishListing,
   requestHire,
+  submitReview,
   unpublishListing,
   type MarketplaceActor,
   type VaultDescriber,
@@ -136,6 +137,26 @@ export async function requestHireAction(
   }
   revalidatePath(`/dashboard/marketplace/${listingId}`);
   redirect(`/dashboard/marketplace/${listingId}?requested=1`);
+}
+
+export async function submitReviewAction(
+  _prev: MarketplaceActionState,
+  formData: FormData,
+): Promise<MarketplaceActionState> {
+  const ctx = await requirePermission("employee.create");
+  if (!ctx.ok) return { error: DENIED };
+  const listingId = String(formData.get("listingId") ?? "");
+  try {
+    await submitReview(getStore(), ctx.actor, {
+      listingId,
+      rating: Number(formData.get("rating") ?? 0),
+      comment: (formData.get("comment") as string) || undefined,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not submit your review." };
+  }
+  revalidatePath(`/dashboard/marketplace/${listingId}`);
+  redirect(`/dashboard/marketplace/${listingId}?reviewed=1`);
 }
 
 export async function approveHireAction(

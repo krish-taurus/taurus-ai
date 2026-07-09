@@ -394,10 +394,33 @@ export interface MarketplaceListing {
   performanceSnapshot: PerformanceSnapshot;
   vaultSnapshot: VaultSnapshotItem[];
   hireCount: number;
+  /** Denormalized ratings, recomputed when a review is written (Sprint 032). */
+  ratingCount: number;
+  ratingAvg: number | null;
   createdByUserId: string | null;
   publishedAt: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** A hirer's rating + review of a listed AI Employee (Sprint 032). */
+export interface MarketplaceReview {
+  id: string;
+  listingId: string;
+  reviewerOrganizationId: string;
+  reviewerUserId: string | null;
+  rating: number; // 1-5
+  comment: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertMarketplaceReviewInput {
+  listingId: string;
+  reviewerOrganizationId: string;
+  reviewerUserId?: string | null;
+  rating: number;
+  comment?: string | null;
 }
 
 export interface CreateMarketplaceListingInput {
@@ -430,6 +453,8 @@ export interface UpdateMarketplaceListingInput {
   performanceSnapshot?: PerformanceSnapshot;
   vaultSnapshot?: VaultSnapshotItem[];
   publishedAt?: string | null;
+  ratingCount?: number;
+  ratingAvg?: number | null;
 }
 
 export interface MarketplaceHire {
