@@ -17,7 +17,13 @@ import {
 } from "@/modules/channels/messaging/registry";
 import { resolveProviderConfig } from "@/modules/channels/messaging/config";
 import { handleInboundMessagingMessage } from "@/modules/channels/messaging/runtime";
+import {
+  INBOUND_EMAIL_ROUTE,
+  extractPublicKeyFromRecipient,
+} from "@/modules/channels/messaging/email-address";
 import type { WebhookRequest } from "@/modules/channels/messaging/types";
+
+const EMAIL_PROVIDERS = new Set(["sendgrid", "mailgun"]);
 
 export interface WebhookDeps {
   store: DataStore;
@@ -44,7 +50,16 @@ export async function processMessagingWebhook(
   const provider = providerType ? getMessagingProvider(providerType) : null;
   if (!providerType || !provider) return { status: 404, body: "Not found" };
 
-  const channel = await store.getEmployeeChannelByPublicKey(params.publicKey);
+  // Domain-wide inbound email: resolve the connection from the recipient address
+  // (<publicKey>@domain) instead of a per-connection URL public key.
+  let channel;
+  if (params.publicKey === INBOUND_EMAIL_ROUTE && EMAIL_PROVIDERS.has(providerType)) {
+    const recipient = params.request.form.to ?? params.request.form.recipient ?? "";
+    const key = extractPublicKeyFromRecipient(recipient);
+    channel = key ? await store.getEmployeeChannelByPublicKey(key) : null;
+  } else {
+    channel = await store.getEmployeeChannelByPublicKey(params.publicKey);
+  }
   if (!channel || channel.channelProvider !== providerType) {
     // Unknown channel — record a metadata-only event with no org and stop.
     await store.createChannelWebhookEvent({

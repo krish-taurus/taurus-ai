@@ -1,5 +1,24 @@
 # Changelog
 
+## Sprint 040 - Email: zero-DNS forwarding address — 2026-07-09
+
+Added:
+
+- **Zero-DNS email connect** — the easiest way to put an AI Employee on email.
+  Each email connection now has a unique **forwarding address**
+  `<publicKey>@<INBOUND_EMAIL_DOMAIN>`; the owner just **auto-forwards their
+  support inbox** to it (no MX/DNS changes) and the AI replies to every message.
+  - A single **domain-wide inbound webhook** (`…/channels/{provider}/inbound`)
+    receives all mail for the domain (SendGrid Inbound Parse / a Mailgun Route)
+    and resolves the connection from the **recipient address** — the public key is
+    the local part. Unknown recipients are a clean 404, no leakage.
+  - The email setup page shows the forwarding address with a copy button and
+    plain-English instructions. Addressing logic is pure + unit tested; the
+    domain-wide routing is covered end to end (right connection resolved, unknown
+    recipient rejected). New optional server-only `INBOUND_EMAIL_DOMAIN`; without
+    it, email keeps working via the existing per-connection webhook. `tsc` clean ·
+    `next lint` clean · **553 tests + 6 skipped** · build compiles.
+
 ## Sprint 039 - Connections page: honest, actionable availability — 2026-07-09
 
 Changed:

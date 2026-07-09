@@ -16,6 +16,10 @@ import {
 import { twilioProvider } from "@/modules/channels/messaging/providers/twilio";
 import { sendgridProvider } from "@/modules/channels/messaging/providers/sendgrid-email";
 import { telegramProvider } from "@/modules/channels/messaging/providers/telegram";
+import {
+  inboundAddressFor,
+  extractPublicKeyFromRecipient,
+} from "@/modules/channels/messaging/email-address";
 import { htmlToSafeText } from "@/modules/channels/messaging/html";
 import { hmacBase64 } from "@/modules/channels/messaging/crypto";
 import type { ChatGateway } from "@/modules/employee-chat/service";
@@ -121,6 +125,7 @@ async function seedActiveSmsChannel(store: InMemoryStore): Promise<EmployeeChann
 
 afterEach(() => {
   delete process.env[MASTER_KEY_VAR];
+  delete process.env.INBOUND_EMAIL_DOMAIN;
 });
 
 // --- Catalog metadata -------------------------------------------------------
@@ -391,6 +396,70 @@ describe("Twilio adapter", () => {
         )
       ).verified,
     ).toBe(false);
+  });
+});
+
+describe("Inbound email forwarding address", () => {
+  it("builds a per-connection address and extracts the key from a recipient header", () => {
+    expect(inboundAddressFor("tc_abc")).toBeNull(); // no domain configured
+    process.env.INBOUND_EMAIL_DOMAIN = "inbound.taurus.ai";
+    expect(inboundAddressFor("tc_abc")).toBe("tc_abc@inbound.taurus.ai");
+    expect(extractPublicKeyFromRecipient("Support <tc_abc@inbound.taurus.ai>")).toBe("tc_abc");
+    expect(
+      extractPublicKeyFromRecipient("someone@else.com, tc_xyz@inbound.taurus.ai"),
+    ).toBe("tc_xyz");
+    // A recipient on a different domain doesn't resolve.
+    expect(extractPublicKeyFromRecipient("tc_abc@other.com")).toBeNull();
+  });
+
+  it("routes a domain-wide inbound email to the right connection by recipient", async () => {
+    process.env.INBOUND_EMAIL_DOMAIN = "inbound.taurus.ai";
+    const store = new InMemoryStore();
+    const employee = await seedEmployee(store, "org-1");
+    await publishDna(store, "org-1", employee.id);
+    const channel = await createMessagingChannel(store, actor, employee, {
+      channelType: "email",
+      provider: "sendgrid",
+      name: "Email",
+      senderId: "help@acme.com",
+    });
+    await store.activateEmployeeChannel("org-1", channel.id);
+    const active = (await store.getEmployeeChannel("org-1", channel.id))!;
+    const { gateway, calls } = fakeGateway("Thanks for emailing!");
+
+    // SendGrid Inbound Parse posts to the shared /inbound endpoint; the recipient
+    // carries the connection key.
+    const request: WebhookRequest = {
+      method: "POST",
+      url: "https://app/api/webhooks/channels/sendgrid/inbound",
+      headers: { "content-type": "multipart/form-data" },
+      query: {},
+      rawBody: "",
+      form: {
+        from: "Customer <customer@example.com>",
+        to: `Acme Support <${active.publicKey}@inbound.taurus.ai>`,
+        subject: "Question",
+        text: "Do you offer refunds?",
+      },
+      json: null,
+    };
+    const result = await processMessagingWebhook(
+      { store, gateway, isProduction: () => false },
+      { providerSlug: "sendgrid", publicKey: "inbound", request },
+    );
+    expect(result.status).toBe(200);
+    expect(calls).toHaveLength(1);
+
+    // An unknown recipient on the inbound domain is a clean 404, no leakage.
+    const miss = await processMessagingWebhook(
+      { store, gateway, isProduction: () => false },
+      {
+        providerSlug: "sendgrid",
+        publicKey: "inbound",
+        request: { ...request, form: { ...request.form, to: "tc_missing@inbound.taurus.ai" } },
+      },
+    );
+    expect(miss.status).toBe(404);
   });
 });
 

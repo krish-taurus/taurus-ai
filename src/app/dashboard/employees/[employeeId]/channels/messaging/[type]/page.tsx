@@ -16,8 +16,10 @@ import {
 } from "@/modules/channels/messaging/catalog";
 import { CHANNEL_STATUS_LABELS } from "@/modules/channels/metadata";
 import { buildReachLink } from "@/modules/channels/reach";
+import { inboundAddressFor } from "@/modules/channels/messaging/email-address";
 import { renderQrSvg } from "@/lib/qr";
 import { ReachQr } from "@/components/channels/reach-qr";
+import { CopyButton } from "@/components/channels/copy-button";
 import { CreateMessagingChannelForm } from "@/components/channels/messaging/create-messaging-channel-form";
 import { MessagingSettingsForm } from "@/components/channels/messaging/messaging-settings-form";
 import { MessagingStatusControls } from "@/components/channels/messaging/messaging-status-controls";
@@ -125,6 +127,10 @@ export default async function MessagingSetupPage({
   const reach = buildReachLink(channel, appUrl);
   const reachSvg = reach ? await renderQrSvg(reach.url) : null;
 
+  // Zero-DNS email forwarding address (<publicKey>@inbound-domain), when enabled.
+  const forwardingAddress =
+    channelType === "email" ? inboundAddressFor(channel.publicKey) : null;
+
   return (
     <div className="mx-auto max-w-2xl">
       {backLink}
@@ -196,6 +202,23 @@ export default async function MessagingSetupPage({
                   : undefined
             }
           />
+        ) : null}
+
+        {forwardingAddress ? (
+          <Card className="p-5">
+            <h3 className="text-sm font-semibold text-taurus-text">Forwarding address</h3>
+            <p className="mt-1 text-xs text-taurus-faint">
+              The easiest way to go live — no DNS changes. Forward your support inbox (e.g.
+              auto-forward from your email provider) to this address and {employee.name} replies to
+              every message.
+            </p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <code className="rounded-md bg-taurus-muted px-2 py-1 text-sm text-taurus-text">
+                {forwardingAddress}
+              </code>
+              <CopyButton value={forwardingAddress} label="Copy address" />
+            </div>
+          </Card>
         ) : null}
 
         {reachSvg && reach ? (
