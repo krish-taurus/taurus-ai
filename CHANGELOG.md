@@ -1,5 +1,26 @@
 # Changelog
 
+## Sprint 024 - Data connectors (MySQL) — 2026-07-09
+
+Added:
+
+- **MySQL support in the database connector** (`src/modules/knowledge/connectors/database.ts`).
+  The "Connect Database" flow now offers **PostgreSQL or MySQL** — pick the engine,
+  paste a `mysql://…` (or `postgres://…`) connection string and a read-only
+  `SELECT`, and the rows become searchable Knowledge Vault documents. "Sync now"
+  works the same for both.
+  - **Same safety model**: single validated read-only statement, executed inside a
+    `START TRANSACTION READ ONLY` with a per-statement timeout (`max_execution_time`)
+    so MySQL itself rejects any write; the `mysql2` driver runs with
+    `multipleStatements` off (no stacked SQL); SSRF host guard, capped rows/text,
+    and the connection string stored encrypted (only the host is shown).
+  - `executeMysqlReadOnlyQuery` (dynamic `mysql2/promise` import so the Postgres
+    path never loads the MySQL driver, and vice versa). The Add Knowledge form gains
+    a database-engine selector; the schema validates the scheme against the engine.
+  - Verified end-to-end against a live MariaDB (read → text, and a read-only
+    transaction rejecting a write). `pg` + `mysql2` added to
+    `serverComponentsExternalPackages`.
+
 ## Sprint 023 - Data connectors (Google Drive) — 2026-07-08
 
 Added:

@@ -44,7 +44,7 @@ export const createDatabaseSourceSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
   visibility: knowledgeVisibilitySchema.default("organization"),
-  kind: z.literal("postgres", {
+  kind: z.enum(["postgres", "mysql"], {
     errorMap: () => ({ message: "Choose a supported database." }),
   }),
   connectionString: z
@@ -52,11 +52,17 @@ export const createDatabaseSourceSchema = z.object({
     .trim()
     .min(1, "Enter your database connection string.")
     .max(4000)
-    .refine((v) => /^postgres(ql)?:\/\//i.test(v), {
-      message: "Enter a PostgreSQL connection string (postgres://…).",
+    .refine((v) => /^(postgres(ql)?|mysql):\/\//i.test(v), {
+      message: "Enter a PostgreSQL (postgres://…) or MySQL (mysql://…) connection string.",
     }),
   query: z.string().trim().min(1, "Enter a read-only SQL query.").max(20_000),
-});
+})
+  .refine(
+    (v) =>
+      (v.kind === "postgres" && /^postgres(ql)?:\/\//i.test(v.connectionString)) ||
+      (v.kind === "mysql" && /^mysql:\/\//i.test(v.connectionString)),
+    { message: "The connection string doesn’t match the selected database.", path: ["connectionString"] },
+  );
 
 export const createGoogleDriveSourceSchema = z.object({
   name: knowledgeNameSchema,

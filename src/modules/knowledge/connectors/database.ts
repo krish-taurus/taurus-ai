@@ -6,7 +6,7 @@ import "server-only";
  * Runs a read-only query against an external customer database and turns the rows
  * into plain text that feeds the Knowledge Vault → index → retrieval pipeline, so
  * an AI Employee can answer from structured data (a product catalog, an FAQ
- * table, a policy table, …). PostgreSQL first; MySQL is a small addition later.
+ * table, a policy table, …). Supports **PostgreSQL** and **MySQL**.
  *
  * SAFETY:
  *  - The query must be a single read-only statement (validated), AND it runs
@@ -23,7 +23,7 @@ import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import type { DocumentExtractionStatus } from "@/lib/db/types";
 
-export type DatabaseKind = "postgres";
+export type DatabaseKind = "postgres" | "mysql";
 
 export interface DatabaseQueryResult {
   text: string | null;
@@ -137,7 +137,7 @@ export function formatRows(rows: Record<string, unknown>[]): string {
   return records.join("\n\n");
 }
 
-/** Run a validated read-only query against a PostgreSQL database. */
+/** Run a validated read-only query against a PostgreSQL or MySQL database. */
 export async function runDatabaseQuery(input: {
   kind: DatabaseKind;
   connectionString: string;
@@ -145,13 +145,15 @@ export async function runDatabaseQuery(input: {
 }): Promise<DatabaseQueryResult> {
   const sql = assertReadOnlyQuery(input.query);
   await assertPublicDbHost(input.connectionString);
-  return executeReadOnlyQuery(input.connectionString, sql);
+  return input.kind === "mysql"
+    ? executeMysqlReadOnlyQuery(input.connectionString, sql)
+    : executeReadOnlyQuery(input.connectionString, sql);
 }
 
 /**
- * Execute a pre-validated read-only SELECT and format the rows. Exported so
- * integration tests can exercise it against a local database — the public-host
- * SSRF guard is applied by `runDatabaseQuery`, not here.
+ * Execute a pre-validated read-only SELECT against **PostgreSQL** and format the
+ * rows. Exported so integration tests can exercise it against a local database —
+ * the public-host SSRF guard is applied by `runDatabaseQuery`, not here.
  */
 export async function executeReadOnlyQuery(
   connectionString: string,
@@ -188,5 +190,48 @@ export async function executeReadOnlyQuery(
     );
   } finally {
     await client.end().catch(() => {});
+  }
+}
+
+/**
+ * Execute a pre-validated read-only SELECT against **MySQL** and format the rows.
+ * Exported for the same integration-test reason as the PostgreSQL variant; the
+ * SSRF host guard is applied by `runDatabaseQuery`.
+ */
+export async function executeMysqlReadOnlyQuery(
+  connectionString: string,
+  sql: string,
+): Promise<DatabaseQueryResult> {
+  // Dynamic import so the pg path never pays for the mysql driver, and vice versa.
+  const mysql = await import("mysql2/promise");
+  // multipleStatements defaults to false → the driver itself rejects stacked SQL.
+  const conn = await mysql.createConnection({
+    uri: connectionString,
+    connectTimeout: CONNECT_TIMEOUT_MS,
+  });
+
+  try {
+    // Best-effort per-statement timeout (MySQL 5.7.8+; ignored where unsupported).
+    await conn.query(`set session max_execution_time = ${STATEMENT_TIMEOUT_MS}`).catch(() => {});
+    // A READ ONLY transaction is the real guardrail — the DB rejects any write.
+    await conn.query("start transaction read only");
+    const wrapped = `select * from (${sql}) as taurus_source limit ${MAX_ROWS}`;
+    const [rowsRaw] = await conn.query(wrapped);
+    await conn.query("rollback").catch(() => {});
+
+    const rows = (Array.isArray(rowsRaw) ? rowsRaw : []) as Record<string, unknown>[];
+    const text = formatRows(rows).trim();
+    return {
+      text: text.length > 0 ? text : null,
+      rowCount: rows.length,
+      status: text.length > 0 ? "extracted" : "failed",
+    };
+  } catch (err) {
+    if (err instanceof DatabaseConnectorError) throw err;
+    throw new DatabaseConnectorError(
+      err instanceof Error ? `Could not read from the database: ${err.message}` : "Database error.",
+    );
+  } finally {
+    await conn.end().catch(() => {});
   }
 }

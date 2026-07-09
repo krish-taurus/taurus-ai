@@ -73,6 +73,7 @@ export function CreateKnowledgeForms({
   googleDrive?: GoogleDriveConnectState;
 }) {
   const [tab, setTab] = useState<Tab>(defaultTab);
+  const [dbKind, setDbKind] = useState<"postgres" | "mysql">("postgres");
   const [textState, textAction] = useFormState(createTextSourceAction, {} as KnowledgeActionState);
   const [fileState, fileAction] = useFormState(createFileSourceAction, {} as KnowledgeActionState);
   const [urlState, urlAction] = useFormState(createUrlSourceAction, {} as KnowledgeActionState);
@@ -219,7 +220,6 @@ export function CreateKnowledgeForms({
 
       {tab === "database" ? (
         <form action={dbAction} className="space-y-5">
-          <input type="hidden" name="kind" value="postgres" />
           <Field label="Name" htmlFor="db-name">
             <Input id="db-name" name="name" required minLength={2} placeholder="e.g. Product catalog" />
           </Field>
@@ -231,8 +231,14 @@ export function CreateKnowledgeForms({
             />
           </Field>
           <Field label="Database" htmlFor="db-kind">
-            <Select id="db-kind" name="kindDisplay" defaultValue="postgres" disabled>
+            <Select
+              id="db-kind"
+              name="kind"
+              value={dbKind}
+              onChange={(e) => setDbKind(e.target.value as "postgres" | "mysql")}
+            >
               <option value="postgres">PostgreSQL</option>
+              <option value="mysql">MySQL</option>
             </Select>
           </Field>
           <Field
@@ -245,7 +251,11 @@ export function CreateKnowledgeForms({
               name="connectionString"
               type="password"
               required
-              placeholder="postgres://readonly:•••@host:5432/dbname"
+              placeholder={
+                dbKind === "mysql"
+                  ? "mysql://readonly:•••@host:3306/dbname"
+                  : "postgres://readonly:•••@host:5432/dbname"
+              }
             />
           </Field>
           <Field

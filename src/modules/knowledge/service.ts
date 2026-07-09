@@ -244,7 +244,7 @@ export async function createUrlSource(
 
 /** Non-secret + encrypted connector config stored on a database source. */
 export interface DatabaseConnectorMeta {
-  kind: "postgres";
+  kind: "postgres" | "mysql";
   /** Host shown in the UI (never the full connection string). */
   displayHost: string;
   query: string;

@@ -218,7 +218,7 @@ export async function syncDatabaseSourceAction(
       return { error: "This database source could not be found." };
     }
     const meta = source.metadata as {
-      kind?: "postgres";
+      kind?: "postgres" | "mysql";
       query?: string;
       connectionEncrypted?: string;
     };
