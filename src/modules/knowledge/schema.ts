@@ -79,7 +79,7 @@ export const createCloudStorageSourceSchema = z
     name: knowledgeNameSchema,
     description: knowledgeDescriptionSchema,
     visibility: knowledgeVisibilitySchema.default("organization"),
-    provider: z.enum(["azure_blob", "gcs"], {
+    provider: z.enum(["azure_blob", "gcs", "s3"], {
       errorMap: () => ({ message: "Choose a supported cloud storage provider." }),
     }),
     prefix: z.string().trim().max(1024).optional().or(z.literal("")),
@@ -88,6 +88,12 @@ export const createCloudStorageSourceSchema = z
     // GCS: bucket name + service-account JSON key.
     gcsBucket: z.string().trim().max(255).optional().or(z.literal("")),
     gcsServiceAccount: z.string().trim().max(20_000).optional().or(z.literal("")),
+    // S3: access key + region + bucket (+ optional session token).
+    s3AccessKeyId: z.string().trim().max(255).optional().or(z.literal("")),
+    s3SecretAccessKey: z.string().trim().max(255).optional().or(z.literal("")),
+    s3Region: z.string().trim().max(32).optional().or(z.literal("")),
+    s3Bucket: z.string().trim().max(255).optional().or(z.literal("")),
+    s3SessionToken: z.string().trim().max(4000).optional().or(z.literal("")),
   })
   .refine((v) => (v.provider === "azure_blob" ? !!v.azureSasUrl : true), {
     message: "Enter the Azure container SAS URL.",
@@ -100,6 +106,18 @@ export const createCloudStorageSourceSchema = z
   .refine((v) => (v.provider === "gcs" ? !!v.gcsServiceAccount : true), {
     message: "Paste the service-account JSON key.",
     path: ["gcsServiceAccount"],
+  })
+  .refine((v) => (v.provider === "s3" ? !!v.s3AccessKeyId && !!v.s3SecretAccessKey : true), {
+    message: "Enter the AWS access key ID and secret access key.",
+    path: ["s3AccessKeyId"],
+  })
+  .refine((v) => (v.provider === "s3" ? !!v.s3Region : true), {
+    message: "Enter the AWS region (e.g. us-east-1).",
+    path: ["s3Region"],
+  })
+  .refine((v) => (v.provider === "s3" ? !!v.s3Bucket : true), {
+    message: "Enter the S3 bucket name.",
+    path: ["s3Bucket"],
   });
 
 export const createFileSourceMetaSchema = z.object({

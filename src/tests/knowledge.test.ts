@@ -340,6 +340,7 @@ describe("cloud storage source", () => {
     displayName: "my-bucket",
     prefix: "reports/",
     bucket: "my-bucket",
+    region: null,
     connectionEncrypted: "ENC(service-account-json)",
   };
 

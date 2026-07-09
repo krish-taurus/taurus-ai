@@ -1,5 +1,24 @@
 # Changelog
 
+## Sprint 026 - Data connectors (Cloud storage: Amazon S3) — 2026-07-09
+
+Added:
+
+- **Amazon S3 support in the cloud storage connector**
+  (`src/modules/knowledge/connectors/cloud-storage.ts`). The "Cloud Storage" flow
+  now offers **Azure Blob / Google Cloud Storage / Amazon S3** — pick S3, enter a
+  bucket + region + a least-privilege **read-only access key** (optional session
+  token), and the objects become searchable Knowledge Vault documents. "Sync now"
+  re-reads the bucket.
+  - **AWS Signature V4** request signing implemented with `node:crypto` (no AWS
+    SDK dependency) — ListObjectsV2 + GetObject. Verified against **AWS's published
+    SigV4 test vector**.
+  - Same safety model as the other providers: read-only (only `s3:ListBucket` +
+    `s3:GetObject` needed), bounded (≤ 50 files, optional prefix, 10 MB/file cap,
+    supported types only), and the access key is stored **encrypted at rest**
+    (only bucket + region are shown). Standard AWS S3 endpoints only.
+  - Setup steps + IAM policy in `docs/connectors/cloud-storage.md`. No new env vars.
+
 ## Sprint 025 - Data connectors (Cloud storage: Azure Blob + GCS) — 2026-07-09
 
 Added:

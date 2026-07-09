@@ -76,7 +76,7 @@ export function CreateKnowledgeForms({
 }) {
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [dbKind, setDbKind] = useState<"postgres" | "mysql">("postgres");
-  const [csProvider, setCsProvider] = useState<"azure_blob" | "gcs">("azure_blob");
+  const [csProvider, setCsProvider] = useState<"azure_blob" | "gcs" | "s3">("azure_blob");
   const [textState, textAction] = useFormState(createTextSourceAction, {} as KnowledgeActionState);
   const [fileState, fileAction] = useFormState(createFileSourceAction, {} as KnowledgeActionState);
   const [urlState, urlAction] = useFormState(createUrlSourceAction, {} as KnowledgeActionState);
@@ -301,10 +301,11 @@ export function CreateKnowledgeForms({
               id="cs-provider"
               name="provider"
               value={csProvider}
-              onChange={(e) => setCsProvider(e.target.value as "azure_blob" | "gcs")}
+              onChange={(e) => setCsProvider(e.target.value as "azure_blob" | "gcs" | "s3")}
             >
               <option value="azure_blob">Azure Blob Storage</option>
               <option value="gcs">Google Cloud Storage</option>
+              <option value="s3">Amazon S3</option>
             </Select>
           </Field>
 
@@ -322,7 +323,7 @@ export function CreateKnowledgeForms({
                 placeholder="https://acct.blob.core.windows.net/container?sv=…&sig=…"
               />
             </Field>
-          ) : (
+          ) : csProvider === "gcs" ? (
             <>
               <Field label="Bucket name" htmlFor="cs-bucket">
                 <Input id="cs-bucket" name="gcsBucket" required placeholder="my-bucket" />
@@ -339,6 +340,30 @@ export function CreateKnowledgeForms({
                   required
                   placeholder={'{ "type": "service_account", "client_email": "…", "private_key": "…" }'}
                 />
+              </Field>
+            </>
+          ) : (
+            <>
+              <div className="grid gap-5 sm:grid-cols-2">
+                <Field label="Bucket name" htmlFor="cs-s3-bucket">
+                  <Input id="cs-s3-bucket" name="s3Bucket" required placeholder="my-bucket" />
+                </Field>
+                <Field label="Region" htmlFor="cs-s3-region">
+                  <Input id="cs-s3-region" name="s3Region" required placeholder="us-east-1" />
+                </Field>
+              </div>
+              <Field label="Access key ID" htmlFor="cs-s3-key">
+                <Input id="cs-s3-key" name="s3AccessKeyId" required placeholder="AKIA…" />
+              </Field>
+              <Field
+                label="Secret access key"
+                htmlFor="cs-s3-secret"
+                hint="Use a least-privilege, read-only key. Stored encrypted."
+              >
+                <Input id="cs-s3-secret" name="s3SecretAccessKey" type="password" required />
+              </Field>
+              <Field label="Session token" htmlFor="cs-s3-token" optional hint="Only for temporary credentials.">
+                <Input id="cs-s3-token" name="s3SessionToken" type="password" />
               </Field>
             </>
           )}

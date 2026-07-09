@@ -501,14 +501,16 @@ export async function syncGoogleDriveSource(
 
 /** Non-secret + encrypted connector config stored on a cloud storage source. */
 export interface CloudStorageConnectorMeta {
-  provider: "azure_blob" | "gcs";
-  /** account/container (Azure) or bucket (GCS), for display. */
+  provider: "azure_blob" | "gcs" | "s3";
+  /** account/container (Azure) or bucket (GCS/S3), for display. */
   displayName: string;
   /** Optional path prefix that scopes the import. */
   prefix: string | null;
-  /** Bucket name (GCS only) — needed to re-sync. */
+  /** Bucket name (GCS + S3) — needed to re-sync. */
   bucket: string | null;
-  /** Encrypted credential (SAS URL or service-account JSON — ciphertext only). */
+  /** AWS region (S3 only) — needed to re-sync. */
+  region: string | null;
+  /** Encrypted credential (SAS URL / service-account JSON / S3 keys — ciphertext). */
   connectionEncrypted: string;
 }
 
@@ -549,6 +551,7 @@ export async function createCloudStorageSource(
       displayName: input.connector.displayName,
       prefix: input.connector.prefix,
       bucket: input.connector.bucket,
+      region: input.connector.region,
       connectionEncrypted: input.connector.connectionEncrypted,
       fileCount: input.documents.length,
       skipped: input.skipped,

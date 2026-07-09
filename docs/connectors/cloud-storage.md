@@ -2,9 +2,10 @@
 
 Connect an object store and import its files into the Knowledge Vault. Each
 supported file's text becomes a searchable document your AI Employees can answer
-from. Two providers are supported, both **read-only** and both configured
-entirely in the app (no server env vars) — you paste a scoped, read-only
-credential and it's stored encrypted.
+from. Three providers are supported — **Azure Blob Storage**, **Google Cloud
+Storage**, and **Amazon S3** — all **read-only** and configured entirely in the
+app (no server env vars). You paste a scoped, read-only credential and it's
+stored encrypted.
 
 Supported file types: PDF, Word (`.docx`), text/markdown/CSV/JSON. Other types are
 skipped. Up to 50 files per source (optionally narrowed with a folder prefix);
@@ -65,11 +66,40 @@ the bucket.
 
 ---
 
+## Amazon S3 — read-only access key
+
+You give the app an **access key** for an IAM identity that can read + list the
+bucket. Requests are signed with AWS Signature V4; only the bucket and region are
+stored in the clear (the keys are encrypted).
+
+1. **IAM** → create a user (or role) with a least-privilege read-only policy on the
+   bucket, e.g.:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::my-bucket" },
+       { "Effect": "Allow", "Action": ["s3:GetObject"], "Resource": "arn:aws:s3:::my-bucket/*" }
+     ]
+   }
+   ```
+2. Create an **access key** for that user (Access key ID + Secret access key).
+3. In the app: **Add Knowledge → Cloud Storage → Amazon S3**, enter the **bucket**,
+   **region** (e.g. `us-east-1`), **access key ID** and **secret access key**
+   (and a **session token** only if you're using temporary credentials),
+   optionally a **prefix**, then **Connect & import**.
+
+> Prefer temporary credentials (STS) or a dedicated read-only user. Only
+> `s3:ListBucket` + `s3:GetObject` are needed. (Standard AWS S3 endpoints only —
+> S3-compatible stores like R2/MinIO aren't supported yet.)
+
+---
+
 ## Security notes
 
-- The credential (SAS URL or service-account JSON) is **encrypted at rest**
-  (AES-GCM, same key store as model credentials) and never returned to the
-  browser; only the account/container or bucket name is shown.
+- The credential (SAS URL, service-account JSON, or S3 keys) is **encrypted at
+  rest** (AES-GCM, same key store as model credentials) and never returned to the
+  browser; only the account/container or bucket (and S3 region) is shown.
 - Requires `TAURUS_MODEL_CREDENTIALS_MASTER_KEY` to be set (min 16 chars) — if it's
   empty, the connector is disabled.
 - Prefer least privilege: a read/list SAS (Azure) or a **Storage Object Viewer**
@@ -84,5 +114,8 @@ the bucket.
 - **"Google rejected the service-account key"** — the account lacks read access to
   the bucket, or the key JSON is incomplete; grant **Storage Object Viewer** and
   re-download the key.
+- **"Access denied by S3"** — the IAM identity is missing `s3:ListBucket` /
+  `s3:GetObject`, or the region is wrong; check the policy and that the region
+  matches the bucket.
 - **"No supported files were found"** — the container/bucket (under the prefix)
   has no PDF/Word/text/CSV/JSON files, or they're all over 10 MB.
