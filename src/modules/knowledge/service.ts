@@ -15,6 +15,8 @@ import type {
   DocumentExtractionStatus,
   EmployeeKnowledgeAssignment,
   KnowledgeSource,
+  KnowledgeVault,
+  KnowledgeVaultSummary,
   KnowledgeVaultOverview,
 } from "@/lib/db/types";
 import {
@@ -25,9 +27,11 @@ import {
 } from "@/modules/knowledge/metadata";
 import {
   createFileSourceMetaSchema,
+  createKnowledgeVaultSchema,
   createTextSourceSchema,
   createUrlSourceSchema,
   updateKnowledgeSourceSchema,
+  updateKnowledgeVaultSchema,
 } from "@/modules/knowledge/schema";
 import { assertCanAddKnowledgeSource } from "@/modules/billing/service";
 
@@ -72,6 +76,135 @@ function firstIssueMessage(error: unknown, fallback: string): string {
     return issues?.[0]?.message ?? fallback;
   }
   return fallback;
+}
+
+// --- Vaults (Sprint 028) ----------------------------------------------------
+
+/** Get the org's default "General" vault, creating it if it doesn't exist yet. */
+export async function ensureDefaultVault(
+  store: DataStore,
+  actor: KnowledgeActor,
+): Promise<KnowledgeVault> {
+  const existing = await store.getDefaultKnowledgeVault(actor.organizationId);
+  if (existing) return existing;
+  return store.createKnowledgeVault({
+    organizationId: actor.organizationId,
+    name: "General",
+    isDefault: true,
+    createdByUserId: actor.userId,
+  });
+}
+
+/** Resolve a requested vault id (validated + org-scoped), or the default vault. */
+async function resolveVaultId(
+  store: DataStore,
+  actor: KnowledgeActor,
+  requested: string | null | undefined,
+): Promise<string> {
+  if (requested) {
+    const vault = await store.getKnowledgeVault(actor.organizationId, requested);
+    if (!vault) throw new KnowledgeValidationError("That vault could not be found.");
+    return vault.id;
+  }
+  return (await ensureDefaultVault(store, actor)).id;
+}
+
+export function listKnowledgeVaults(
+  store: DataStore,
+  organizationId: string,
+): Promise<KnowledgeVault[]> {
+  return store.listKnowledgeVaults(organizationId);
+}
+
+export function listKnowledgeVaultSummaries(
+  store: DataStore,
+  organizationId: string,
+): Promise<KnowledgeVaultSummary[]> {
+  return store.listKnowledgeVaultSummaries(organizationId);
+}
+
+export async function createKnowledgeVault(
+  store: DataStore,
+  actor: KnowledgeActor,
+  input: unknown,
+): Promise<KnowledgeVault> {
+  const parsed = createKnowledgeVaultSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsed.error, "Invalid vault."));
+  }
+  const vault = await store.createKnowledgeVault({
+    organizationId: actor.organizationId,
+    name: parsed.data.name,
+    description: emptyToNull(parsed.data.description),
+    createdByUserId: actor.userId,
+  });
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_vault.created",
+    targetType: "knowledge_vault",
+    targetId: vault.id,
+    metadata: { vaultId: vault.id, name: vault.name },
+  });
+  return vault;
+}
+
+export async function renameKnowledgeVault(
+  store: DataStore,
+  actor: KnowledgeActor,
+  vaultId: string,
+  input: unknown,
+): Promise<KnowledgeVault> {
+  const parsed = updateKnowledgeVaultSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsed.error, "Invalid vault."));
+  }
+  const updated = await store.updateKnowledgeVault(actor.organizationId, vaultId, {
+    name: parsed.data.name,
+    description: emptyToNull(parsed.data.description),
+  });
+  if (!updated) throw new KnowledgeNotFoundError("This vault could not be found.");
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_vault.updated",
+    targetType: "knowledge_vault",
+    targetId: updated.id,
+    metadata: { vaultId: updated.id, name: updated.name },
+  });
+  return updated;
+}
+
+/** Delete a vault; its sources are moved to the default vault (never orphaned). */
+export async function deleteKnowledgeVault(
+  store: DataStore,
+  actor: KnowledgeActor,
+  vaultId: string,
+): Promise<void> {
+  const vault = await store.getKnowledgeVault(actor.organizationId, vaultId);
+  if (!vault) throw new KnowledgeNotFoundError("This vault could not be found.");
+  if (vault.isDefault) {
+    throw new KnowledgeValidationError("The default vault can’t be deleted.");
+  }
+  const fallback = await ensureDefaultVault(store, actor);
+  const sources = (await store.listKnowledgeSources(actor.organizationId)).filter(
+    (s) => s.vaultId === vaultId,
+  );
+  for (const source of sources) {
+    await store.updateKnowledgeSource(actor.organizationId, source.id, { vaultId: fallback.id });
+  }
+  await store.deleteKnowledgeVault(actor.organizationId, vaultId);
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_vault.deleted",
+    targetType: "knowledge_vault",
+    targetId: vaultId,
+    metadata: { vaultId, movedSources: sources.length },
+  });
 }
 
 // --- Upload validation (exposed for tests) ---------------------------------
@@ -153,6 +286,7 @@ export async function createTextSource(
 
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
+    vaultId: await resolveVaultId(store, actor, values.vaultId),
     name: values.name,
     description: emptyToNull(values.description),
     sourceType: "text",
@@ -209,6 +343,7 @@ export async function createUrlSource(
 
   const source = await store.createKnowledgeSource({
     organizationId: actor.organizationId,
+    vaultId: await resolveVaultId(store, actor, values.vaultId),
     name: values.name,
     description: emptyToNull(values.description),
     sourceType: "url",
@@ -262,6 +397,7 @@ export async function createDatabaseSource(
   actor: KnowledgeActor,
   input: {
     meta: unknown;
+    vaultId?: string;
     connector: DatabaseConnectorMeta;
     result: ExtractionInput & { rowCount: number };
   },
@@ -280,6 +416,7 @@ export async function createDatabaseSource(
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
+    vaultId: await resolveVaultId(store, actor, input.vaultId),
     sourceType: "database",
     status: readable ? "ready" : "failed",
     visibility: meta.visibility,
@@ -415,6 +552,7 @@ export async function createGoogleDriveSource(
   actor: KnowledgeActor,
   input: {
     meta: unknown;
+    vaultId?: string;
     connector: GoogleDriveConnectorMeta;
     documents: GoogleDriveDocumentInput[];
     skipped: number;
@@ -434,6 +572,7 @@ export async function createGoogleDriveSource(
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
+    vaultId: await resolveVaultId(store, actor, input.vaultId),
     sourceType: "google_drive",
     status,
     visibility: meta.visibility,
@@ -520,6 +659,7 @@ export async function createSharePointSource(
   actor: KnowledgeActor,
   input: {
     meta: unknown;
+    vaultId?: string;
     connector: SharePointConnectorMeta;
     documents: ConnectorDocumentInput[];
     skipped: number;
@@ -539,6 +679,7 @@ export async function createSharePointSource(
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
+    vaultId: await resolveVaultId(store, actor, input.vaultId),
     sourceType: "sharepoint",
     status,
     visibility: meta.visibility,
@@ -630,6 +771,7 @@ export async function createCloudStorageSource(
   actor: KnowledgeActor,
   input: {
     meta: unknown;
+    vaultId?: string;
     connector: CloudStorageConnectorMeta;
     documents: ConnectorDocumentInput[];
     skipped: number;
@@ -649,6 +791,7 @@ export async function createCloudStorageSource(
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
+    vaultId: await resolveVaultId(store, actor, input.vaultId),
     sourceType: "cloud_storage",
     status,
     visibility: meta.visibility,
@@ -721,7 +864,7 @@ export async function createFileSource(
   store: DataStore,
   storage: KnowledgeStorage,
   actor: KnowledgeActor,
-  input: { meta: unknown; file: UploadedFile; extraction: ExtractionInput },
+  input: { meta: unknown; vaultId?: string; file: UploadedFile; extraction: ExtractionInput },
 ): Promise<KnowledgeSource> {
   const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
   if (!parsedMeta.success) {
@@ -751,6 +894,7 @@ export async function createFileSource(
     organizationId: actor.organizationId,
     name: meta.name,
     description: emptyToNull(meta.description),
+    vaultId: await resolveVaultId(store, actor, input.vaultId),
     sourceType: "file",
     status: readable ? "ready" : "uploaded",
     visibility: meta.visibility,
@@ -819,10 +963,16 @@ export async function updateSourceMetadata(
   const existing = await store.getKnowledgeSource(actor.organizationId, sourceId);
   if (!existing) throw new KnowledgeNotFoundError();
 
+  // Moving to a different vault: validate it belongs to the org.
+  const targetVaultId = parsed.data.vaultId
+    ? await resolveVaultId(store, actor, parsed.data.vaultId)
+    : undefined;
+
   const updated = await store.updateKnowledgeSource(actor.organizationId, sourceId, {
     name: parsed.data.name,
     description: emptyToNull(parsed.data.description),
     visibility: parsed.data.visibility,
+    ...(targetVaultId ? { vaultId: targetVaultId } : {}),
   });
   if (!updated) throw new KnowledgeNotFoundError();
 

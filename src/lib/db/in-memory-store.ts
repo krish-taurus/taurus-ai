@@ -78,6 +78,10 @@ import type {
   KnowledgeRetrievalSegment,
   KnowledgeIndexingState,
   KnowledgeSource,
+  KnowledgeVault,
+  CreateKnowledgeVaultInput,
+  UpdateKnowledgeVaultInput,
+  KnowledgeVaultSummary,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -144,6 +148,7 @@ export class InMemoryStore implements DataStore {
   private members = new Map<string, OrganizationMember>();
   private employees = new Map<string, AiEmployee>();
   private dnaVersions = new Map<string, EmployeeDnaVersion>();
+  private knowledgeVaults = new Map<string, KnowledgeVault>();
   private knowledgeSources = new Map<string, KnowledgeSource>();
   private knowledgeDocuments = new Map<string, KnowledgeDocument>();
   private knowledgeAssignments = new Map<string, EmployeeKnowledgeAssignment>();
@@ -526,6 +531,7 @@ export class InMemoryStore implements DataStore {
     const source: KnowledgeSource = {
       id: uuid(),
       organizationId: input.organizationId,
+      vaultId: input.vaultId ?? null,
       name: input.name,
       description: input.description ?? null,
       sourceType: input.sourceType,
@@ -583,10 +589,94 @@ export class InMemoryStore implements DataStore {
         ? { visibility: patch.visibility }
         : {}),
       ...("status" in patch && patch.status !== undefined ? { status: patch.status } : {}),
+      ...("vaultId" in patch && patch.vaultId !== undefined ? { vaultId: patch.vaultId } : {}),
       updatedAt: now(),
     };
     this.knowledgeSources.set(updated.id, updated);
     return updated;
+  }
+
+  // --- Knowledge Vaults (Sprint 028) ----------------------------------------
+
+  async createKnowledgeVault(input: CreateKnowledgeVaultInput): Promise<KnowledgeVault> {
+    const timestamp = now();
+    const vault: KnowledgeVault = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      name: input.name,
+      description: input.description ?? null,
+      isDefault: input.isDefault ?? false,
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.knowledgeVaults.set(vault.id, vault);
+    return vault;
+  }
+
+  async listKnowledgeVaults(organizationId: string): Promise<KnowledgeVault[]> {
+    return [...this.knowledgeVaults.values()]
+      .filter((v) => v.organizationId === organizationId)
+      // Default vault first, then alphabetical.
+      .sort((a, b) =>
+        a.isDefault === b.isDefault ? a.name.localeCompare(b.name) : a.isDefault ? -1 : 1,
+      );
+  }
+
+  async getKnowledgeVault(
+    organizationId: string,
+    vaultId: string,
+  ): Promise<KnowledgeVault | null> {
+    const vault = this.knowledgeVaults.get(vaultId);
+    if (!vault || vault.organizationId !== organizationId) return null;
+    return vault;
+  }
+
+  async getDefaultKnowledgeVault(organizationId: string): Promise<KnowledgeVault | null> {
+    return (
+      [...this.knowledgeVaults.values()].find(
+        (v) => v.organizationId === organizationId && v.isDefault,
+      ) ?? null
+    );
+  }
+
+  async updateKnowledgeVault(
+    organizationId: string,
+    vaultId: string,
+    patch: UpdateKnowledgeVaultInput,
+  ): Promise<KnowledgeVault | null> {
+    const existing = await this.getKnowledgeVault(organizationId, vaultId);
+    if (!existing) return null;
+    const updated: KnowledgeVault = {
+      ...existing,
+      ...("name" in patch && patch.name !== undefined ? { name: patch.name } : {}),
+      ...("description" in patch ? { description: patch.description ?? null } : {}),
+      updatedAt: now(),
+    };
+    this.knowledgeVaults.set(updated.id, updated);
+    return updated;
+  }
+
+  async deleteKnowledgeVault(organizationId: string, vaultId: string): Promise<boolean> {
+    const existing = await this.getKnowledgeVault(organizationId, vaultId);
+    if (!existing) return false;
+    this.knowledgeVaults.delete(vaultId);
+    return true;
+  }
+
+  async listKnowledgeVaultSummaries(organizationId: string): Promise<KnowledgeVaultSummary[]> {
+    const vaults = await this.listKnowledgeVaults(organizationId);
+    const sources = [...this.knowledgeSources.values()].filter(
+      (s) => s.organizationId === organizationId && s.status !== "archived",
+    );
+    return vaults.map((vault) => {
+      const inVault = sources.filter((s) => s.vaultId === vault.id);
+      return {
+        vault,
+        sourceCount: inVault.length,
+        readyCount: inVault.filter((s) => s.status === "ready").length,
+      };
+    });
   }
 
   async archiveKnowledgeSource(

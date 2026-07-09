@@ -48,6 +48,9 @@ import {
 import {
   archiveSource,
   assignKnowledgeToEmployee,
+  createKnowledgeVault,
+  renameKnowledgeVault,
+  deleteKnowledgeVault,
   createCloudStorageSource,
   createDatabaseSource,
   createFileSource,
@@ -92,6 +95,7 @@ export async function createTextSourceAction(
       name: formData.get("name"),
       description: formData.get("description") ?? undefined,
       visibility: formData.get("visibility") ?? undefined,
+      vaultId: formData.get("vaultId") ?? undefined,
       text: formData.get("text"),
     });
     sourceId = source.id;
@@ -122,6 +126,7 @@ export async function createUrlSourceAction(
         name: formData.get("name"),
         description: formData.get("description") ?? undefined,
         visibility: formData.get("visibility") ?? undefined,
+        vaultId: formData.get("vaultId") ?? undefined,
         url: formData.get("url"),
       },
       { text: fetched.text, status: fetched.status },
@@ -158,6 +163,7 @@ export async function createFileSourceAction(
         description: formData.get("description") ?? undefined,
         visibility: formData.get("visibility") ?? undefined,
       },
+      vaultId: (formData.get("vaultId") as string) || undefined,
       file: { originalFilename: file.name, contentType: file.type || null, bytes },
       extraction: { text: extraction.text, status: extraction.status },
     });
@@ -205,6 +211,7 @@ export async function createDatabaseSourceAction(
     const displayHost = new URL(values.connectionString).host;
     const source = await createDatabaseSource(getStore(), ctx.actor, {
       meta: { name: values.name, description: values.description, visibility: values.visibility },
+      vaultId: (formData.get("vaultId") as string) || undefined,
       connector: { kind: values.kind, displayHost, query: values.query, connectionEncrypted },
       result: { text: result.text, status: result.status, rowCount: result.rowCount },
     });
@@ -304,6 +311,7 @@ export async function createGoogleDriveSourceAction(
     const connectionEncrypted = await encryptApiKey(pending.refreshToken);
     const source = await createGoogleDriveSource(getStore(), ctx.actor, {
       meta: { name: values.name, description: values.description, visibility: values.visibility },
+      vaultId: (formData.get("vaultId") as string) || undefined,
       connector: {
         email: pending.email,
         rootId,
@@ -428,6 +436,7 @@ export async function createCloudStorageSourceAction(
     const connectionEncrypted = await encryptApiKey(secret);
     const source = await createCloudStorageSource(getStore(), ctx.actor, {
       meta: { name: values.name, description: values.description, visibility: values.visibility },
+      vaultId: (formData.get("vaultId") as string) || undefined,
       connector: {
         provider: values.provider,
         displayName: ingest.rootName,
@@ -557,6 +566,7 @@ export async function createSharePointSourceAction(
     const connectionEncrypted = await encryptApiKey(pending.refreshToken);
     const source = await createSharePointSource(getStore(), ctx.actor, {
       meta: { name: values.name, description: values.description, visibility: values.visibility },
+      vaultId: (formData.get("vaultId") as string) || undefined,
       connector: {
         email: pending.email,
         driveId: ref.driveId,
@@ -618,6 +628,59 @@ export async function syncSharePointSourceAction(
   redirect(`/dashboard/knowledge/${sourceId}`);
 }
 
+export async function createKnowledgeVaultAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  try {
+    await createKnowledgeVault(getStore(), ctx.actor, {
+      name: formData.get("name"),
+      description: formData.get("description") ?? undefined,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not create this vault." };
+  }
+  revalidatePath("/dashboard/knowledge");
+  redirect("/dashboard/knowledge");
+}
+
+export async function renameKnowledgeVaultAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const vaultId = String(formData.get("vaultId") ?? "");
+  try {
+    await renameKnowledgeVault(getStore(), ctx.actor, vaultId, {
+      name: formData.get("name"),
+      description: formData.get("description") ?? undefined,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not rename this vault." };
+  }
+  revalidatePath("/dashboard/knowledge");
+  redirect("/dashboard/knowledge");
+}
+
+export async function deleteKnowledgeVaultAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const vaultId = String(formData.get("vaultId") ?? "");
+  try {
+    await deleteKnowledgeVault(getStore(), ctx.actor, vaultId);
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not delete this vault." };
+  }
+  revalidatePath("/dashboard/knowledge");
+  redirect("/dashboard/knowledge");
+}
+
 export async function updateSourceAction(
   _prevState: KnowledgeActionState,
   formData: FormData,
@@ -631,6 +694,7 @@ export async function updateSourceAction(
       name: formData.get("name"),
       description: formData.get("description") ?? undefined,
       visibility: formData.get("visibility"),
+      vaultId: formData.get("vaultId") ?? undefined,
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not update this knowledge." };

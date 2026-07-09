@@ -96,6 +96,10 @@ import type {
   KnowledgeDocument,
   KnowledgeRetrievalSegment,
   KnowledgeSource,
+  KnowledgeVault,
+  CreateKnowledgeVaultInput,
+  UpdateKnowledgeVaultInput,
+  KnowledgeVaultSummary,
   KnowledgeVaultOverview,
   LlmUsageEvent,
   ModelAccessMode,
@@ -187,6 +191,19 @@ export interface DataStore {
   /** Promote the current draft to published, archiving any previously published. */
   publishEmployeeDna(input: PublishDnaInput): Promise<EmployeeDnaVersion>;
   archiveEmployeeDnaVersion(input: ArchiveDnaVersionInput): Promise<EmployeeDnaVersion | null>;
+
+  // Knowledge Vaults (Sprint 028) — collections of sources, organization-scoped.
+  createKnowledgeVault(input: CreateKnowledgeVaultInput): Promise<KnowledgeVault>;
+  listKnowledgeVaults(organizationId: string): Promise<KnowledgeVault[]>;
+  getKnowledgeVault(organizationId: string, vaultId: string): Promise<KnowledgeVault | null>;
+  getDefaultKnowledgeVault(organizationId: string): Promise<KnowledgeVault | null>;
+  updateKnowledgeVault(
+    organizationId: string,
+    vaultId: string,
+    patch: UpdateKnowledgeVaultInput,
+  ): Promise<KnowledgeVault | null>;
+  deleteKnowledgeVault(organizationId: string, vaultId: string): Promise<boolean>;
+  listKnowledgeVaultSummaries(organizationId: string): Promise<KnowledgeVaultSummary[]>;
 
   // Knowledge Vault (Prompt 006) — all reads/writes are organization-scoped.
   createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource>;

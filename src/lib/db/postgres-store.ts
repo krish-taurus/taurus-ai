@@ -102,6 +102,10 @@ import type {
   KnowledgeSource,
   KnowledgeSourceStatus,
   KnowledgeSourceType,
+  KnowledgeVault,
+  CreateKnowledgeVaultInput,
+  UpdateKnowledgeVaultInput,
+  KnowledgeVaultSummary,
   KnowledgeVaultOverview,
   KnowledgeVisibility,
   LlmTaskType,
@@ -408,10 +412,24 @@ function mapDnaVersion(row: Row): EmployeeDnaVersion {
   };
 }
 
+function mapKnowledgeVault(row: Row): KnowledgeVault {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description,
+    isDefault: !!row.is_default,
+    createdByUserId: row.created_by_user_id,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
 function mapKnowledgeSource(row: Row): KnowledgeSource {
   return {
     id: row.id,
     organizationId: row.organization_id,
+    vaultId: row.vault_id ?? null,
     name: row.name,
     description: row.description,
     sourceType: row.source_type as KnowledgeSourceType,
@@ -1245,17 +1263,111 @@ export class PostgresStore implements DataStore {
     return rows[0] ? mapDnaVersion(rows[0]) : null;
   }
 
+  // --- Knowledge Vaults (Sprint 028) ----------------------------------------
+
+  async createKnowledgeVault(input: CreateKnowledgeVaultInput): Promise<KnowledgeVault> {
+    const { rows } = await this.query(
+      `insert into knowledge_vaults (organization_id, name, description, is_default, created_by_user_id)
+       values ($1, $2, $3, $4, $5) returning *`,
+      [
+        input.organizationId,
+        input.name,
+        input.description ?? null,
+        input.isDefault ?? false,
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapKnowledgeVault(rows[0]);
+  }
+
+  async listKnowledgeVaults(organizationId: string): Promise<KnowledgeVault[]> {
+    const { rows } = await this.query(
+      "select * from knowledge_vaults where organization_id = $1 order by is_default desc, name asc",
+      [organizationId],
+    );
+    return rows.map(mapKnowledgeVault);
+  }
+
+  async getKnowledgeVault(organizationId: string, vaultId: string): Promise<KnowledgeVault | null> {
+    const { rows } = await this.query(
+      "select * from knowledge_vaults where id = $1 and organization_id = $2",
+      [vaultId, organizationId],
+    );
+    return rows[0] ? mapKnowledgeVault(rows[0]) : null;
+  }
+
+  async getDefaultKnowledgeVault(organizationId: string): Promise<KnowledgeVault | null> {
+    const { rows } = await this.query(
+      "select * from knowledge_vaults where organization_id = $1 and is_default limit 1",
+      [organizationId],
+    );
+    return rows[0] ? mapKnowledgeVault(rows[0]) : null;
+  }
+
+  async updateKnowledgeVault(
+    organizationId: string,
+    vaultId: string,
+    patch: UpdateKnowledgeVaultInput,
+  ): Promise<KnowledgeVault | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (column: string, value: unknown) => {
+      sets.push(`${column} = $${i++}`);
+      values.push(value);
+    };
+    if (patch.name !== undefined) add("name", patch.name);
+    if ("description" in patch) add("description", patch.description ?? null);
+    if (sets.length === 0) return this.getKnowledgeVault(organizationId, vaultId);
+    sets.push("updated_at = now()");
+    values.push(vaultId, organizationId);
+    const { rows } = await this.query(
+      `update knowledge_vaults set ${sets.join(", ")}
+       where id = $${i++} and organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapKnowledgeVault(rows[0]) : null;
+  }
+
+  async deleteKnowledgeVault(organizationId: string, vaultId: string): Promise<boolean> {
+    const { rowCount } = await this.query(
+      "delete from knowledge_vaults where id = $1 and organization_id = $2",
+      [vaultId, organizationId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listKnowledgeVaultSummaries(organizationId: string): Promise<KnowledgeVaultSummary[]> {
+    const { rows } = await this.query(
+      `select v.*,
+              count(s.id) filter (where s.status <> 'archived') as source_count,
+              count(s.id) filter (where s.status = 'ready') as ready_count
+       from knowledge_vaults v
+       left join knowledge_sources s on s.vault_id = v.id and s.organization_id = v.organization_id
+       where v.organization_id = $1
+       group by v.id
+       order by v.is_default desc, v.name asc`,
+      [organizationId],
+    );
+    return rows.map((row) => ({
+      vault: mapKnowledgeVault(row),
+      sourceCount: Number(row.source_count ?? 0),
+      readyCount: Number(row.ready_count ?? 0),
+    }));
+  }
+
   // --- Knowledge Vault (Prompt 006) -----------------------------------------
 
   async createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource> {
     const { rows } = await this.query(
       `insert into knowledge_sources
-         (organization_id, name, description, source_type, status, visibility,
+         (organization_id, vault_id, name, description, source_type, status, visibility,
           created_by_user_id, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        returning *`,
       [
         input.organizationId,
+        input.vaultId ?? null,
         input.name,
         input.description ?? null,
         input.sourceType,
@@ -1303,6 +1415,7 @@ export class PostgresStore implements DataStore {
     if ("description" in patch) add("description", patch.description ?? null);
     if (patch.visibility !== undefined) add("visibility", patch.visibility);
     if (patch.status !== undefined) add("status", patch.status);
+    if (patch.vaultId !== undefined) add("vault_id", patch.vaultId);
     if (sets.length === 0) return this.getKnowledgeSource(organizationId, sourceId);
     sets.push("updated_at = now()");
     values.push(sourceId, organizationId);
