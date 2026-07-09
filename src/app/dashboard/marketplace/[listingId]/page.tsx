@@ -8,6 +8,8 @@ import { ResumeView } from "@/components/marketplace/resume-view";
 import { HireButton, UnpublishButton } from "@/components/marketplace/marketplace-buttons";
 import { RatingSummary, RatingStars } from "@/components/marketplace/rating-stars";
 import { ReviewForm } from "@/components/marketplace/review-form";
+import { CopyButton } from "@/components/channels/copy-button";
+import { getClientEnv } from "@/lib/env/env";
 import { Badge, Card, PageHeader } from "@/components/ui";
 
 export default async function MarketplaceListingPage({
@@ -27,6 +29,8 @@ export default async function MarketplaceListingPage({
   if (!listing || (listing.status !== "published" && !own)) notFound();
 
   const canHire = hasPermission(membership.role, "employee.create");
+  const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const publicUrl = `${appUrl}/marketplace/${listing.publicKey}`;
 
   // Reviews: list them (with reviewer org names) + the viewer's own review if any.
   const reviews = await listListingReviews(store, listing.id);
@@ -77,10 +81,25 @@ export default async function MarketplaceListingPage({
       ) : null}
 
       {own ? (
-        <p className="mb-6 text-sm text-taurus-sub">
-          This is your listing. It shows a snapshot taken when you published — re-publish from the
-          employee to refresh its performance and DNA.
-        </p>
+        <>
+          <p className="mb-4 text-sm text-taurus-sub">
+            This is your listing. It shows a snapshot taken when you published — re-publish from the
+            employee to refresh its performance and DNA.
+          </p>
+          {listing.status === "published" ? (
+            <Card className="mb-6 flex flex-wrap items-center justify-between gap-3 p-4">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-taurus-text">Public shareable link</p>
+                <p className="truncate text-sm text-taurus-sub">{publicUrl}</p>
+                <p className="mt-1 text-xs text-taurus-faint">
+                  Anyone with this link can view the resume — no sign-in required. It shows only the
+                  published snapshot, never your knowledge vault.
+                </p>
+              </div>
+              <CopyButton value={publicUrl} label="Copy link" />
+            </Card>
+          ) : null}
+        </>
       ) : null}
 
       <ResumeView listing={listing} />

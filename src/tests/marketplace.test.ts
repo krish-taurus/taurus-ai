@@ -14,6 +14,7 @@ import {
   submitReview,
   canReviewListing,
   listListingReviews,
+  getPublicResumeByKey,
   MarketplaceError,
 } from "@/modules/marketplace/service";
 
@@ -254,6 +255,28 @@ describe("marketplace — hire clones DNA, never the vault", () => {
     await expect(
       submitReview(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id, rating: 9 }),
     ).rejects.toBeInstanceOf(MarketplaceError);
+  });
+
+  it("public shareable resume resolves by key only while published", async () => {
+    const { store, sellerUser, sellerOrg, employee } = await setup();
+    const listing = await publishListing(store, actor(sellerOrg.id, sellerUser.id), {
+      employeeId: employee.id,
+      title: "Support pro",
+    });
+
+    // Anyone with the key (no actor/org) can resolve the published snapshot.
+    const resolved = await getPublicResumeByKey(store, listing.publicKey);
+    expect(resolved?.id).toBe(listing.id);
+    expect(resolved?.title).toBe("Support pro");
+    // The seller's private company narrative is never in the shared snapshot.
+    expect(JSON.stringify(resolved?.dnaSnapshot)).not.toContain("SELLER_SECRET");
+
+    // A bogus key resolves to nothing.
+    expect(await getPublicResumeByKey(store, "mk_does_not_exist")).toBeNull();
+
+    // Once unpublished, the link stops working.
+    await unpublishListing(store, actor(sellerOrg.id, sellerUser.id), listing.id);
+    expect(await getPublicResumeByKey(store, listing.publicKey)).toBeNull();
   });
 
   it("unpublish removes it from the public directory", async () => {

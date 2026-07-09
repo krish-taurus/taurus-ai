@@ -1,5 +1,26 @@
 # Changelog
 
+## Sprint 033 - Public shareable resume links — 2026-07-09
+
+Added:
+
+- **Public shareable resume links** — a published listing now has an
+  **unauthenticated** resume page at `/marketplace/{publicKey}` that anyone can
+  open without a Taurus account. Owners get a **"Copy link"** affordance on their
+  listing (shown only while published) to share an AI Employee's resume anywhere.
+  - **Same security boundary as the marketplace**: the page resolves the listing
+    **from the opaque public key only** (`getPublicResumeByKey`, published-only)
+    and renders **only the snapshot** — DNA with `companyContext` blanked, the
+    performance summary, vault **descriptions** only, and the star reviews. No
+    live tenant data, no hire controls; the CTA is "Sign in to hire". Unpublishing
+    a listing immediately dead-links its shared URL.
+  - The route sits outside the auth middleware matcher (like the public chat /
+    embed surfaces), reuses the pure `ResumeView` / `RatingSummary` components,
+    and adds no schema change (it uses the existing `marketplace_listings.public_key`).
+  - Verified by a unit test (published resolves by key; bogus key and unpublished
+    both return null; the seller's private narrative never appears in the shared
+    snapshot). `tsc` clean · `next lint` clean · **515 tests + 5 skipped** · build compiles.
+
 ## Sprint 032 - Marketplace ratings & reviews — 2026-07-09
 
 Added:
