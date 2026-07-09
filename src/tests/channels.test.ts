@@ -264,8 +264,10 @@ describe("Public chat runtime", () => {
     const store = new InMemoryStore();
     const { employee, channel } = await seedActiveChannel(store);
 
+    const vault = await store.createKnowledgeVault({ organizationId: "org-1", name: "Pricing" });
     const assigned = await store.createKnowledgeSource({
       organizationId: "org-1",
+      vaultId: vault.id,
       name: "Pricing guide",
       description: null,
       sourceType: "text",
@@ -279,10 +281,10 @@ describe("Public chat runtime", () => {
       textContent: "Our pricing starts at 49 dollars per month.",
       extractionStatus: "extracted",
     });
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: employee.id,
-      knowledgeSourceId: assigned.id,
+      vaultId: vault.id,
     });
 
     // An unassigned source that should NEVER surface.

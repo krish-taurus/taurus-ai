@@ -13,7 +13,7 @@
 import type { DataStore } from "@/lib/db/store";
 import type {
   DocumentExtractionStatus,
-  EmployeeKnowledgeAssignment,
+  EmployeeVaultAssignment,
   KnowledgeSource,
   KnowledgeVault,
   KnowledgeVaultSummary,
@@ -1012,21 +1012,22 @@ export async function archiveSource(
 
 // --- Assignment -------------------------------------------------------------
 
-export async function assignKnowledgeToEmployee(
+/** Assign a whole vault to an employee — grants every source in it (incl. future). */
+export async function assignVaultToEmployee(
   store: DataStore,
   actor: KnowledgeActor,
-  input: { employeeId: string; knowledgeSourceId: string },
-): Promise<EmployeeKnowledgeAssignment> {
-  // Both the employee and the source must belong to the actor's organization.
-  const source = await store.getKnowledgeSource(actor.organizationId, input.knowledgeSourceId);
-  if (!source) throw new KnowledgeNotFoundError();
+  input: { employeeId: string; vaultId: string },
+): Promise<EmployeeVaultAssignment> {
+  // Both the employee and the vault must belong to the actor's organization.
+  const vault = await store.getKnowledgeVault(actor.organizationId, input.vaultId);
+  if (!vault) throw new KnowledgeNotFoundError("This vault could not be found.");
   const employee = await store.getEmployee(actor.organizationId, input.employeeId);
   if (!employee) throw new KnowledgeNotFoundError("This AI Employee could not be found.");
 
-  const assignment = await store.assignKnowledgeSourceToEmployee({
+  const assignment = await store.assignVaultToEmployee({
     organizationId: actor.organizationId,
     employeeId: input.employeeId,
-    knowledgeSourceId: input.knowledgeSourceId,
+    vaultId: input.vaultId,
     assignedByUserId: actor.userId,
   });
 
@@ -1034,24 +1035,24 @@ export async function assignKnowledgeToEmployee(
     organizationId: actor.organizationId,
     actorType: "user",
     actorId: actor.userId,
-    action: "knowledge_source.assigned_to_employee",
-    targetType: "knowledge_source",
-    targetId: source.id,
-    metadata: { sourceId: source.id, employeeId: input.employeeId, sourceType: source.sourceType },
+    action: "knowledge_vault.assigned_to_employee",
+    targetType: "knowledge_vault",
+    targetId: vault.id,
+    metadata: { vaultId: vault.id, employeeId: input.employeeId },
   });
 
   return assignment;
 }
 
-export async function unassignKnowledgeFromEmployee(
+export async function unassignVaultFromEmployee(
   store: DataStore,
   actor: KnowledgeActor,
-  input: { employeeId: string; knowledgeSourceId: string },
+  input: { employeeId: string; vaultId: string },
 ): Promise<boolean> {
-  const removed = await store.unassignKnowledgeSourceFromEmployee(
+  const removed = await store.unassignVaultFromEmployee(
     actor.organizationId,
     input.employeeId,
-    input.knowledgeSourceId,
+    input.vaultId,
   );
 
   if (removed) {
@@ -1059,14 +1060,23 @@ export async function unassignKnowledgeFromEmployee(
       organizationId: actor.organizationId,
       actorType: "user",
       actorId: actor.userId,
-      action: "knowledge_source.unassigned_from_employee",
-      targetType: "knowledge_source",
-      targetId: input.knowledgeSourceId,
-      metadata: { sourceId: input.knowledgeSourceId, employeeId: input.employeeId },
+      action: "knowledge_vault.unassigned_from_employee",
+      targetType: "knowledge_vault",
+      targetId: input.vaultId,
+      metadata: { vaultId: input.vaultId, employeeId: input.employeeId },
     });
   }
 
   return removed;
+}
+
+/** Vaults currently assigned to an employee (for the assignment UI). */
+export function listVaultsForEmployee(
+  store: DataStore,
+  organizationId: string,
+  employeeId: string,
+): Promise<KnowledgeVault[]> {
+  return store.listVaultsForEmployee(organizationId, employeeId);
 }
 
 export function getVaultOverview(

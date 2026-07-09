@@ -101,6 +101,8 @@ import type {
   UpdateKnowledgeVaultInput,
   KnowledgeVaultSummary,
   KnowledgeVaultOverview,
+  EmployeeVaultAssignment,
+  AssignVaultInput,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -204,6 +206,16 @@ export interface DataStore {
   ): Promise<KnowledgeVault | null>;
   deleteKnowledgeVault(organizationId: string, vaultId: string): Promise<boolean>;
   listKnowledgeVaultSummaries(organizationId: string): Promise<KnowledgeVaultSummary[]>;
+
+  // Vault → employee assignment (Sprint 029).
+  assignVaultToEmployee(input: AssignVaultInput): Promise<EmployeeVaultAssignment>;
+  unassignVaultFromEmployee(
+    organizationId: string,
+    employeeId: string,
+    vaultId: string,
+  ): Promise<boolean>;
+  listVaultsForEmployee(organizationId: string, employeeId: string): Promise<KnowledgeVault[]>;
+  listEmployeesForVault(organizationId: string, vaultId: string): Promise<AiEmployee[]>;
 
   // Knowledge Vault (Prompt 006) — all reads/writes are organization-scoped.
   createKnowledgeSource(input: CreateKnowledgeSourceInput): Promise<KnowledgeSource>;

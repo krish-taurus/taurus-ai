@@ -4,7 +4,7 @@ import { createOrganizationForUser } from "@/modules/organizations/service";
 import { hasPermission } from "@/modules/organizations/roles";
 import {
   archiveSource,
-  assignKnowledgeToEmployee,
+  assignVaultToEmployee,
   createCloudStorageSource,
   createDatabaseSource,
   createFileSource,
@@ -25,7 +25,7 @@ import {
   syncDatabaseSource,
   syncGoogleDriveSource,
   syncSharePointSource,
-  unassignKnowledgeFromEmployee,
+  unassignVaultFromEmployee,
   validateUpload,
   type KnowledgeStorage,
 } from "@/modules/knowledge/service";
@@ -537,39 +537,59 @@ describe("cloud storage source", () => {
 });
 
 describe("assignment", () => {
-  it("assigns and unassigns a source to an employee", async () => {
+  it("assigns and unassigns a whole vault to an employee", async () => {
     const { store, alice, aliceOrg, employee } = await setup();
+    // A text source files into the org's default "General" vault.
     const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
       name: "FAQ",
       text: "Q&A",
     });
+    const vault = (await listKnowledgeVaults(store, aliceOrg.id))[0];
 
-    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+    await assignVaultToEmployee(store, actor(aliceOrg.id, alice.id), {
       employeeId: employee.id,
-      knowledgeSourceId: source.id,
+      vaultId: vault.id,
     });
+    // The employee can now use every source in the vault.
     expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(1);
 
     // Assigning again is idempotent (unique constraint).
-    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+    await assignVaultToEmployee(store, actor(aliceOrg.id, alice.id), {
       employeeId: employee.id,
-      knowledgeSourceId: source.id,
+      vaultId: vault.id,
     });
     expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(1);
 
     const assigned = await store.listKnowledgeSourcesForEmployee(aliceOrg.id, employee.id);
     expect(assigned.map((s) => s.id)).toContain(source.id);
 
-    const removed = await unassignKnowledgeFromEmployee(store, actor(aliceOrg.id, alice.id), {
+    const removed = await unassignVaultFromEmployee(store, actor(aliceOrg.id, alice.id), {
       employeeId: employee.id,
-      knowledgeSourceId: source.id,
+      vaultId: vault.id,
     });
     expect(removed).toBe(true);
     expect(await store.countAssignedKnowledgeForEmployee(aliceOrg.id, employee.id)).toBe(0);
 
     const actions = store._auditEvents().map((e) => e.action);
-    expect(actions).toContain("knowledge_source.assigned_to_employee");
-    expect(actions).toContain("knowledge_source.unassigned_from_employee");
+    expect(actions).toContain("knowledge_vault.assigned_to_employee");
+    expect(actions).toContain("knowledge_vault.unassigned_from_employee");
+  });
+
+  it("newly-added sources in an assigned vault flow through automatically", async () => {
+    const { store, alice, aliceOrg, employee } = await setup();
+    const vault = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "Sales" });
+    await assignVaultToEmployee(store, actor(aliceOrg.id, alice.id), {
+      employeeId: employee.id,
+      vaultId: vault.id,
+    });
+    // Add a source to the vault AFTER assigning — it should be reachable.
+    const later = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "New playbook",
+      text: "later",
+      vaultId: vault.id,
+    });
+    const assigned = await store.listKnowledgeSourcesForEmployee(aliceOrg.id, employee.id);
+    expect(assigned.map((s) => s.id)).toContain(later.id);
   });
 });
 
@@ -585,21 +605,18 @@ describe("organization isolation", () => {
     expect(await store.listKnowledgeSources(bobOrg.id)).toHaveLength(0);
   });
 
-  it("refuses to assign a source from another organization", async () => {
+  it("refuses to assign a vault from another organization", async () => {
     const { store, alice, bob, aliceOrg, bobOrg } = await setup();
-    const source = await createTextSource(store, actor(aliceOrg.id, alice.id), {
-      name: "Alpha",
-      text: "x",
-    });
+    const vault = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "Alpha" });
     const bobEmployee = await store.createEmployee({
       organizationId: bobOrg.id,
       name: "Sam",
       roleTitle: "Ops AI",
     });
     await expect(
-      assignKnowledgeToEmployee(store, actor(bobOrg.id, bob.id), {
+      assignVaultToEmployee(store, actor(bobOrg.id, bob.id), {
         employeeId: bobEmployee.id,
-        knowledgeSourceId: source.id,
+        vaultId: vault.id,
       }),
     ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
   });
@@ -608,9 +625,12 @@ describe("organization isolation", () => {
 describe("archive + overview", () => {
   it("archives a source and reflects it in the overview", async () => {
     const { store, alice, aliceOrg, employee } = await setup();
+    // s1 lives in its own vault (assigned); the url source stays in General (not).
+    const v1 = await createKnowledgeVault(store, actor(aliceOrg.id, alice.id), { name: "V1" });
     const s1 = await createTextSource(store, actor(aliceOrg.id, alice.id), {
       name: "One",
       text: "a",
+      vaultId: v1.id,
     });
     await createUrlSource(
       store,
@@ -618,15 +638,15 @@ describe("archive + overview", () => {
       { name: "Two", url: "https://x.com" },
       { text: null, status: "failed" },
     );
-    await assignKnowledgeToEmployee(store, actor(aliceOrg.id, alice.id), {
+    await assignVaultToEmployee(store, actor(aliceOrg.id, alice.id), {
       employeeId: employee.id,
-      knowledgeSourceId: s1.id,
+      vaultId: v1.id,
     });
 
     let overview = await getVaultOverview(store, aliceOrg.id);
     expect(overview.total).toBe(2);
     expect(overview.ready).toBe(1); // text source is ready; the unread url is not
-    expect(overview.assigned).toBe(1);
+    expect(overview.assigned).toBe(1); // only s1's vault is assigned
 
     const archived = await archiveSource(store, actor(aliceOrg.id, alice.id), s1.id);
     expect(archived.status).toBe("archived");

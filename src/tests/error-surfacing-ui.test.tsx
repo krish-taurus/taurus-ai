@@ -27,7 +27,7 @@ vi.mock("react-dom", async (importOriginal) => {
 
 import { EmployeeActions } from "@/components/employees/employee-actions";
 import { ArchiveVersionButton } from "@/components/employee-dna/archive-version-button";
-import { AssignKnowledgeButton } from "@/components/knowledge/assign-knowledge-button";
+import { AssignVaultButton } from "@/components/knowledge/assign-knowledge-button";
 import { KnowledgeSourceActions } from "@/components/knowledge/knowledge-source-actions";
 import { VoiceStatusControls } from "@/components/channels/voice/voice-status-controls";
 import { PrepareKnowledgeButton } from "@/components/employee-chat/prepare-knowledge-button";
@@ -84,17 +84,15 @@ describe("Error-surfacing on lifecycle controls (Batch 4)", () => {
     expect(container.textContent).toContain("Could not archive this version.");
   });
 
-  it("AssignKnowledgeButton labels by assignment and surfaces its error", () => {
-    h.state = { error: "Could not assign this knowledge." };
+  it("AssignVaultButton labels by assignment and surfaces its error", () => {
+    h.state = { error: "Could not assign this vault." };
     const assign = render(
-      <AssignKnowledgeButton employeeId="emp-1" knowledgeSourceId="src-1" assigned={false} />,
+      <AssignVaultButton employeeId="emp-1" vaultId="vault-1" assigned={false} />,
     );
     expect(assign.container.textContent).toContain("Assign");
-    expect(assign.container.textContent).toContain("Could not assign this knowledge.");
+    expect(assign.container.textContent).toContain("Could not assign this vault.");
 
-    const remove = render(
-      <AssignKnowledgeButton employeeId="emp-1" knowledgeSourceId="src-1" assigned />,
-    );
+    const remove = render(<AssignVaultButton employeeId="emp-1" vaultId="vault-1" assigned />);
     expect(remove.container.textContent).toContain("Remove");
   });
 
