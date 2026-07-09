@@ -10,6 +10,7 @@ export type NavIconName =
   | "overview"
   | "employees"
   | "hire"
+  | "marketplace"
   | "knowledge"
   | "models"
   | "connections"
@@ -51,6 +52,13 @@ const ICONS: Record<NavIconName, (props: SVGProps<SVGSVGElement>) => JSX.Element
       <circle cx="9" cy="8" r="3.2" />
       <path d="M3.5 20a5.5 5.5 0 0 1 11 0" />
       <path d="M16 5.2a3 3 0 0 1 0 5.6M17.5 20a5.5 5.5 0 0 0-2.7-4.7" />
+    </Svg>
+  ),
+  marketplace: (p) => (
+    <Svg {...p}>
+      <path d="M4 9.5V19a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V9.5" />
+      <path d="M3.5 5.5h17l-1 4a2 2 0 0 1-2 1.6H6.5a2 2 0 0 1-2-1.6l-1-4Z" />
+      <path d="M10 20v-4a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v4" />
     </Svg>
   ),
   hire: (p) => (

@@ -84,6 +84,12 @@ import type {
   KnowledgeVaultSummary,
   EmployeeVaultAssignment,
   AssignVaultInput,
+  MarketplaceListing,
+  CreateMarketplaceListingInput,
+  UpdateMarketplaceListingInput,
+  MarketplaceHire,
+  CreateMarketplaceHireInput,
+  UpdateMarketplaceHireInput,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -155,6 +161,8 @@ export class InMemoryStore implements DataStore {
   private knowledgeDocuments = new Map<string, KnowledgeDocument>();
   private knowledgeAssignments = new Map<string, EmployeeKnowledgeAssignment>();
   private knowledgeVaultAssignments = new Map<string, EmployeeVaultAssignment>();
+  private marketplaceListings = new Map<string, MarketplaceListing>();
+  private marketplaceHires = new Map<string, MarketplaceHire>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -903,6 +911,126 @@ export class InMemoryStore implements DataStore {
       assigned: sources.filter((s) => !!s.vaultId && assignedVaultIds.has(s.vaultId)).length,
       recent: sources.slice(0, 5),
     };
+  }
+
+  // --- Marketplace (Sprint 030) ---------------------------------------------
+
+  async createMarketplaceListing(
+    input: CreateMarketplaceListingInput,
+  ): Promise<MarketplaceListing> {
+    const timestamp = now();
+    const listing: MarketplaceListing = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      publicKey: input.publicKey,
+      title: input.title,
+      headline: input.headline ?? null,
+      summary: input.summary ?? null,
+      roleTitle: input.roleTitle ?? null,
+      status: input.status ?? "draft",
+      includeVaults: input.includeVaults ?? false,
+      dnaVersionNumber: input.dnaVersionNumber ?? null,
+      dnaSnapshot: input.dnaSnapshot,
+      performanceSnapshot: input.performanceSnapshot,
+      vaultSnapshot: input.vaultSnapshot ?? [],
+      hireCount: 0,
+      createdByUserId: input.createdByUserId ?? null,
+      publishedAt: input.publishedAt ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.marketplaceListings.set(listing.id, listing);
+    return listing;
+  }
+
+  async getMarketplaceListing(listingId: string): Promise<MarketplaceListing | null> {
+    return this.marketplaceListings.get(listingId) ?? null;
+  }
+
+  async getMarketplaceListingByPublicKey(publicKey: string): Promise<MarketplaceListing | null> {
+    return (
+      [...this.marketplaceListings.values()].find((l) => l.publicKey === publicKey) ?? null
+    );
+  }
+
+  async getMarketplaceListingForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MarketplaceListing | null> {
+    return (
+      [...this.marketplaceListings.values()].find(
+        (l) => l.organizationId === organizationId && l.employeeId === employeeId,
+      ) ?? null
+    );
+  }
+
+  async updateMarketplaceListing(
+    listingId: string,
+    patch: UpdateMarketplaceListingInput,
+  ): Promise<MarketplaceListing | null> {
+    const existing = this.marketplaceListings.get(listingId);
+    if (!existing) return null;
+    const updated: MarketplaceListing = { ...existing, ...patch, updatedAt: now() };
+    this.marketplaceListings.set(listingId, updated);
+    return updated;
+  }
+
+  async listPublishedMarketplaceListings(): Promise<MarketplaceListing[]> {
+    return [...this.marketplaceListings.values()]
+      .filter((l) => l.status === "published")
+      .sort((a, b) => (b.publishedAt ?? "").localeCompare(a.publishedAt ?? ""));
+  }
+
+  async listMarketplaceListingsForOrg(organizationId: string): Promise<MarketplaceListing[]> {
+    return [...this.marketplaceListings.values()]
+      .filter((l) => l.organizationId === organizationId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async createMarketplaceHire(input: CreateMarketplaceHireInput): Promise<MarketplaceHire> {
+    const hire: MarketplaceHire = {
+      id: uuid(),
+      listingId: input.listingId,
+      listingOrganizationId: input.listingOrganizationId,
+      hirerOrganizationId: input.hirerOrganizationId,
+      hirerEmployeeId: null,
+      status: "requested",
+      note: input.note ?? null,
+      requestedByUserId: input.requestedByUserId ?? null,
+      decidedByUserId: null,
+      decidedAt: null,
+      createdAt: now(),
+    };
+    this.marketplaceHires.set(hire.id, hire);
+    return hire;
+  }
+
+  async getMarketplaceHire(hireId: string): Promise<MarketplaceHire | null> {
+    return this.marketplaceHires.get(hireId) ?? null;
+  }
+
+  async listMarketplaceHiresForListingOrg(organizationId: string): Promise<MarketplaceHire[]> {
+    return [...this.marketplaceHires.values()]
+      .filter((h) => h.listingOrganizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async listMarketplaceHiresForHirerOrg(organizationId: string): Promise<MarketplaceHire[]> {
+    return [...this.marketplaceHires.values()]
+      .filter((h) => h.hirerOrganizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async updateMarketplaceHire(
+    hireId: string,
+    patch: UpdateMarketplaceHireInput,
+  ): Promise<MarketplaceHire | null> {
+    const existing = this.marketplaceHires.get(hireId);
+    if (!existing) return null;
+    const updated: MarketplaceHire = { ...existing, ...patch };
+    this.marketplaceHires.set(hireId, updated);
+    return updated;
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------
