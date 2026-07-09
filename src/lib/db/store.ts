@@ -103,6 +103,12 @@ import type {
   KnowledgeVaultOverview,
   EmployeeVaultAssignment,
   AssignVaultInput,
+  MarketplaceListing,
+  CreateMarketplaceListingInput,
+  UpdateMarketplaceListingInput,
+  MarketplaceHire,
+  CreateMarketplaceHireInput,
+  UpdateMarketplaceHireInput,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -259,6 +265,34 @@ export interface DataStore {
   countAssignedKnowledgeForEmployee(organizationId: string, employeeId: string): Promise<number>;
 
   getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview>;
+
+  // Inter-company marketplace (Sprint 030). Listings are self-contained
+  // snapshots; the "published" reads are intentionally cross-organization.
+  createMarketplaceListing(input: CreateMarketplaceListingInput): Promise<MarketplaceListing>;
+  getMarketplaceListing(listingId: string): Promise<MarketplaceListing | null>;
+  getMarketplaceListingByPublicKey(publicKey: string): Promise<MarketplaceListing | null>;
+  getMarketplaceListingForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MarketplaceListing | null>;
+  updateMarketplaceListing(
+    listingId: string,
+    patch: UpdateMarketplaceListingInput,
+  ): Promise<MarketplaceListing | null>;
+  /** All published listings across every organization (the public directory). */
+  listPublishedMarketplaceListings(): Promise<MarketplaceListing[]>;
+  listMarketplaceListingsForOrg(organizationId: string): Promise<MarketplaceListing[]>;
+
+  createMarketplaceHire(input: CreateMarketplaceHireInput): Promise<MarketplaceHire>;
+  getMarketplaceHire(hireId: string): Promise<MarketplaceHire | null>;
+  /** Incoming hire requests for listings this org owns (seller inbox). */
+  listMarketplaceHiresForListingOrg(organizationId: string): Promise<MarketplaceHire[]>;
+  /** Hire requests this org has made (buyer view). */
+  listMarketplaceHiresForHirerOrg(organizationId: string): Promise<MarketplaceHire[]>;
+  updateMarketplaceHire(
+    hireId: string,
+    patch: UpdateMarketplaceHireInput,
+  ): Promise<MarketplaceHire | null>;
 
   // Model Hub + LLM Gateway (Prompt 006B).
   // Catalog (code-authoritative; not organization-scoped).

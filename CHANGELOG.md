@@ -1,5 +1,34 @@
 # Changelog
 
+## Sprint 030 - Inter-company marketplace (1/2): publish, discover, hire — 2026-07-09
+
+Added:
+
+- **AI Employee marketplace** — an organization can publish an employee as a
+  public **resume** (its DNA + a performance summary, and optionally descriptions
+  of the vaults it uses). Other organizations browse a network-wide directory and
+  **hire** it, which **clones the DNA** into the hirer's org as a new employee.
+  - **Security by construction**: a listing is a self-contained **snapshot** taken
+    at publish time — the public marketplace reads only the listing row, never the
+    seller's live private tables. The DNA snapshot's org-specific `companyContext`
+    is **blanked**, and **only the DNA is ever cloned — the knowledge vault is never
+    shared** (a hired agent starts with no vaults; the hirer attaches their own).
+    Publishing "with vaults" includes vault **names/descriptions only**, never content.
+  - **Flow**: publish from an employee (requires published DNA) → appears in the
+    **Marketplace** directory → another org opens the resume and **Requests to
+    hire** → the owner **approves** in a requests inbox → the DNA is cloned into the
+    hirer's org. Owners can unpublish/re-publish (refresh the snapshot).
+  - New tables `marketplace_listings` + `marketplace_hires`
+    (`db/migrations/0023_marketplace.sql`, one listing per employee). New
+    `src/modules/marketplace/` service + actions, store methods (both backends),
+    a "Marketplace" nav entry, and pages: directory, resume, my-listings, requests,
+    and a publish page under each employee.
+  - Verified end-to-end against a live PostgreSQL (`0001→0023` applies cleanly;
+    cross-org published-listing visibility, the hire inbox, and one-listing-per-
+    employee all enforced) and by unit tests covering publish, cross-org discovery,
+    the hire→clone path, the **vault-never-shared** guarantee, owner-only approval,
+    and unpublish. AI-generated resume descriptions land in part 2.
+
 ## Sprint 029 - Assign whole vaults to employees — 2026-07-09
 
 Added:

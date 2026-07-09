@@ -252,6 +252,27 @@ export default async function EmployeeDetailPage({ params }: { params: { employe
         </div>
       </Card>
 
+      {/* Marketplace — publish this AI Employee resume for other orgs to hire. */}
+      {canManage ? (
+        <Card className="mt-6 p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-taurus-text">Marketplace</h2>
+              <p className="mt-1.5 text-xs text-taurus-faint">
+                Publish this AI Employee so other organizations can review its resume and hire it.
+                Only its DNA is shared — never your knowledge vault.
+              </p>
+            </div>
+            <Link
+              href={`/dashboard/employees/${employee.id}/publish`}
+              className={buttonClasses("secondary")}
+            >
+              Publish to marketplace
+            </Link>
+          </div>
+        </Card>
+      ) : null}
+
       {/* Chat readiness checklist + Test Chat. */}
       {canChat ? (
         <Card className="mt-6 p-5">

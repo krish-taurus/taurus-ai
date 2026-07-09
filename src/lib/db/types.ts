@@ -351,6 +351,116 @@ export interface AssignVaultInput {
   assignedByUserId?: string | null;
 }
 
+// ===========================================================================
+// Inter-company AI Employee marketplace (Sprint 030)
+//
+// A listing publishes an employee as a public "resume". The listing is a
+// self-contained SNAPSHOT (dna/performance/vaults captured at publish time) so
+// the public marketplace never reads the seller's live private tables.
+// ===========================================================================
+
+export type MarketplaceListingStatus = "draft" | "published" | "unpublished";
+export type MarketplaceHireStatus = "requested" | "approved" | "declined";
+
+/** A performance summary captured on the resume (all derived from review runs). */
+export interface PerformanceSnapshot {
+  reviewCount: number;
+  bestScore: number | null; // best overall weighted score (0-1)
+  latestScore: number | null;
+  passRate: number | null; // 0-1 across all completed runs
+  trend: Array<{ dnaVersionNumber: number; overallScore: number | null; completedAt: string }>;
+}
+
+/** A vault the agent uses, as shown on the resume (description only — no content). */
+export interface VaultSnapshotItem {
+  name: string;
+  description: string | null;
+}
+
+export interface MarketplaceListing {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  publicKey: string;
+  title: string;
+  headline: string | null;
+  summary: string | null;
+  roleTitle: string | null;
+  status: MarketplaceListingStatus;
+  includeVaults: boolean;
+  dnaVersionNumber: number | null;
+  /** Full DNA to display + clone (org-specific companyContext blanked). */
+  dnaSnapshot: EmployeeDnaV1;
+  performanceSnapshot: PerformanceSnapshot;
+  vaultSnapshot: VaultSnapshotItem[];
+  hireCount: number;
+  createdByUserId: string | null;
+  publishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMarketplaceListingInput {
+  organizationId: string;
+  employeeId: string;
+  publicKey: string;
+  title: string;
+  headline?: string | null;
+  summary?: string | null;
+  roleTitle?: string | null;
+  status?: MarketplaceListingStatus;
+  includeVaults?: boolean;
+  dnaVersionNumber?: number | null;
+  dnaSnapshot: EmployeeDnaV1;
+  performanceSnapshot: PerformanceSnapshot;
+  vaultSnapshot?: VaultSnapshotItem[];
+  createdByUserId?: string | null;
+  publishedAt?: string | null;
+}
+
+export interface UpdateMarketplaceListingInput {
+  title?: string;
+  headline?: string | null;
+  summary?: string | null;
+  roleTitle?: string | null;
+  status?: MarketplaceListingStatus;
+  includeVaults?: boolean;
+  dnaVersionNumber?: number | null;
+  dnaSnapshot?: EmployeeDnaV1;
+  performanceSnapshot?: PerformanceSnapshot;
+  vaultSnapshot?: VaultSnapshotItem[];
+  publishedAt?: string | null;
+}
+
+export interface MarketplaceHire {
+  id: string;
+  listingId: string;
+  listingOrganizationId: string;
+  hirerOrganizationId: string;
+  hirerEmployeeId: string | null;
+  status: MarketplaceHireStatus;
+  note: string | null;
+  requestedByUserId: string | null;
+  decidedByUserId: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+}
+
+export interface CreateMarketplaceHireInput {
+  listingId: string;
+  listingOrganizationId: string;
+  hirerOrganizationId: string;
+  note?: string | null;
+  requestedByUserId?: string | null;
+}
+
+export interface UpdateMarketplaceHireInput {
+  status?: MarketplaceHireStatus;
+  hirerEmployeeId?: string | null;
+  decidedByUserId?: string | null;
+  decidedAt?: string | null;
+}
+
 export interface CreateKnowledgeSourceInput {
   organizationId: string;
   vaultId?: string | null;

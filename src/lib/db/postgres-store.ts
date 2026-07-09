@@ -109,6 +109,12 @@ import type {
   KnowledgeVaultOverview,
   EmployeeVaultAssignment,
   AssignVaultInput,
+  MarketplaceListing,
+  CreateMarketplaceListingInput,
+  UpdateMarketplaceListingInput,
+  MarketplaceHire,
+  CreateMarketplaceHireInput,
+  UpdateMarketplaceHireInput,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -424,6 +430,46 @@ function mapKnowledgeVault(row: Row): KnowledgeVault {
     createdByUserId: row.created_by_user_id,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketplaceListing(row: Row): MarketplaceListing {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    employeeId: row.employee_id,
+    publicKey: row.public_key,
+    title: row.title,
+    headline: row.headline,
+    summary: row.summary,
+    roleTitle: row.role_title,
+    status: row.status as MarketplaceListing["status"],
+    includeVaults: !!row.include_vaults,
+    dnaVersionNumber: row.dna_version_number,
+    dnaSnapshot: row.dna_snapshot as MarketplaceListing["dnaSnapshot"],
+    performanceSnapshot: row.performance_snapshot as MarketplaceListing["performanceSnapshot"],
+    vaultSnapshot: (row.vault_snapshot as MarketplaceListing["vaultSnapshot"]) ?? [],
+    hireCount: Number(row.hire_count ?? 0),
+    createdByUserId: row.created_by_user_id,
+    publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketplaceHire(row: Row): MarketplaceHire {
+  return {
+    id: row.id,
+    listingId: row.listing_id,
+    listingOrganizationId: row.listing_organization_id,
+    hirerOrganizationId: row.hirer_organization_id,
+    hirerEmployeeId: row.hirer_employee_id,
+    status: row.status as MarketplaceHire["status"],
+    note: row.note,
+    requestedByUserId: row.requested_by_user_id,
+    decidedByUserId: row.decided_by_user_id,
+    decidedAt: row.decided_at ? new Date(row.decided_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -1653,6 +1699,174 @@ export class PostgresStore implements DataStore {
       assigned: sources.filter((s) => s.vaultId != null && assignedVaultIds.has(s.vaultId)).length,
       recent: sources.slice(0, 5),
     };
+  }
+
+  // --- Marketplace (Sprint 030) ---------------------------------------------
+
+  async createMarketplaceListing(
+    input: CreateMarketplaceListingInput,
+  ): Promise<MarketplaceListing> {
+    const { rows } = await this.query(
+      `insert into marketplace_listings
+         (organization_id, employee_id, public_key, title, headline, summary, role_title,
+          status, include_vaults, dna_version_number, dna_snapshot, performance_snapshot,
+          vault_snapshot, created_by_user_id, published_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+       returning *`,
+      [
+        input.organizationId,
+        input.employeeId,
+        input.publicKey,
+        input.title,
+        input.headline ?? null,
+        input.summary ?? null,
+        input.roleTitle ?? null,
+        input.status ?? "draft",
+        input.includeVaults ?? false,
+        input.dnaVersionNumber ?? null,
+        JSON.stringify(input.dnaSnapshot),
+        JSON.stringify(input.performanceSnapshot),
+        JSON.stringify(input.vaultSnapshot ?? []),
+        input.createdByUserId ?? null,
+        input.publishedAt ?? null,
+      ],
+    );
+    return mapMarketplaceListing(rows[0]);
+  }
+
+  async getMarketplaceListing(listingId: string): Promise<MarketplaceListing | null> {
+    const { rows } = await this.query("select * from marketplace_listings where id = $1", [
+      listingId,
+    ]);
+    return rows[0] ? mapMarketplaceListing(rows[0]) : null;
+  }
+
+  async getMarketplaceListingByPublicKey(publicKey: string): Promise<MarketplaceListing | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_listings where public_key = $1",
+      [publicKey],
+    );
+    return rows[0] ? mapMarketplaceListing(rows[0]) : null;
+  }
+
+  async getMarketplaceListingForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<MarketplaceListing | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_listings where organization_id = $1 and employee_id = $2",
+      [organizationId, employeeId],
+    );
+    return rows[0] ? mapMarketplaceListing(rows[0]) : null;
+  }
+
+  async updateMarketplaceListing(
+    listingId: string,
+    patch: UpdateMarketplaceListingInput,
+  ): Promise<MarketplaceListing | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if (patch.title !== undefined) add("title", patch.title);
+    if ("headline" in patch) add("headline", patch.headline ?? null);
+    if ("summary" in patch) add("summary", patch.summary ?? null);
+    if ("roleTitle" in patch) add("role_title", patch.roleTitle ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (patch.includeVaults !== undefined) add("include_vaults", patch.includeVaults);
+    if (patch.dnaVersionNumber !== undefined) add("dna_version_number", patch.dnaVersionNumber);
+    if (patch.dnaSnapshot !== undefined) add("dna_snapshot", JSON.stringify(patch.dnaSnapshot));
+    if (patch.performanceSnapshot !== undefined)
+      add("performance_snapshot", JSON.stringify(patch.performanceSnapshot));
+    if (patch.vaultSnapshot !== undefined) add("vault_snapshot", JSON.stringify(patch.vaultSnapshot));
+    if ("publishedAt" in patch) add("published_at", patch.publishedAt ?? null);
+    if (sets.length === 0) return this.getMarketplaceListing(listingId);
+    sets.push("updated_at = now()");
+    values.push(listingId);
+    const { rows } = await this.query(
+      `update marketplace_listings set ${sets.join(", ")} where id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapMarketplaceListing(rows[0]) : null;
+  }
+
+  async listPublishedMarketplaceListings(): Promise<MarketplaceListing[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_listings where status = 'published' order by published_at desc nulls last",
+    );
+    return rows.map(mapMarketplaceListing);
+  }
+
+  async listMarketplaceListingsForOrg(organizationId: string): Promise<MarketplaceListing[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_listings where organization_id = $1 order by updated_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplaceListing);
+  }
+
+  async createMarketplaceHire(input: CreateMarketplaceHireInput): Promise<MarketplaceHire> {
+    const { rows } = await this.query(
+      `insert into marketplace_hires
+         (listing_id, listing_organization_id, hirer_organization_id, note, requested_by_user_id)
+       values ($1,$2,$3,$4,$5) returning *`,
+      [
+        input.listingId,
+        input.listingOrganizationId,
+        input.hirerOrganizationId,
+        input.note ?? null,
+        input.requestedByUserId ?? null,
+      ],
+    );
+    return mapMarketplaceHire(rows[0]);
+  }
+
+  async getMarketplaceHire(hireId: string): Promise<MarketplaceHire | null> {
+    const { rows } = await this.query("select * from marketplace_hires where id = $1", [hireId]);
+    return rows[0] ? mapMarketplaceHire(rows[0]) : null;
+  }
+
+  async listMarketplaceHiresForListingOrg(organizationId: string): Promise<MarketplaceHire[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_hires where listing_organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplaceHire);
+  }
+
+  async listMarketplaceHiresForHirerOrg(organizationId: string): Promise<MarketplaceHire[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_hires where hirer_organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplaceHire);
+  }
+
+  async updateMarketplaceHire(
+    hireId: string,
+    patch: UpdateMarketplaceHireInput,
+  ): Promise<MarketplaceHire | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if (patch.status !== undefined) add("status", patch.status);
+    if ("hirerEmployeeId" in patch) add("hirer_employee_id", patch.hirerEmployeeId ?? null);
+    if ("decidedByUserId" in patch) add("decided_by_user_id", patch.decidedByUserId ?? null);
+    if ("decidedAt" in patch) add("decided_at", patch.decidedAt ?? null);
+    if (sets.length === 0) return this.getMarketplaceHire(hireId);
+    values.push(hireId);
+    const { rows } = await this.query(
+      `update marketplace_hires set ${sets.join(", ")} where id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapMarketplaceHire(rows[0]) : null;
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------
