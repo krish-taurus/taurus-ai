@@ -1,5 +1,37 @@
 # Changelog
 
+## Sprint 038 - Slack channel ("Add to Slack" one-tap connect) — 2026-07-09
+
+Added:
+
+- **Slack connection** — the flagship true one-tap connect. The owner clicks
+  **"Add to Slack"**, authorizes the app in their workspace (OAuth — no tokens to
+  paste), and the AI Employee replies to messages and @-mentions in Slack.
+  - **OAuth install** (`/api/channels/slack/install` → Slack consent →
+    `/api/channels/slack/callback`) with an **HMAC-signed state** (AUTH_SECRET)
+    bound to user + org + employee and a CSRF cookie. The per-workspace bot token
+    is exchanged via `oauth.v2.access` and **stored encrypted** (never shown to the
+    client).
+  - **Events API** (`/api/webhooks/slack`): answers the `url_verification`
+    handshake, **verifies the v0 request signature** (HMAC over
+    `v0:{timestamp}:{body}`, with replay/skew protection), routes each event to the
+    right workspace by **team id**, skips Slack **retries** so it never
+    double-replies, and reuses the shared messaging runtime to answer via
+    `chat.postMessage`.
+  - Implemented as a `MessagingProvider` adapter (`slack/provider.ts`) — ignores
+    other bots and message edits to avoid loops — plus an OAuth + events service.
+    New `getEmployeeChannelBySlackTeam` on both stores (no migration; reuses
+    `employee_channels` + `provider_config`). A **Workplace** section + Slack setup
+    page surface the connect flow; Slack now shows **available** in the catalog and
+    Connections. New optional server-only `SLACK_CLIENT_ID` /
+    `SLACK_CLIENT_SECRET` / `SLACK_SIGNING_SECRET`; without them the connect is
+    hidden and the channel runs in simulated mode.
+  - Verified by unit tests (signed-state sign/verify + tamper, install URL,
+    v0 signature valid/tampered/stale, event parsing incl. bot/edit ignores,
+    url_verification challenge, team-id routing end to end, retry skip) and the
+    live-PG team-id lookup. `tsc` clean · `next lint` clean · **551 tests + 6
+    skipped** · build compiles.
+
 ## Sprint 037 - "Scan to chat" QR codes for channels — 2026-07-09
 
 Added:

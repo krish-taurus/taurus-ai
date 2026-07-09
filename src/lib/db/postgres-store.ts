@@ -2977,6 +2977,17 @@ export class PostgresStore implements DataStore {
     return rows[0] ? mapChannel(rows[0]) : null;
   }
 
+  async getEmployeeChannelBySlackTeam(teamId: string): Promise<EmployeeChannel | null> {
+    const { rows } = await this.query(
+      `select * from employee_channels
+       where channel_type = 'slack' and status <> 'archived'
+         and provider_config->>'team_id' = $1
+       order by created_at desc limit 1`,
+      [teamId],
+    );
+    return rows[0] ? mapChannel(rows[0]) : null;
+  }
+
   async updateEmployeeChannel(
     organizationId: string,
     channelId: string,

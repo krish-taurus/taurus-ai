@@ -71,6 +71,11 @@ const serverSchema = z
     // optional secret token echoed in X-Telegram-Bot-Api-Secret-Token.
     TELEGRAM_BOT_TOKEN: z.string().optional().or(z.literal("")),
     TELEGRAM_WEBHOOK_SECRET: z.string().optional().or(z.literal("")),
+    // Slack app (Sprint 038). Optional + server-only; absent → the Slack
+    // "Add to Slack" connect is hidden and the channel runs in simulated mode.
+    SLACK_CLIENT_ID: z.string().optional().or(z.literal("")),
+    SLACK_CLIENT_SECRET: z.string().optional().or(z.literal("")),
+    SLACK_SIGNING_SECRET: z.string().optional().or(z.literal("")),
     TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
     // Voice Call Channel (Prompt 010). All optional and server-only; their absence
     // never breaks local dev or tests — voice falls back to simulated providers.
@@ -203,6 +208,9 @@ export function getServerEnv(): ServerEnv {
       MAILGUN_DOMAIN: process.env.MAILGUN_DOMAIN,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+      SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID,
+      SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET,
+      SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET,
       TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY,
       TELNYX_API_KEY: process.env.TELNYX_API_KEY,
       TELNYX_PUBLIC_KEY: process.env.TELNYX_PUBLIC_KEY,

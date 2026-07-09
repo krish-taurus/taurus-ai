@@ -42,6 +42,11 @@ function envSecretsFor(providerType: ChannelProviderType): Record<string, string
       set("botToken", process.env.TELEGRAM_BOT_TOKEN);
       set("webhookSecret", process.env.TELEGRAM_WEBHOOK_SECRET);
       break;
+    case "slack":
+      // App-level signing secret (the per-workspace bot token comes from OAuth,
+      // stored as an encrypted BYOK credential).
+      set("signingSecret", process.env.SLACK_SIGNING_SECRET);
+      break;
     default:
       break;
   }

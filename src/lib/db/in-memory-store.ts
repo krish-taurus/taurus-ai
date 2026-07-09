@@ -1936,6 +1936,19 @@ export class InMemoryStore implements DataStore {
     return null;
   }
 
+  async getEmployeeChannelBySlackTeam(teamId: string): Promise<EmployeeChannel | null> {
+    for (const channel of this.channels.values()) {
+      if (
+        channel.channelType === "slack" &&
+        channel.status !== "archived" &&
+        channel.providerConfig?.team_id === teamId
+      ) {
+        return channel;
+      }
+    }
+    return null;
+  }
+
   async updateEmployeeChannel(
     organizationId: string,
     channelId: string,

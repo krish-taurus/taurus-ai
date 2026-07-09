@@ -109,10 +109,10 @@ describe("connection catalog metadata", () => {
     ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("available");
     }
-    for (const type of ["whatsapp", "sms", "email", "telegram", "phone_call"] as ChannelType[]) {
+    for (const type of ["whatsapp", "sms", "email", "telegram", "phone_call", "slack"] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("foundation");
     }
-    for (const type of ["slack", "microsoft_teams", "instagram_dm"] as ChannelType[]) {
+    for (const type of ["microsoft_teams", "instagram_dm"] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("coming_soon");
     }
   });
@@ -128,10 +128,11 @@ describe("connection catalog metadata", () => {
       "email",
       "telegram",
       "phone_call",
+      "slack",
     ]);
-    expect(isConfigurableType("slack")).toBe(false);
+    expect(isConfigurableType("microsoft_teams")).toBe(false);
     expect(isConfigurableType("website_widget")).toBe(true);
-    expect(isConfigurableType("telegram")).toBe(true);
+    expect(isConfigurableType("slack")).toBe(true);
   });
 });
 
@@ -155,6 +156,7 @@ describe("connectionSetupHref", () => {
     expect(connectionSetupHref("emp-1", "telegram")).toBe(
       "/dashboard/employees/emp-1/channels/messaging/telegram",
     );
+    expect(connectionSetupHref("emp-1", "slack")).toBe("/dashboard/employees/emp-1/channels/slack");
   });
 });
 

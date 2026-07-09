@@ -49,6 +49,7 @@ const PROVIDER_SECRET_FIELDS: Record<string, { required: string[]; primary: stri
   sendgrid: { required: ["apiKey"], primary: "apiKey" },
   mailgun: { required: ["apiKey"], primary: "apiKey" },
   telegram: { required: ["botToken"], primary: "botToken" },
+  slack: { required: ["botToken"], primary: "botToken" },
   custom_webhook: { required: [], primary: "apiKey" },
 };
 

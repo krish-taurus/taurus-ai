@@ -231,7 +231,31 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
         </div>
       </section>
 
-      {/* Full channel catalog (Workplace apps are coming soon) */}
+      {/* Workplace apps (Slack live; Teams coming soon). */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center gap-2">
+          <h2 className="text-sm font-semibold text-taurus-text">Workplace apps</h2>
+          <Badge tone="soft">Foundation</Badge>
+        </div>
+        <p className="mb-3 text-xs text-taurus-faint">
+          Bring this AI Employee into Slack with one tap — authorize the app and it replies to
+          messages and mentions in your workspace.
+        </p>
+        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+          <div>
+            <h3 className="text-sm font-medium text-taurus-text">Slack</h3>
+            <p className="text-xs text-taurus-faint">Replies to messages &amp; @-mentions in your workspace.</p>
+          </div>
+          <Link
+            href={`/dashboard/employees/${employee.id}/channels/slack`}
+            className={buttonClasses("secondary", "sm")}
+          >
+            {canManage ? "Set up Slack" : "View Slack"}
+          </Link>
+        </Card>
+      </section>
+
+      {/* Full channel catalog (remaining apps are coming soon) */}
       <ChannelCatalogCards />
     </div>
   );
