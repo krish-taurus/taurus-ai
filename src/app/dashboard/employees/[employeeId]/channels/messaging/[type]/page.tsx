@@ -17,9 +17,15 @@ import {
 import { CHANNEL_STATUS_LABELS } from "@/modules/channels/metadata";
 import { buildReachLink } from "@/modules/channels/reach";
 import { inboundAddressFor } from "@/modules/channels/messaging/email-address";
+import {
+  isWhatsAppEmbeddedSignupConfigured,
+  whatsappAppId,
+  whatsappConfigId,
+} from "@/modules/channels/whatsapp/connect";
 import { renderQrSvg } from "@/lib/qr";
 import { ReachQr } from "@/components/channels/reach-qr";
 import { CopyButton } from "@/components/channels/copy-button";
+import { WhatsAppConnect } from "@/components/channels/whatsapp/whatsapp-connect";
 import { CreateMessagingChannelForm } from "@/components/channels/messaging/create-messaging-channel-form";
 import { MessagingSettingsForm } from "@/components/channels/messaging/messaging-settings-form";
 import { MessagingStatusControls } from "@/components/channels/messaging/messaging-status-controls";
@@ -69,6 +75,25 @@ export default async function MessagingSetupPage({
   const label = MESSAGING_CHANNEL_LABELS[channelType] ?? channelType;
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
 
+  // WhatsApp one-tap connect (Meta Embedded Signup), when the app is configured.
+  const waConnect = channelType === "whatsapp" && isWhatsAppEmbeddedSignupConfigured() && canManage;
+  const waConnectCard = waConnect ? (
+    <Card className="p-6">
+      <h3 className="text-sm font-semibold text-taurus-text">Connect WhatsApp</h3>
+      <p className="mt-1 text-sm text-taurus-sub">
+        One tap: authorize your number through Meta&apos;s secure Embedded Signup — no tokens to
+        copy. {employee.name} then replies on WhatsApp.
+      </p>
+      <div className="mt-4">
+        <WhatsAppConnect
+          appId={whatsappAppId() as string}
+          configId={whatsappConfigId() as string}
+          employeeId={employee.id}
+        />
+      </div>
+    </Card>
+  ) : null;
+
   const backLink = (
     <p className="mb-4 text-sm">
       <Link
@@ -90,14 +115,22 @@ export default async function MessagingSetupPage({
           description={`Connect ${employee.name} to ${label}.`}
         />
         {canManage ? (
-          <Card className="p-6">
-            <CreateMessagingChannelForm
-              employeeId={employee.id}
-              channelType={channelType}
-              employeeName={employee.name}
-              providers={providersForChannelType(channelType)}
-            />
-          </Card>
+          <div className="space-y-5">
+            {waConnectCard}
+            <Card className="p-6">
+              {waConnect ? (
+                <p className="mb-4 text-xs font-medium uppercase tracking-wide text-taurus-faint">
+                  Or set up manually
+                </p>
+              ) : null}
+              <CreateMessagingChannelForm
+                employeeId={employee.id}
+                channelType={channelType}
+                employeeName={employee.name}
+                providers={providersForChannelType(channelType)}
+              />
+            </Card>
+          </div>
         ) : (
           <EmptyState
             title={`${label} is not set up yet.`}
@@ -164,6 +197,8 @@ export default async function MessagingSetupPage({
       ) : null}
 
       <div className="space-y-5">
+        {waConnectCard}
+
         {canManage ? (
           <Card className="p-6">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
