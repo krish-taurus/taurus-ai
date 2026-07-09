@@ -371,22 +371,25 @@ export interface GoogleDriveConnectorMeta {
   connectionEncrypted: string;
 }
 
-/** One extracted Drive file → a knowledge document. */
-export interface GoogleDriveDocumentInput {
+/** One extracted connector file → a knowledge document. */
+export interface ConnectorDocumentInput {
   title: string;
   text: string | null;
   status: DocumentExtractionStatus;
 }
 
-function statusForDocuments(documents: GoogleDriveDocumentInput[]): "ready" | "failed" {
+/** Back-compat alias. */
+export type GoogleDriveDocumentInput = ConnectorDocumentInput;
+
+function statusForDocuments(documents: ConnectorDocumentInput[]): "ready" | "failed" {
   return documents.some((d) => d.status === "extracted" && !!d.text) ? "ready" : "failed";
 }
 
-async function writeGoogleDriveDocuments(
+async function writeConnectorDocuments(
   store: DataStore,
   actor: KnowledgeActor,
   sourceId: string,
-  documents: GoogleDriveDocumentInput[],
+  documents: ConnectorDocumentInput[],
 ): Promise<void> {
   for (const doc of documents) {
     await store.createKnowledgeDocument({
@@ -445,7 +448,7 @@ export async function createGoogleDriveSource(
     createdByUserId: actor.userId,
   });
 
-  await writeGoogleDriveDocuments(store, actor, source.id, input.documents);
+  await writeConnectorDocuments(store, actor, source.id, input.documents);
 
   await store.createAuditEvent({
     organizationId: actor.organizationId,
@@ -473,7 +476,7 @@ export async function syncGoogleDriveSource(
   const status = statusForDocuments(input.documents);
 
   await store.deleteKnowledgeDocumentsForSource(actor.organizationId, sourceId);
-  await writeGoogleDriveDocuments(store, actor, sourceId, input.documents);
+  await writeConnectorDocuments(store, actor, sourceId, input.documents);
 
   const updated =
     (await store.updateKnowledgeSource(actor.organizationId, sourceId, { status })) ?? existing;
@@ -488,6 +491,114 @@ export async function syncGoogleDriveSource(
     metadata: {
       sourceId,
       sourceType: "google_drive",
+      fileCount: input.documents.length,
+      status: updated.status,
+    },
+  });
+
+  return updated;
+}
+
+/** Non-secret + encrypted connector config stored on a cloud storage source. */
+export interface CloudStorageConnectorMeta {
+  provider: "azure_blob" | "gcs";
+  /** account/container (Azure) or bucket (GCS), for display. */
+  displayName: string;
+  /** Optional path prefix that scopes the import. */
+  prefix: string | null;
+  /** Bucket name (GCS only) — needed to re-sync. */
+  bucket: string | null;
+  /** Encrypted credential (SAS URL or service-account JSON — ciphertext only). */
+  connectionEncrypted: string;
+}
+
+/**
+ * Flow F: create a cloud storage knowledge source. The caller (server action)
+ * lists + downloads + extracts the objects and encrypts the credential, then
+ * passes the results in; each file becomes a searchable document. Pure + testable.
+ */
+export async function createCloudStorageSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  input: {
+    meta: unknown;
+    connector: CloudStorageConnectorMeta;
+    documents: ConnectorDocumentInput[];
+    skipped: number;
+  },
+): Promise<KnowledgeSource> {
+  const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
+  if (!parsedMeta.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsedMeta.error, "Invalid details."));
+  }
+  const meta = parsedMeta.data;
+
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
+  const status = statusForDocuments(input.documents);
+
+  const source = await store.createKnowledgeSource({
+    organizationId: actor.organizationId,
+    name: meta.name,
+    description: emptyToNull(meta.description),
+    sourceType: "cloud_storage",
+    status,
+    visibility: meta.visibility,
+    metadata: {
+      provider: input.connector.provider,
+      displayName: input.connector.displayName,
+      prefix: input.connector.prefix,
+      bucket: input.connector.bucket,
+      connectionEncrypted: input.connector.connectionEncrypted,
+      fileCount: input.documents.length,
+      skipped: input.skipped,
+    },
+    createdByUserId: actor.userId,
+  });
+
+  await writeConnectorDocuments(store, actor, source.id, input.documents);
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.created",
+    targetType: "knowledge_source",
+    targetId: source.id,
+    metadata: { sourceId: source.id, sourceType: source.sourceType, status: source.status },
+  });
+
+  return source;
+}
+
+/** Re-run a cloud storage source's read: replace its documents with fresh files. */
+export async function syncCloudStorageSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  sourceId: string,
+  input: { documents: ConnectorDocumentInput[]; skipped: number },
+): Promise<KnowledgeSource> {
+  const existing = await store.getKnowledgeSource(actor.organizationId, sourceId);
+  if (!existing || existing.sourceType !== "cloud_storage") throw new KnowledgeNotFoundError();
+
+  const status = statusForDocuments(input.documents);
+
+  await store.deleteKnowledgeDocumentsForSource(actor.organizationId, sourceId);
+  await writeConnectorDocuments(store, actor, sourceId, input.documents);
+
+  const updated =
+    (await store.updateKnowledgeSource(actor.organizationId, sourceId, { status })) ?? existing;
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.synced",
+    targetType: "knowledge_source",
+    targetId: sourceId,
+    metadata: {
+      sourceId,
+      sourceType: "cloud_storage",
       fileCount: input.documents.length,
       status: updated.status,
     },

@@ -26,7 +26,9 @@ import {
   refreshAccessToken,
   PENDING_COOKIE,
 } from "@/modules/knowledge/connectors/google-drive";
+import { ingestCloudStorage } from "@/modules/knowledge/connectors/cloud-storage";
 import {
+  createCloudStorageSourceSchema,
   createDatabaseSourceSchema,
   createGoogleDriveSourceSchema,
 } from "@/modules/knowledge/schema";
@@ -38,11 +40,13 @@ import {
 import {
   archiveSource,
   assignKnowledgeToEmployee,
+  createCloudStorageSource,
   createDatabaseSource,
   createFileSource,
   createGoogleDriveSource,
   createTextSource,
   createUrlSource,
+  syncCloudStorageSource,
   syncDatabaseSource,
   syncGoogleDriveSource,
   unassignKnowledgeFromEmployee,
@@ -337,6 +341,115 @@ export async function syncGoogleDriveSourceAction(
     });
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Could not sync from Google Drive." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  revalidatePath(`/dashboard/knowledge/${sourceId}`);
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function createCloudStorageSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  if (!isEncryptionConfigured()) {
+    return { error: "Secure storage is not configured, so connectors are disabled." };
+  }
+
+  const parsed = createCloudStorageSourceSchema.safeParse({
+    name: formData.get("name"),
+    description: formData.get("description") ?? undefined,
+    visibility: formData.get("visibility") ?? undefined,
+    provider: formData.get("provider"),
+    prefix: formData.get("prefix") ?? undefined,
+    azureSasUrl: formData.get("azureSasUrl") ?? undefined,
+    gcsBucket: formData.get("gcsBucket") ?? undefined,
+    gcsServiceAccount: formData.get("gcsServiceAccount") ?? undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "Please review the connection details." };
+  }
+  const values = parsed.data;
+  const prefix = values.prefix ? String(values.prefix) : null;
+
+  let sourceId: string;
+  try {
+    const ingest = await ingestCloudStorage({
+      provider: values.provider,
+      prefix: prefix ?? undefined,
+      azureSasUrl: values.azureSasUrl || undefined,
+      gcsBucket: values.gcsBucket || undefined,
+      gcsServiceAccount: values.gcsServiceAccount || undefined,
+      nowSeconds: Math.floor(Date.now() / 1000),
+    });
+    if (ingest.documents.length === 0) {
+      return { error: "No supported files were found there. Add PDFs, Word, text, CSV, or JSON files." };
+    }
+    // Encrypt the provider secret; store only non-secret config in the clear.
+    const secret =
+      values.provider === "azure_blob" ? String(values.azureSasUrl) : String(values.gcsServiceAccount);
+    const connectionEncrypted = await encryptApiKey(secret);
+    const source = await createCloudStorageSource(getStore(), ctx.actor, {
+      meta: { name: values.name, description: values.description, visibility: values.visibility },
+      connector: {
+        provider: values.provider,
+        displayName: ingest.rootName,
+        prefix,
+        bucket: values.provider === "gcs" ? String(values.gcsBucket) : null,
+        connectionEncrypted,
+      },
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+    sourceId = source.id;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not import from cloud storage." };
+  }
+
+  revalidatePath("/dashboard/knowledge");
+  redirect(`/dashboard/knowledge/${sourceId}`);
+}
+
+export async function syncCloudStorageSourceAction(
+  _prevState: KnowledgeActionState,
+  formData: FormData,
+): Promise<KnowledgeActionState> {
+  const ctx = await requireManage();
+  if (!ctx.ok) return { error: DENIED };
+  const sourceId = String(formData.get("sourceId") ?? "");
+
+  try {
+    const store = getStore();
+    const source = await store.getKnowledgeSource(ctx.actor.organizationId, sourceId);
+    if (!source || source.sourceType !== "cloud_storage") {
+      return { error: "This cloud storage source could not be found." };
+    }
+    const meta = source.metadata as {
+      provider?: "azure_blob" | "gcs";
+      prefix?: string | null;
+      bucket?: string | null;
+      connectionEncrypted?: string;
+    };
+    if (!meta.connectionEncrypted || !meta.provider) {
+      return { error: "This source is missing its connection details. Please reconnect it." };
+    }
+    const secret = await decryptApiKey(meta.connectionEncrypted);
+    const ingest = await ingestCloudStorage({
+      provider: meta.provider,
+      prefix: meta.prefix ?? undefined,
+      azureSasUrl: meta.provider === "azure_blob" ? secret : undefined,
+      gcsBucket: meta.bucket ?? undefined,
+      gcsServiceAccount: meta.provider === "gcs" ? secret : undefined,
+      nowSeconds: Math.floor(Date.now() / 1000),
+    });
+    await syncCloudStorageSource(store, ctx.actor, sourceId, {
+      documents: ingest.documents,
+      skipped: ingest.skipped,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not sync from cloud storage." };
   }
 
   revalidatePath("/dashboard/knowledge");

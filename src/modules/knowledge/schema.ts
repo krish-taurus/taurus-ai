@@ -74,6 +74,34 @@ export const createGoogleDriveSourceSchema = z.object({
     .min(1, "Paste a Google Drive file or folder link."),
 });
 
+export const createCloudStorageSourceSchema = z
+  .object({
+    name: knowledgeNameSchema,
+    description: knowledgeDescriptionSchema,
+    visibility: knowledgeVisibilitySchema.default("organization"),
+    provider: z.enum(["azure_blob", "gcs"], {
+      errorMap: () => ({ message: "Choose a supported cloud storage provider." }),
+    }),
+    prefix: z.string().trim().max(1024).optional().or(z.literal("")),
+    // Azure: a read/list container SAS URL.
+    azureSasUrl: z.string().trim().max(4000).optional().or(z.literal("")),
+    // GCS: bucket name + service-account JSON key.
+    gcsBucket: z.string().trim().max(255).optional().or(z.literal("")),
+    gcsServiceAccount: z.string().trim().max(20_000).optional().or(z.literal("")),
+  })
+  .refine((v) => (v.provider === "azure_blob" ? !!v.azureSasUrl : true), {
+    message: "Enter the Azure container SAS URL.",
+    path: ["azureSasUrl"],
+  })
+  .refine((v) => (v.provider === "gcs" ? !!v.gcsBucket : true), {
+    message: "Enter the bucket name.",
+    path: ["gcsBucket"],
+  })
+  .refine((v) => (v.provider === "gcs" ? !!v.gcsServiceAccount : true), {
+    message: "Paste the service-account JSON key.",
+    path: ["gcsServiceAccount"],
+  });
+
 export const createFileSourceMetaSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
@@ -90,5 +118,6 @@ export type CreateTextSourceValues = z.infer<typeof createTextSourceSchema>;
 export type CreateUrlSourceValues = z.infer<typeof createUrlSourceSchema>;
 export type CreateDatabaseSourceValues = z.infer<typeof createDatabaseSourceSchema>;
 export type CreateGoogleDriveSourceValues = z.infer<typeof createGoogleDriveSourceSchema>;
+export type CreateCloudStorageSourceValues = z.infer<typeof createCloudStorageSourceSchema>;
 export type CreateFileSourceMetaValues = z.infer<typeof createFileSourceMetaSchema>;
 export type UpdateKnowledgeSourceValues = z.infer<typeof updateKnowledgeSourceSchema>;
