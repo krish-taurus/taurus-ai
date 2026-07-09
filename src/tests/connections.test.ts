@@ -100,16 +100,18 @@ describe("connection catalog metadata", () => {
     ]);
   });
 
-  it("marks web as available, messaging/voice/telegram as foundation, and the rest as coming soon", () => {
+  it("marks web + telegram + slack available, provider channels foundation, rest coming soon", () => {
     for (const type of [
       "website_widget",
       "hosted_chat",
       "iframe_embed",
       "public_api",
+      "telegram",
+      "slack",
     ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("available");
     }
-    for (const type of ["whatsapp", "sms", "email", "telegram", "phone_call", "slack"] as ChannelType[]) {
+    for (const type of ["whatsapp", "sms", "email", "phone_call"] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("foundation");
     }
     for (const type of ["microsoft_teams", "instagram_dm"] as ChannelType[]) {

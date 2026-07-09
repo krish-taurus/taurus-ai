@@ -1,5 +1,25 @@
 # Changelog
 
+## Sprint 039 - Connections page: honest, actionable availability — 2026-07-09
+
+Changed:
+
+- **The Connections catalog now tells the truth.** After Telegram + Slack shipped,
+  the catalog still lumped everything under jargon ("Foundation") — so channels
+  that are actually live read as unclear. The three tiers are now accurate and
+  business-readable:
+  - **Available now** — Web, **Telegram**, **Slack** (live, self-serve one-tap /
+    one-token connects). CTA: **Connect**.
+  - **Ready to set up** — WhatsApp, SMS, Email, Phone (work end to end, but need
+    the owner's provider account to go live). CTA: **Set up**, with a "needs a
+    provider account — test in simulated mode first" hint.
+  - **Coming soon** — Instagram, Messenger, Microsoft Teams.
+  - Each configurable type still routes through the New-connection flow to its
+    real setup page (`connectionSetupHref` covers Telegram → messaging/telegram
+    and Slack → the OAuth connect page). Pure label/availability change — no
+    provider logic. `tsc` clean · `next lint` clean · **551 tests + 6 skipped** ·
+    build compiles.
+
 ## Sprint 038 - Slack channel ("Add to Slack" one-tap connect) — 2026-07-09
 
 Added:
