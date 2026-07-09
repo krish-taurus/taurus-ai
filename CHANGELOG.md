@@ -1,5 +1,28 @@
 # Changelog
 
+## Sprint 025 - Data connectors (Cloud storage: Azure Blob + GCS) — 2026-07-09
+
+Added:
+
+- **Cloud storage knowledge connector** (`src/modules/knowledge/connectors/cloud-storage.ts`)
+  — connect an object store and import its files into the Knowledge Vault. Two
+  providers, both read-only and configured entirely in the app:
+  - **Azure Blob Storage** via a read/list **container SAS URL** (fetches pinned to
+    `*.blob.core.windows.net`; the SAS is customer-scoped + time-boxed).
+  - **Google Cloud Storage** via a **service-account JSON key** — the connector
+    mints a short-lived access token itself (RS256 JWT signed with `node:crypto`,
+    `devstorage.read_only` scope), no SDK dependency.
+  - **Bounded + safe**: up to 50 files (optional path prefix), 10 MB/file cap,
+    only extractor-supported types (PDF/Word/text/CSV/JSON) are pulled — the rest
+    are skipped. Files run through the existing extraction → index →
+    hybrid-retrieval pipeline. The credential is **encrypted at rest** and never
+    sent to the browser; only the account/container or bucket name is shown.
+  - New `cloud_storage` knowledge source type + a "Cloud Storage" tab (provider
+    picker) in Add Knowledge, and **"Sync now"** to re-read the bucket/container.
+  - Dependency-free (REST over `fetch` + `node:crypto`). Setup guide:
+    `docs/connectors/cloud-storage.md`. No new env vars — uses the existing
+    `TAURUS_MODEL_CREDENTIALS_MASTER_KEY` for encryption.
+
 ## Sprint 024 - Data connectors (MySQL) — 2026-07-09
 
 Added:

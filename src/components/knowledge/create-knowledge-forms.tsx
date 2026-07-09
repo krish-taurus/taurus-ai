@@ -12,6 +12,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useFormState, useFormStatus } from "react-dom";
 import {
+  createCloudStorageSourceAction,
   createDatabaseSourceAction,
   createFileSourceAction,
   createGoogleDriveSourceAction,
@@ -22,7 +23,7 @@ import {
 import { ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/modules/knowledge/metadata";
 import { buttonClasses, cn, Field, FieldError, Input, Select, Textarea } from "@/components/ui";
 
-type Tab = "text" | "file" | "url" | "database" | "google_drive";
+type Tab = "text" | "file" | "url" | "database" | "google_drive" | "cloud_storage";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "text", label: "Add Text" },
@@ -30,6 +31,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "url", label: "Add Website" },
   { key: "database", label: "Connect Database" },
   { key: "google_drive", label: "Google Drive" },
+  { key: "cloud_storage", label: "Cloud Storage" },
 ];
 
 const GOOGLE_DRIVE_START = "/api/knowledge/connectors/google-drive/start";
@@ -74,12 +76,17 @@ export function CreateKnowledgeForms({
 }) {
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [dbKind, setDbKind] = useState<"postgres" | "mysql">("postgres");
+  const [csProvider, setCsProvider] = useState<"azure_blob" | "gcs">("azure_blob");
   const [textState, textAction] = useFormState(createTextSourceAction, {} as KnowledgeActionState);
   const [fileState, fileAction] = useFormState(createFileSourceAction, {} as KnowledgeActionState);
   const [urlState, urlAction] = useFormState(createUrlSourceAction, {} as KnowledgeActionState);
   const [dbState, dbAction] = useFormState(createDatabaseSourceAction, {} as KnowledgeActionState);
   const [driveState, driveAction] = useFormState(
     createGoogleDriveSourceAction,
+    {} as KnowledgeActionState,
+  );
+  const [csState, csAction] = useFormState(
+    createCloudStorageSourceAction,
     {} as KnowledgeActionState,
   );
 
@@ -279,6 +286,75 @@ export function CreateKnowledgeForms({
 
       {tab === "google_drive" ? (
         <GoogleDriveTab state={googleDrive} action={driveAction} formState={driveState} />
+      ) : null}
+
+      {tab === "cloud_storage" ? (
+        <form action={csAction} className="space-y-5">
+          <Field label="Name" htmlFor="cs-name">
+            <Input id="cs-name" name="name" required minLength={2} placeholder="e.g. Policy documents" />
+          </Field>
+          <Field label="Description" htmlFor="cs-description" optional>
+            <Input id="cs-description" name="description" placeholder="A short note about this data" />
+          </Field>
+          <Field label="Provider" htmlFor="cs-provider">
+            <Select
+              id="cs-provider"
+              name="provider"
+              value={csProvider}
+              onChange={(e) => setCsProvider(e.target.value as "azure_blob" | "gcs")}
+            >
+              <option value="azure_blob">Azure Blob Storage</option>
+              <option value="gcs">Google Cloud Storage</option>
+            </Select>
+          </Field>
+
+          {csProvider === "azure_blob" ? (
+            <Field
+              label="Container SAS URL"
+              htmlFor="cs-azure"
+              hint="A read + list SAS URL for the container. Stored encrypted; only the account/container is shown."
+            >
+              <Input
+                id="cs-azure"
+                name="azureSasUrl"
+                type="password"
+                required
+                placeholder="https://acct.blob.core.windows.net/container?sv=…&sig=…"
+              />
+            </Field>
+          ) : (
+            <>
+              <Field label="Bucket name" htmlFor="cs-bucket">
+                <Input id="cs-bucket" name="gcsBucket" required placeholder="my-bucket" />
+              </Field>
+              <Field
+                label="Service account JSON"
+                htmlFor="cs-sa"
+                hint="A read-only service-account key (Storage Object Viewer). Stored encrypted."
+              >
+                <Textarea
+                  id="cs-sa"
+                  name="gcsServiceAccount"
+                  rows={5}
+                  required
+                  placeholder={'{ "type": "service_account", "client_email": "…", "private_key": "…" }'}
+                />
+              </Field>
+            </>
+          )}
+
+          <Field
+            label="Folder prefix"
+            htmlFor="cs-prefix"
+            optional
+            hint="Only import files under this path (up to 50 supported files)."
+          >
+            <Input id="cs-prefix" name="prefix" placeholder="reports/2026/" />
+          </Field>
+          <VisibilityField />
+          {csState?.error ? <FieldError>{csState.error}</FieldError> : null}
+          <SubmitButton label="Connect & import" />
+        </form>
       ) : null}
     </div>
   );

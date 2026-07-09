@@ -5,6 +5,7 @@ import { hasPermission } from "@/modules/organizations/roles";
 import {
   archiveSource,
   assignKnowledgeToEmployee,
+  createCloudStorageSource,
   createDatabaseSource,
   createFileSource,
   createGoogleDriveSource,
@@ -13,6 +14,7 @@ import {
   getVaultOverview,
   KnowledgeNotFoundError,
   KnowledgeValidationError,
+  syncCloudStorageSource,
   syncDatabaseSource,
   syncGoogleDriveSource,
   unassignKnowledgeFromEmployee,
@@ -325,6 +327,68 @@ describe("google drive source", () => {
     });
     await expect(
       syncGoogleDriveSource(store, actor(aliceOrg.id, alice.id), text.id, {
+        documents: [],
+        skipped: 0,
+      }),
+    ).rejects.toBeInstanceOf(KnowledgeNotFoundError);
+  });
+});
+
+describe("cloud storage source", () => {
+  const connector = {
+    provider: "gcs" as const,
+    displayName: "my-bucket",
+    prefix: "reports/",
+    bucket: "my-bucket",
+    connectionEncrypted: "ENC(service-account-json)",
+  };
+
+  it("stores one document per object and marks the source ready", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createCloudStorageSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Policy documents" },
+      connector,
+      documents: [
+        { title: "refunds.pdf", text: "Refunds within 30 days.", status: "extracted" },
+        { title: "notes.txt", text: "Internal note.", status: "extracted" },
+      ],
+      skipped: 2,
+    });
+    expect(source.sourceType).toBe("cloud_storage");
+    expect(source.status).toBe("ready");
+    expect(source.metadata.provider).toBe("gcs");
+    expect(source.metadata.connectionEncrypted).toBe(connector.connectionEncrypted);
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(2);
+    expect(docs.some((d) => d.textContent?.includes("30 days"))).toBe(true);
+  });
+
+  it("re-syncs by replacing documents with fresh objects", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const source = await createCloudStorageSource(store, actor(aliceOrg.id, alice.id), {
+      meta: { name: "Policy documents" },
+      connector,
+      documents: [{ title: "v1.pdf", text: "first", status: "extracted" }],
+      skipped: 0,
+    });
+    await syncCloudStorageSource(store, actor(aliceOrg.id, alice.id), source.id, {
+      documents: [{ title: "v2.pdf", text: "second", status: "extracted" }],
+      skipped: 0,
+    });
+    const docs = await store.listKnowledgeDocumentsForSource(aliceOrg.id, source.id);
+    expect(docs).toHaveLength(1);
+    expect(docs[0].textContent).toContain("second");
+    expect(store._auditEvents().some((e) => e.action === "knowledge_source.synced")).toBe(true);
+  });
+
+  it("refuses to sync a non-cloud-storage source", async () => {
+    const { store, alice, aliceOrg } = await setup();
+    const text = await createTextSource(store, actor(aliceOrg.id, alice.id), {
+      name: "Note",
+      text: "hello",
+    });
+    await expect(
+      syncCloudStorageSource(store, actor(aliceOrg.id, alice.id), text.id, {
         documents: [],
         skipped: 0,
       }),

@@ -10,6 +10,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import type { KnowledgeSource } from "@/lib/db/types";
 import {
   archiveSourceAction,
+  syncCloudStorageSourceAction,
   syncDatabaseSourceAction,
   syncGoogleDriveSourceAction,
   type KnowledgeActionState,
@@ -27,12 +28,18 @@ function SyncButton() {
 
 export function KnowledgeSourceActions({ source }: { source: KnowledgeSource }) {
   const isArchived = source.status === "archived";
-  const isSyncable = source.sourceType === "database" || source.sourceType === "google_drive";
+  const isSyncable =
+    source.sourceType === "database" ||
+    source.sourceType === "google_drive" ||
+    source.sourceType === "cloud_storage";
   const [state, formAction] = useFormState(archiveSourceAction, {} as KnowledgeActionState);
-  const [syncState, syncAction] = useFormState(
-    source.sourceType === "google_drive" ? syncGoogleDriveSourceAction : syncDatabaseSourceAction,
-    {} as KnowledgeActionState,
-  );
+  const syncActionFor =
+    source.sourceType === "google_drive"
+      ? syncGoogleDriveSourceAction
+      : source.sourceType === "cloud_storage"
+        ? syncCloudStorageSourceAction
+        : syncDatabaseSourceAction;
+  const [syncState, syncAction] = useFormState(syncActionFor, {} as KnowledgeActionState);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-2.5">
