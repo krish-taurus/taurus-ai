@@ -1,5 +1,29 @@
 # Changelog
 
+## Sprint 041 - WhatsApp: Embedded Signup one-tap connect — 2026-07-09
+
+Added:
+
+- **Connect WhatsApp with Meta's Embedded Signup** — the compliant, in-dashboard
+  way to connect WhatsApp, instead of pasting access tokens + phone number ids.
+  The owner authorizes their number in Meta's hosted popup; we exchange the
+  returned code for a business token and finish the connection server-side.
+  - **Testable backend, thin client**: `connect.ts` (code exchange, phone-number
+    lookup, `connectWhatsApp` that stores the token/number/app-secret encrypted and
+    creates/activates the connection) + an authenticated `POST
+    /api/channels/whatsapp/exchange` — all **unit tested**. The client component
+    loads Meta's SDK, runs the popup, and posts the result to that endpoint.
+  - **Reuses the existing `meta_whatsapp_cloud` adapter** for send + webhook
+    verification — no new runtime. New optional `NEXT_PUBLIC_WHATSAPP_APP_ID` /
+    `NEXT_PUBLIC_WHATSAPP_CONFIG_ID` / `WHATSAPP_APP_SECRET`. Without them the
+    one-tap connect is hidden and **manual credential entry still works**.
+  - **Honest scope**: going live requires a **Meta Tech Provider app + business
+    verification**, and the hosted popup itself can only be exercised against a
+    real Meta app — so that path isn't covered by tests. The backend exchange +
+    connect logic is fully unit tested (config gating, code exchange + error,
+    number lookup with safe defaults, create/activate + reconnect-in-place). `tsc`
+    clean · `next lint` clean · **558 tests + 6 skipped** · build compiles.
+
 ## Sprint 040 - Email: zero-DNS forwarding address — 2026-07-09
 
 Added:

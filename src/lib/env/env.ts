@@ -81,6 +81,12 @@ const serverSchema = z
     SLACK_CLIENT_ID: z.string().optional().or(z.literal("")),
     SLACK_CLIENT_SECRET: z.string().optional().or(z.literal("")),
     SLACK_SIGNING_SECRET: z.string().optional().or(z.literal("")),
+    // WhatsApp Embedded Signup (Sprint 041). App id + config id are public
+    // (NEXT_PUBLIC_*, used client-side by the popup); the app secret is
+    // server-only. Absent → the one-tap connect is hidden (manual entry still works).
+    NEXT_PUBLIC_WHATSAPP_APP_ID: z.string().optional().or(z.literal("")),
+    NEXT_PUBLIC_WHATSAPP_CONFIG_ID: z.string().optional().or(z.literal("")),
+    WHATSAPP_APP_SECRET: z.string().optional().or(z.literal("")),
     TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
     // Voice Call Channel (Prompt 010). All optional and server-only; their absence
     // never breaks local dev or tests — voice falls back to simulated providers.
@@ -217,6 +223,9 @@ export function getServerEnv(): ServerEnv {
       SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID,
       SLACK_CLIENT_SECRET: process.env.SLACK_CLIENT_SECRET,
       SLACK_SIGNING_SECRET: process.env.SLACK_SIGNING_SECRET,
+      NEXT_PUBLIC_WHATSAPP_APP_ID: process.env.NEXT_PUBLIC_WHATSAPP_APP_ID,
+      NEXT_PUBLIC_WHATSAPP_CONFIG_ID: process.env.NEXT_PUBLIC_WHATSAPP_CONFIG_ID,
+      WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
       TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY,
       TELNYX_API_KEY: process.env.TELNYX_API_KEY,
       TELNYX_PUBLIC_KEY: process.env.TELNYX_PUBLIC_KEY,
