@@ -120,6 +120,13 @@ export const createCloudStorageSourceSchema = z
     path: ["s3Bucket"],
   });
 
+export const createSharePointSourceSchema = z.object({
+  name: knowledgeNameSchema,
+  description: knowledgeDescriptionSchema,
+  visibility: knowledgeVisibilitySchema.default("organization"),
+  link: z.string().trim().min(1, "Paste a SharePoint or OneDrive sharing link."),
+});
+
 export const createFileSourceMetaSchema = z.object({
   name: knowledgeNameSchema,
   description: knowledgeDescriptionSchema,
@@ -137,5 +144,6 @@ export type CreateUrlSourceValues = z.infer<typeof createUrlSourceSchema>;
 export type CreateDatabaseSourceValues = z.infer<typeof createDatabaseSourceSchema>;
 export type CreateGoogleDriveSourceValues = z.infer<typeof createGoogleDriveSourceSchema>;
 export type CreateCloudStorageSourceValues = z.infer<typeof createCloudStorageSourceSchema>;
+export type CreateSharePointSourceValues = z.infer<typeof createSharePointSourceSchema>;
 export type CreateFileSourceMetaValues = z.infer<typeof createFileSourceMetaSchema>;
 export type UpdateKnowledgeSourceValues = z.infer<typeof updateKnowledgeSourceSchema>;

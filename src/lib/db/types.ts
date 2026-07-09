@@ -225,7 +225,8 @@ export type KnowledgeSourceType =
   | "url"
   | "database"
   | "google_drive"
-  | "cloud_storage";
+  | "cloud_storage"
+  | "sharepoint";
 
 export type KnowledgeSourceStatus =
   | "draft"

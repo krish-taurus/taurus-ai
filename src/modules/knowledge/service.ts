@@ -499,6 +499,112 @@ export async function syncGoogleDriveSource(
   return updated;
 }
 
+/** Non-secret + encrypted connector config stored on a SharePoint/OneDrive source. */
+export interface SharePointConnectorMeta {
+  email: string | null;
+  /** Microsoft Graph drive + item ids this source ingests. */
+  driveId: string;
+  itemId: string;
+  rootName: string;
+  /** Encrypted refresh token (ciphertext only — never plaintext). */
+  connectionEncrypted: string;
+}
+
+/**
+ * Flow G: create a SharePoint/OneDrive knowledge source. The caller (server action)
+ * runs the OAuth-authenticated Graph read + extraction and encrypts the refresh
+ * token, then passes results in; each file becomes a document. Pure + testable.
+ */
+export async function createSharePointSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  input: {
+    meta: unknown;
+    connector: SharePointConnectorMeta;
+    documents: ConnectorDocumentInput[];
+    skipped: number;
+  },
+): Promise<KnowledgeSource> {
+  const parsedMeta = createFileSourceMetaSchema.safeParse(input.meta);
+  if (!parsedMeta.success) {
+    throw new KnowledgeValidationError(firstIssueMessage(parsedMeta.error, "Invalid details."));
+  }
+  const meta = parsedMeta.data;
+
+  await assertCanAddKnowledgeSource(store, actor.organizationId);
+
+  const status = statusForDocuments(input.documents);
+
+  const source = await store.createKnowledgeSource({
+    organizationId: actor.organizationId,
+    name: meta.name,
+    description: emptyToNull(meta.description),
+    sourceType: "sharepoint",
+    status,
+    visibility: meta.visibility,
+    metadata: {
+      email: input.connector.email,
+      driveId: input.connector.driveId,
+      itemId: input.connector.itemId,
+      rootName: input.connector.rootName,
+      connectionEncrypted: input.connector.connectionEncrypted,
+      fileCount: input.documents.length,
+      skipped: input.skipped,
+    },
+    createdByUserId: actor.userId,
+  });
+
+  await writeConnectorDocuments(store, actor, source.id, input.documents);
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.created",
+    targetType: "knowledge_source",
+    targetId: source.id,
+    metadata: { sourceId: source.id, sourceType: source.sourceType, status: source.status },
+  });
+
+  return source;
+}
+
+/** Re-run a SharePoint/OneDrive source's read: replace its documents with fresh files. */
+export async function syncSharePointSource(
+  store: DataStore,
+  actor: KnowledgeActor,
+  sourceId: string,
+  input: { documents: ConnectorDocumentInput[]; skipped: number },
+): Promise<KnowledgeSource> {
+  const existing = await store.getKnowledgeSource(actor.organizationId, sourceId);
+  if (!existing || existing.sourceType !== "sharepoint") throw new KnowledgeNotFoundError();
+
+  const status = statusForDocuments(input.documents);
+
+  await store.deleteKnowledgeDocumentsForSource(actor.organizationId, sourceId);
+  await writeConnectorDocuments(store, actor, sourceId, input.documents);
+
+  const updated =
+    (await store.updateKnowledgeSource(actor.organizationId, sourceId, { status })) ?? existing;
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "knowledge_source.synced",
+    targetType: "knowledge_source",
+    targetId: sourceId,
+    metadata: {
+      sourceId,
+      sourceType: "sharepoint",
+      fileCount: input.documents.length,
+      status: updated.status,
+    },
+  });
+
+  return updated;
+}
+
 /** Non-secret + encrypted connector config stored on a cloud storage source. */
 export interface CloudStorageConnectorMeta {
   provider: "azure_blob" | "gcs" | "s3";

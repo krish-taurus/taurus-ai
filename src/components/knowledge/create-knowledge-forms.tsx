@@ -16,6 +16,7 @@ import {
   createDatabaseSourceAction,
   createFileSourceAction,
   createGoogleDriveSourceAction,
+  createSharePointSourceAction,
   createTextSourceAction,
   createUrlSourceAction,
   type KnowledgeActionState,
@@ -23,7 +24,14 @@ import {
 import { ALLOWED_EXTENSIONS, MAX_UPLOAD_BYTES } from "@/modules/knowledge/metadata";
 import { buttonClasses, cn, Field, FieldError, Input, Select, Textarea } from "@/components/ui";
 
-type Tab = "text" | "file" | "url" | "database" | "google_drive" | "cloud_storage";
+type Tab =
+  | "text"
+  | "file"
+  | "url"
+  | "database"
+  | "google_drive"
+  | "cloud_storage"
+  | "sharepoint";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "text", label: "Add Text" },
@@ -32,17 +40,36 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "database", label: "Connect Database" },
   { key: "google_drive", label: "Google Drive" },
   { key: "cloud_storage", label: "Cloud Storage" },
+  { key: "sharepoint", label: "SharePoint / OneDrive" },
 ];
 
 const GOOGLE_DRIVE_START = "/api/knowledge/connectors/google-drive/start";
+const SHAREPOINT_START = "/api/knowledge/connectors/sharepoint/start";
 
-/** Connection state for the Google Drive tab, resolved on the server. */
-export interface GoogleDriveConnectState {
+/** Connection state for an OAuth connector tab, resolved on the server. */
+export interface OAuthConnectState {
   configured: boolean;
   connected: boolean;
   email: string | null;
   /** Friendly message when a previous connect attempt failed. */
   errorMessage: string | null;
+}
+/** Kept as named aliases so pages can be explicit about which connector. */
+export type GoogleDriveConnectState = OAuthConnectState;
+export type SharePointConnectState = OAuthConnectState;
+
+/** Copy + endpoints that differ between OAuth connectors. */
+interface OAuthConnectConfig {
+  startUrl: string;
+  idPrefix: string;
+  notConfiguredMessage: string;
+  connectDescription: string;
+  connectButtonLabel: string;
+  revokeHint: string;
+  linkLabel: string;
+  linkHint: string;
+  linkPlaceholder: string;
+  submitLabel: string;
 }
 
 const MAX_MB = MAX_UPLOAD_BYTES / (1024 * 1024);
@@ -70,9 +97,11 @@ function VisibilityField() {
 export function CreateKnowledgeForms({
   defaultTab = "text",
   googleDrive,
+  sharePoint,
 }: {
   defaultTab?: Tab;
   googleDrive?: GoogleDriveConnectState;
+  sharePoint?: SharePointConnectState;
 }) {
   const [tab, setTab] = useState<Tab>(defaultTab);
   const [dbKind, setDbKind] = useState<"postgres" | "mysql">("postgres");
@@ -87,6 +116,10 @@ export function CreateKnowledgeForms({
   );
   const [csState, csAction] = useFormState(
     createCloudStorageSourceAction,
+    {} as KnowledgeActionState,
+  );
+  const [spState, spAction] = useFormState(
+    createSharePointSourceAction,
     {} as KnowledgeActionState,
   );
 
@@ -285,7 +318,21 @@ export function CreateKnowledgeForms({
       ) : null}
 
       {tab === "google_drive" ? (
-        <GoogleDriveTab state={googleDrive} action={driveAction} formState={driveState} />
+        <OAuthConnectTab
+          config={GOOGLE_DRIVE_CONFIG}
+          state={googleDrive}
+          action={driveAction}
+          formState={driveState}
+        />
+      ) : null}
+
+      {tab === "sharepoint" ? (
+        <OAuthConnectTab
+          config={SHAREPOINT_CONFIG}
+          state={sharePoint}
+          action={spAction}
+          formState={spState}
+        />
       ) : null}
 
       {tab === "cloud_storage" ? (
@@ -385,20 +432,52 @@ export function CreateKnowledgeForms({
   );
 }
 
-function GoogleDriveTab({
+const GOOGLE_DRIVE_CONFIG: OAuthConnectConfig = {
+  startUrl: GOOGLE_DRIVE_START,
+  idPrefix: "drive",
+  notConfiguredMessage:
+    "Google Drive isn’t set up for this workspace yet. An admin needs to add Google credentials before you can connect a Drive account.",
+  connectDescription:
+    "Connect a Google account (read-only) and import a file or a whole folder. Its text is saved so your AI Employees can answer from it.",
+  connectButtonLabel: "Connect Google Drive",
+  revokeHint: "We only request read-only access. You can revoke it any time from your Google account.",
+  linkLabel: "Google Drive file or folder link",
+  linkHint: "Paste a link to a file or a folder. Folders import supported files one level deep (up to 50).",
+  linkPlaceholder: "https://drive.google.com/drive/folders/…",
+  submitLabel: "Import from Drive",
+};
+
+const SHAREPOINT_CONFIG: OAuthConnectConfig = {
+  startUrl: SHAREPOINT_START,
+  idPrefix: "sp",
+  notConfiguredMessage:
+    "SharePoint / OneDrive isn’t set up for this workspace yet. An admin needs to add Microsoft credentials before you can connect an account.",
+  connectDescription:
+    "Connect a Microsoft account (read-only) and import a OneDrive or SharePoint file or folder from a sharing link. Its text is saved so your AI Employees can answer from it.",
+  connectButtonLabel: "Connect Microsoft account",
+  revokeHint: "We only request read-only access. You can revoke it any time from your Microsoft account.",
+  linkLabel: "SharePoint or OneDrive sharing link",
+  linkHint: "Paste a share link to a file or a folder. Folders import supported files one level deep (up to 50).",
+  linkPlaceholder: "https://contoso.sharepoint.com/:f:/s/team/…",
+  submitLabel: "Import from Microsoft",
+};
+
+/** Shared UI for a paste-a-link OAuth connector (Google Drive, SharePoint). */
+function OAuthConnectTab({
+  config,
   state,
   action,
   formState,
 }: {
-  state?: GoogleDriveConnectState;
+  config: OAuthConnectConfig;
+  state?: OAuthConnectState;
   action: (formData: FormData) => void;
   formState: KnowledgeActionState;
 }) {
   if (!state?.configured) {
     return (
       <div className="rounded-lg border border-taurus-line bg-taurus-muted p-5 text-sm text-taurus-sub">
-        Google Drive isn’t set up for this workspace yet. An admin needs to add Google credentials
-        before you can connect a Drive account.
+        {config.notConfiguredMessage}
       </div>
     );
   }
@@ -406,17 +485,12 @@ function GoogleDriveTab({
   if (!state.connected) {
     return (
       <div className="space-y-4">
-        <p className="text-sm text-taurus-sub">
-          Connect a Google account (read-only) and import a file or a whole folder. Its text is
-          saved so your AI Employees can answer from it.
-        </p>
+        <p className="text-sm text-taurus-sub">{config.connectDescription}</p>
         {state.errorMessage ? <FieldError>{state.errorMessage}</FieldError> : null}
-        <a href={GOOGLE_DRIVE_START} className={buttonClasses("primary", "lg")}>
-          Connect Google Drive
+        <a href={config.startUrl} className={buttonClasses("primary", "lg")}>
+          {config.connectButtonLabel}
         </a>
-        <p className="text-xs text-taurus-faint">
-          We only request read-only access. You can revoke it any time from your Google account.
-        </p>
+        <p className="text-xs text-taurus-faint">{config.revokeHint}</p>
       </div>
     );
   }
@@ -424,34 +498,38 @@ function GoogleDriveTab({
   return (
     <form action={action} className="space-y-5">
       <div className="flex items-center justify-between gap-3 rounded-lg border border-taurus-line bg-taurus-muted px-4 py-3 text-sm">
-        <span className="text-taurus-text">
-          Connected{state.email ? ` as ${state.email}` : ""}
-        </span>
-        <Link href={GOOGLE_DRIVE_START} className="font-medium text-taurus-sub hover:text-taurus-text">
+        <span className="text-taurus-text">Connected{state.email ? ` as ${state.email}` : ""}</span>
+        <Link href={config.startUrl} className="font-medium text-taurus-sub hover:text-taurus-text">
           Use a different account
         </Link>
       </div>
-      <Field label="Name" htmlFor="drive-name">
-        <Input id="drive-name" name="name" required minLength={2} placeholder="e.g. Sales playbooks" />
-      </Field>
-      <Field label="Description" htmlFor="drive-description" optional>
-        <Input id="drive-description" name="description" placeholder="A short note about this data" />
-      </Field>
-      <Field
-        label="Google Drive file or folder link"
-        htmlFor="drive-link"
-        hint="Paste a link to a file or a folder. Folders import supported files one level deep (up to 50)."
-      >
+      <Field label="Name" htmlFor={`${config.idPrefix}-name`}>
         <Input
-          id="drive-link"
+          id={`${config.idPrefix}-name`}
+          name="name"
+          required
+          minLength={2}
+          placeholder="e.g. Sales playbooks"
+        />
+      </Field>
+      <Field label="Description" htmlFor={`${config.idPrefix}-description`} optional>
+        <Input
+          id={`${config.idPrefix}-description`}
+          name="description"
+          placeholder="A short note about this data"
+        />
+      </Field>
+      <Field label={config.linkLabel} htmlFor={`${config.idPrefix}-link`} hint={config.linkHint}>
+        <Input
+          id={`${config.idPrefix}-link`}
           name="link"
           required
-          placeholder="https://drive.google.com/drive/folders/…"
+          placeholder={config.linkPlaceholder}
         />
       </Field>
       <VisibilityField />
       {formState?.error ? <FieldError>{formState.error}</FieldError> : null}
-      <SubmitButton label="Import from Drive" />
+      <SubmitButton label={config.submitLabel} />
     </form>
   );
 }

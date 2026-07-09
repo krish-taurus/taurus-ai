@@ -13,6 +13,7 @@ import {
   syncCloudStorageSourceAction,
   syncDatabaseSourceAction,
   syncGoogleDriveSourceAction,
+  syncSharePointSourceAction,
   type KnowledgeActionState,
 } from "@/modules/knowledge/actions";
 import { buttonClasses, FieldError } from "@/components/ui";
@@ -31,14 +32,17 @@ export function KnowledgeSourceActions({ source }: { source: KnowledgeSource }) 
   const isSyncable =
     source.sourceType === "database" ||
     source.sourceType === "google_drive" ||
-    source.sourceType === "cloud_storage";
+    source.sourceType === "cloud_storage" ||
+    source.sourceType === "sharepoint";
   const [state, formAction] = useFormState(archiveSourceAction, {} as KnowledgeActionState);
   const syncActionFor =
     source.sourceType === "google_drive"
       ? syncGoogleDriveSourceAction
       : source.sourceType === "cloud_storage"
         ? syncCloudStorageSourceAction
-        : syncDatabaseSourceAction;
+        : source.sourceType === "sharepoint"
+          ? syncSharePointSourceAction
+          : syncDatabaseSourceAction;
   const [syncState, syncAction] = useFormState(syncActionFor, {} as KnowledgeActionState);
   return (
     <div className="flex flex-col gap-1">
