@@ -66,6 +66,11 @@ const serverSchema = z
     SENDGRID_API_KEY: z.string().optional().or(z.literal("")),
     MAILGUN_API_KEY: z.string().optional().or(z.literal("")),
     MAILGUN_DOMAIN: z.string().optional().or(z.literal("")),
+    // Inbound email forwarding domain (Sprint 040). When set, each email
+    // connection gets a zero-DNS forwarding address <publicKey>@<domain>; the
+    // operator points SendGrid Inbound Parse / a Mailgun Route for this domain at
+    // /api/webhooks/channels/{provider}/inbound. Server-only.
+    INBOUND_EMAIL_DOMAIN: z.string().optional().or(z.literal("")),
     // Telegram bot channel (Sprint 036). Optional + server-only; absent → the
     // Telegram channel runs in simulated mode. TELEGRAM_WEBHOOK_SECRET is the
     // optional secret token echoed in X-Telegram-Bot-Api-Secret-Token.
@@ -206,6 +211,7 @@ export function getServerEnv(): ServerEnv {
       SENDGRID_API_KEY: process.env.SENDGRID_API_KEY,
       MAILGUN_API_KEY: process.env.MAILGUN_API_KEY,
       MAILGUN_DOMAIN: process.env.MAILGUN_DOMAIN,
+      INBOUND_EMAIL_DOMAIN: process.env.INBOUND_EMAIL_DOMAIN,
       TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
       TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
       SLACK_CLIENT_ID: process.env.SLACK_CLIENT_ID,
