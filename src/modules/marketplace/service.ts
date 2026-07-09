@@ -238,6 +238,20 @@ export async function getPublishedListing(
   return listing;
 }
 
+/**
+ * Resolve a listing from its opaque public key for the UNAUTHENTICATED shareable
+ * resume page. Only currently-published listings resolve; the caller must render
+ * only the snapshot (no live tenant data ever crosses this boundary).
+ */
+export async function getPublicResumeByKey(
+  store: DataStore,
+  publicKey: string,
+): Promise<MarketplaceListing | null> {
+  const listing = await store.getMarketplaceListingByPublicKey(publicKey);
+  if (!listing || listing.status !== "published") return null;
+  return listing;
+}
+
 /** Request to hire a listed agent. The owner approves to clone it into your org. */
 export async function requestHire(
   store: DataStore,
