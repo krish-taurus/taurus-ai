@@ -1,5 +1,27 @@
 # Changelog
 
+## Sprint 031 - Inter-company marketplace (2/2): AI-written resumes — 2026-07-09
+
+Added:
+
+- **AI-generated marketplace copy** — on the publish form, **"✨ Generate with AI"**
+  writes a world-class resume **headline + summary** for an AI Employee, grounded
+  only in its published DNA (role/mission/goals/responsibilities). Publishing
+  "with vaults" can also **auto-describe** any vault that has no description yet.
+  - Generation runs through the model gateway
+    (`src/modules/marketplace/generation.ts`, task types `dna_summary` /
+    `knowledge_summary`). The prompt is constrained to **general best-practice
+    guidance only** — it never invents metrics, clients, or proprietary data. In
+    dev/test (no provider key) it uses the demo brain; in production without a key
+    it fails **gracefully** ("fill it in manually"), and vault auto-description is
+    best-effort (never blocks publishing).
+  - Wiring keeps the service pure: `publishListing` takes an optional
+    `describeVault` hook the publish action supplies (gateway-backed); unit tests
+    inject a stub. No schema change.
+  - Verified: the generation path runs end-to-end via the demo brain (returns
+    usable copy; requires published DNA; vault description is string-or-null).
+    `tsc` clean · `next lint` clean · **512 tests + 5 skipped** · build compiles.
+
 ## Sprint 030 - Inter-company marketplace (1/2): publish, discover, hire — 2026-07-09
 
 Added:

@@ -87,14 +87,24 @@ export async function buildPerformanceSnapshot(
   };
 }
 
+/** Optional AI writer for a vault description, injected by the publish action. */
+export type VaultDescriber = (vaultName: string) => Promise<string | null>;
+
 /** Descriptions (never content) of the vaults an employee uses. */
 async function buildVaultSnapshot(
   store: DataStore,
   organizationId: string,
   employeeId: string,
+  describeVault?: VaultDescriber,
 ): Promise<VaultSnapshotItem[]> {
   const vaults = await store.listVaultsForEmployee(organizationId, employeeId);
-  return vaults.map((v) => ({ name: v.name, description: v.description }));
+  const items: VaultSnapshotItem[] = [];
+  for (const v of vaults) {
+    // Prefer the vault's own description; otherwise ask the AI writer (if given).
+    const description = v.description ?? (describeVault ? await describeVault(v.name) : null);
+    items.push({ name: v.name, description });
+  }
+  return items;
 }
 
 export interface PublishListingInput {
@@ -110,6 +120,7 @@ export async function publishListing(
   store: DataStore,
   actor: MarketplaceActor,
   input: PublishListingInput,
+  opts?: { describeVault?: VaultDescriber },
 ): Promise<MarketplaceListing> {
   const employee = await store.getEmployee(actor.organizationId, input.employeeId);
   if (!employee) throw new MarketplaceError("This AI Employee could not be found.");
@@ -129,7 +140,7 @@ export async function publishListing(
   );
   const includeVaults = input.includeVaults ?? false;
   const vaultSnapshot = includeVaults
-    ? await buildVaultSnapshot(store, actor.organizationId, input.employeeId)
+    ? await buildVaultSnapshot(store, actor.organizationId, input.employeeId, opts?.describeVault)
     : [];
 
   const title = (input.title?.trim() || employee.name).slice(0, 200);
