@@ -4,11 +4,13 @@ import "server-only";
  * Cloud storage knowledge connector (Sprint 025).
  *
  * Connect an object store and turn its files into searchable Knowledge Vault
- * documents an AI Employee can answer from. Two providers:
+ * documents an AI Employee can answer from. Three providers:
  *   - **Azure Blob Storage** — via a read-only **container SAS URL** (the SAS is
  *     scoped by the customer to read+list, and time-boxed; nothing else is needed).
  *   - **Google Cloud Storage** — via a **service-account JSON key** with read
  *     access; we mint a short-lived access token (RS256 JWT, `devstorage.read_only`).
+ *   - **Amazon S3** — via an **access key** (least-privilege, read-only); requests
+ *     are signed with AWS Signature V4 (`node:crypto`), no AWS SDK dependency.
  *
  * Dependency-free: object listing/download use the providers' REST APIs over
  * `fetch`, and GCS auth is signed with `node:crypto`. Files run through the shared
@@ -24,11 +26,12 @@ import "server-only";
  *  - Credentials (SAS URL / service-account JSON) are stored encrypted at rest.
  */
 
+import { createHmac, createHash } from "node:crypto";
 import { extractFileText } from "@/modules/knowledge/extraction";
 import { ALLOWED_EXTENSIONS, fileExtension } from "@/modules/knowledge/metadata";
 import type { DocumentExtractionStatus } from "@/lib/db/types";
 
-export type CloudStorageProvider = "azure_blob" | "gcs";
+export type CloudStorageProvider = "azure_blob" | "gcs" | "s3";
 
 const MAX_FILES = 50;
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -325,6 +328,194 @@ async function gcsDownload(token: string, bucket: string, name: string): Promise
 }
 
 /* -------------------------------------------------------------------------- */
+/* Amazon S3 (AWS Signature V4)                                               */
+/* -------------------------------------------------------------------------- */
+
+export interface S3Credentials {
+  accessKeyId: string;
+  secretAccessKey: string;
+  region: string;
+  bucket: string;
+  /** Optional session token for temporary credentials. */
+  sessionToken?: string;
+}
+
+/** Validate S3 credentials/target; region + bucket must be safe for the host. */
+export function assertS3Credentials(cred: S3Credentials): S3Credentials {
+  if (!cred.accessKeyId || !cred.secretAccessKey) {
+    throw new CloudStorageConnectorError("Enter the AWS access key ID and secret access key.");
+  }
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(cred.bucket)) {
+    throw new CloudStorageConnectorError("Enter a valid S3 bucket name.");
+  }
+  if (!/^[a-z0-9-]{1,32}$/.test(cred.region)) {
+    throw new CloudStorageConnectorError("Enter a valid AWS region (e.g. us-east-1).");
+  }
+  return cred;
+}
+
+/** RFC 3986 encoding as required by SigV4 (encodeURIComponent + the extra chars). */
+function encodeRfc3986(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!*'()]/g,
+    (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+}
+
+/** Encode an object key for the canonical URI, preserving `/` separators. */
+function encodeS3Key(key: string): string {
+  return key.split("/").map(encodeRfc3986).join("/");
+}
+
+/** `YYYYMMDDTHHMMSSZ` + `YYYYMMDD` from unix seconds (deterministic, testable). */
+function amzDate(nowSeconds: number): { amzDate: string; dateStamp: string } {
+  const iso = new Date(nowSeconds * 1000).toISOString();
+  const stamp = iso.replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+  return { amzDate: stamp, dateStamp: stamp.slice(0, 8) };
+}
+
+/**
+ * The AWS SigV4 signing-key chain + final signature. Exported so it can be tested
+ * against AWS's published test vector (non-circular verification of the crypto).
+ */
+export function sigV4Signature(input: {
+  secretAccessKey: string;
+  dateStamp: string;
+  region: string;
+  service: string;
+  stringToSign: string;
+}): string {
+  const kDate = createHmac("sha256", `AWS4${input.secretAccessKey}`).update(input.dateStamp).digest();
+  const kRegion = createHmac("sha256", kDate).update(input.region).digest();
+  const kService = createHmac("sha256", kRegion).update(input.service).digest();
+  const kSigning = createHmac("sha256", kService).update("aws4_request").digest();
+  return createHmac("sha256", kSigning).update(input.stringToSign, "utf8").digest("hex");
+}
+
+/** Build the SigV4 Authorization + amz headers for a GET (empty-payload) request. */
+function signS3Get(input: {
+  host: string;
+  canonicalUri: string;
+  canonicalQuery: string;
+  cred: S3Credentials;
+  nowSeconds: number;
+}): Record<string, string> {
+  const { amzDate: date, dateStamp } = amzDate(input.nowSeconds);
+  const payloadHash = createHash("sha256").update("").digest("hex");
+
+  let canonicalHeaders =
+    `host:${input.host}\n` +
+    `x-amz-content-sha256:${payloadHash}\n` +
+    `x-amz-date:${date}\n`;
+  let signedHeaders = "host;x-amz-content-sha256;x-amz-date";
+  // x-amz-security-token sorts after x-amz-date, so it is appended last.
+  if (input.cred.sessionToken) {
+    canonicalHeaders += `x-amz-security-token:${input.cred.sessionToken}\n`;
+    signedHeaders += ";x-amz-security-token";
+  }
+
+  const canonicalRequest = [
+    "GET",
+    input.canonicalUri,
+    input.canonicalQuery,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const scope = `${dateStamp}/${input.cred.region}/s3/aws4_request`;
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    date,
+    scope,
+    createHash("sha256").update(canonicalRequest).digest("hex"),
+  ].join("\n");
+
+  const signature = sigV4Signature({
+    secretAccessKey: input.cred.secretAccessKey,
+    dateStamp,
+    region: input.cred.region,
+    service: "s3",
+    stringToSign,
+  });
+
+  const headers: Record<string, string> = {
+    authorization:
+      `AWS4-HMAC-SHA256 Credential=${input.cred.accessKeyId}/${scope}, ` +
+      `SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    "x-amz-content-sha256": payloadHash,
+    "x-amz-date": date,
+  };
+  if (input.cred.sessionToken) headers["x-amz-security-token"] = input.cred.sessionToken;
+  return headers;
+}
+
+/** Parse a ListObjectsV2 XML response into objects + a continuation token. */
+export function parseS3List(xml: string): { objects: CloudObject[]; nextToken: string | null } {
+  const objects: CloudObject[] = [];
+  for (const block of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+    const body = block[1];
+    const key = body.match(/<Key>([\s\S]*?)<\/Key>/)?.[1];
+    if (!key) continue;
+    const sizeStr = body.match(/<Size>(\d+)<\/Size>/)?.[1];
+    objects.push({ name: decodeXml(key), size: sizeStr ? Number(sizeStr) : undefined });
+  }
+  const truncated = xml.match(/<IsTruncated>(true|false)<\/IsTruncated>/)?.[1] === "true";
+  const token = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/)?.[1] ?? null;
+  return { objects, nextToken: truncated ? token : null };
+}
+
+function s3Host(cred: S3Credentials): string {
+  return `${cred.bucket}.s3.${cred.region}.amazonaws.com`;
+}
+
+function canonicalQuery(params: Record<string, string>): string {
+  return Object.keys(params)
+    .sort()
+    .map((k) => `${encodeRfc3986(k)}=${encodeRfc3986(params[k])}`)
+    .join("&");
+}
+
+async function s3ListObjects(
+  cred: S3Credentials,
+  prefix: string,
+  nowSeconds: number,
+): Promise<CloudObject[]> {
+  const host = s3Host(cred);
+  const objects: CloudObject[] = [];
+  let token: string | null = null;
+  do {
+    const params: Record<string, string> = { "list-type": "2", "max-keys": "1000" };
+    if (prefix) params.prefix = prefix;
+    if (token) params["continuation-token"] = token;
+    const query = canonicalQuery(params);
+    const headers = signS3Get({ host, canonicalUri: "/", canonicalQuery: query, cred, nowSeconds });
+    const res = await timedFetch(`https://${host}/?${query}`, { headers });
+    if (res.status === 403) {
+      throw new CloudStorageConnectorError(
+        "Access denied by S3. Check the key has read + list permission on the bucket.",
+      );
+    }
+    if (res.status === 404) throw new CloudStorageConnectorError("That S3 bucket was not found.");
+    if (!res.ok) throw new CloudStorageConnectorError("Could not list the S3 bucket.");
+    const parsed = parseS3List(await res.text());
+    objects.push(...parsed.objects);
+    if (objects.length >= MAX_FILES) break;
+    token = parsed.nextToken;
+  } while (token);
+  return objects;
+}
+
+async function s3Download(cred: S3Credentials, key: string, nowSeconds: number): Promise<Uint8Array> {
+  const host = s3Host(cred);
+  const canonicalUri = `/${encodeS3Key(key)}`;
+  const headers = signS3Get({ host, canonicalUri, canonicalQuery: "", cred, nowSeconds });
+  const res = await timedFetch(`https://${host}${canonicalUri}`, { headers });
+  if (!res.ok) throw new CloudStorageConnectorError(`Could not download "${key}" from S3.`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/* -------------------------------------------------------------------------- */
 /* Unified ingestion                                                          */
 /* -------------------------------------------------------------------------- */
 
@@ -337,6 +528,8 @@ export interface CloudStorageInput {
   gcsBucket?: string;
   /** GCS: service-account JSON key. */
   gcsServiceAccount?: string;
+  /** S3: access key + region + bucket (+ optional session token). */
+  s3?: S3Credentials;
   /** Unix seconds — passed in so the pure module never calls Date.now() itself. */
   nowSeconds: number;
 }
@@ -358,6 +551,12 @@ export async function ingestCloudStorage(input: CloudStorageInput): Promise<Clou
     rootName = container.displayName;
     listed = await azureListBlobs(container, prefix);
     download = (name) => azureDownload(container, name);
+  } else if (input.provider === "s3") {
+    if (!input.s3) throw new CloudStorageConnectorError("Enter the S3 access key, region, and bucket.");
+    const cred = assertS3Credentials(input.s3);
+    rootName = cred.bucket;
+    listed = await s3ListObjects(cred, prefix, input.nowSeconds);
+    download = (name) => s3Download(cred, name, input.nowSeconds);
   } else {
     if (!input.gcsBucket) throw new CloudStorageConnectorError("Enter the bucket name.");
     if (!input.gcsServiceAccount) throw new CloudStorageConnectorError("Paste the service-account JSON key.");

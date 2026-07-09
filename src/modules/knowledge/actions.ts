@@ -367,12 +367,28 @@ export async function createCloudStorageSourceAction(
     azureSasUrl: formData.get("azureSasUrl") ?? undefined,
     gcsBucket: formData.get("gcsBucket") ?? undefined,
     gcsServiceAccount: formData.get("gcsServiceAccount") ?? undefined,
+    s3AccessKeyId: formData.get("s3AccessKeyId") ?? undefined,
+    s3SecretAccessKey: formData.get("s3SecretAccessKey") ?? undefined,
+    s3Region: formData.get("s3Region") ?? undefined,
+    s3Bucket: formData.get("s3Bucket") ?? undefined,
+    s3SessionToken: formData.get("s3SessionToken") ?? undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Please review the connection details." };
   }
   const values = parsed.data;
   const prefix = values.prefix ? String(values.prefix) : null;
+
+  const s3 =
+    values.provider === "s3"
+      ? {
+          accessKeyId: String(values.s3AccessKeyId),
+          secretAccessKey: String(values.s3SecretAccessKey),
+          region: String(values.s3Region),
+          bucket: String(values.s3Bucket),
+          sessionToken: values.s3SessionToken || undefined,
+        }
+      : undefined;
 
   let sourceId: string;
   try {
@@ -382,6 +398,7 @@ export async function createCloudStorageSourceAction(
       azureSasUrl: values.azureSasUrl || undefined,
       gcsBucket: values.gcsBucket || undefined,
       gcsServiceAccount: values.gcsServiceAccount || undefined,
+      s3,
       nowSeconds: Math.floor(Date.now() / 1000),
     });
     if (ingest.documents.length === 0) {
@@ -389,7 +406,15 @@ export async function createCloudStorageSourceAction(
     }
     // Encrypt the provider secret; store only non-secret config in the clear.
     const secret =
-      values.provider === "azure_blob" ? String(values.azureSasUrl) : String(values.gcsServiceAccount);
+      values.provider === "azure_blob"
+        ? String(values.azureSasUrl)
+        : values.provider === "gcs"
+          ? String(values.gcsServiceAccount)
+          : JSON.stringify({
+              accessKeyId: s3?.accessKeyId,
+              secretAccessKey: s3?.secretAccessKey,
+              sessionToken: s3?.sessionToken,
+            });
     const connectionEncrypted = await encryptApiKey(secret);
     const source = await createCloudStorageSource(getStore(), ctx.actor, {
       meta: { name: values.name, description: values.description, visibility: values.visibility },
@@ -397,7 +422,13 @@ export async function createCloudStorageSourceAction(
         provider: values.provider,
         displayName: ingest.rootName,
         prefix,
-        bucket: values.provider === "gcs" ? String(values.gcsBucket) : null,
+        bucket:
+          values.provider === "gcs"
+            ? String(values.gcsBucket)
+            : values.provider === "s3"
+              ? String(values.s3Bucket)
+              : null,
+        region: values.provider === "s3" ? String(values.s3Region) : null,
         connectionEncrypted,
       },
       documents: ingest.documents,
@@ -427,21 +458,41 @@ export async function syncCloudStorageSourceAction(
       return { error: "This cloud storage source could not be found." };
     }
     const meta = source.metadata as {
-      provider?: "azure_blob" | "gcs";
+      provider?: "azure_blob" | "gcs" | "s3";
       prefix?: string | null;
       bucket?: string | null;
+      region?: string | null;
       connectionEncrypted?: string;
     };
     if (!meta.connectionEncrypted || !meta.provider) {
       return { error: "This source is missing its connection details. Please reconnect it." };
     }
     const secret = await decryptApiKey(meta.connectionEncrypted);
+    // For S3 the encrypted secret is a JSON blob of the key material.
+    const s3 =
+      meta.provider === "s3"
+        ? (() => {
+            const k = JSON.parse(secret) as {
+              accessKeyId: string;
+              secretAccessKey: string;
+              sessionToken?: string;
+            };
+            return {
+              accessKeyId: k.accessKeyId,
+              secretAccessKey: k.secretAccessKey,
+              region: String(meta.region ?? ""),
+              bucket: String(meta.bucket ?? ""),
+              sessionToken: k.sessionToken,
+            };
+          })()
+        : undefined;
     const ingest = await ingestCloudStorage({
       provider: meta.provider,
       prefix: meta.prefix ?? undefined,
       azureSasUrl: meta.provider === "azure_blob" ? secret : undefined,
-      gcsBucket: meta.bucket ?? undefined,
+      gcsBucket: meta.provider === "gcs" ? (meta.bucket ?? undefined) : undefined,
       gcsServiceAccount: meta.provider === "gcs" ? secret : undefined,
+      s3,
       nowSeconds: Math.floor(Date.now() / 1000),
     });
     await syncCloudStorageSource(store, ctx.actor, sourceId, {

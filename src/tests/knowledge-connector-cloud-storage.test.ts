@@ -13,6 +13,9 @@ import {
   filterSupported,
   gcsAccessToken,
   ingestCloudStorage,
+  sigV4Signature,
+  parseS3List,
+  assertS3Credentials,
   CloudStorageConnectorError,
 } from "@/modules/knowledge/connectors/cloud-storage";
 
@@ -113,6 +116,108 @@ describe("cloud storage — GCS access token (RS256 JWT)", () => {
     expect(claim.scope).toContain("devstorage.read_only");
     expect(claim.aud).toBe(sa.token_uri);
     expect(claim.exp - claim.iat).toBe(3600);
+  });
+});
+
+describe("cloud storage — S3 SigV4 signature (AWS published vector)", () => {
+  it("reproduces AWS's documented GET Object signature", () => {
+    // From AWS docs "Authenticating Requests: Using the Authorization Header
+    // (AWS Signature Version 4)" — the GET Object example.
+    const signature = sigV4Signature({
+      secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      dateStamp: "20130524",
+      region: "us-east-1",
+      service: "s3",
+      stringToSign:
+        "AWS4-HMAC-SHA256\n" +
+        "20130524T000000Z\n" +
+        "20130524/us-east-1/s3/aws4_request\n" +
+        "7344ae5b7ee6c3e7e6b0fe0640412a37625d1fbfff95c48bbb2dc43964946972",
+    });
+    expect(signature).toBe(
+      "f0e8bdb87c964420e857bd35b5d6ed310bd44f0170aba48dd91039c6036bdb41",
+    );
+  });
+});
+
+describe("cloud storage — S3 list parsing + credential validation", () => {
+  it("parses ListObjectsV2 keys/sizes and the continuation token", () => {
+    const truncated = parseS3List(
+      `<ListBucketResult>
+        <Contents><Key>reports/a.pdf</Key><Size>1200</Size></Contents>
+        <Contents><Key>img.png</Key><Size>50</Size></Contents>
+        <IsTruncated>true</IsTruncated>
+        <NextContinuationToken>TOK2</NextContinuationToken>
+      </ListBucketResult>`,
+    );
+    expect(truncated.objects.map((o) => o.name)).toEqual(["reports/a.pdf", "img.png"]);
+    expect(truncated.objects[0].size).toBe(1200);
+    expect(truncated.nextToken).toBe("TOK2");
+
+    // Not truncated → no continuation token is returned.
+    const done = parseS3List(
+      `<ListBucketResult><Contents><Key>x.txt</Key><Size>1</Size></Contents><IsTruncated>false</IsTruncated></ListBucketResult>`,
+    );
+    expect(done.nextToken).toBeNull();
+  });
+
+  it("validates region + bucket + keys", () => {
+    expect(() =>
+      assertS3Credentials({ accessKeyId: "", secretAccessKey: "s", region: "us-east-1", bucket: "b1234" }),
+    ).toThrow(/access key/i);
+    expect(() =>
+      assertS3Credentials({ accessKeyId: "a", secretAccessKey: "s", region: "US_EAST", bucket: "b1234" }),
+    ).toThrow(/region/i);
+    expect(() =>
+      assertS3Credentials({ accessKeyId: "a", secretAccessKey: "s", region: "us-east-1", bucket: "A" }),
+    ).toThrow(/bucket/i);
+    expect(
+      assertS3Credentials({ accessKeyId: "a", secretAccessKey: "s", region: "us-east-1", bucket: "my-bucket" })
+        .bucket,
+    ).toBe("my-bucket");
+  });
+});
+
+describe("cloud storage — S3 ingest (mocked fetch)", () => {
+  it("signs a request, lists the bucket, downloads supported files", async () => {
+    const xml = `<ListBucketResult>
+      <Contents><Key>notes.txt</Key><Size>18</Size></Contents>
+      <Contents><Key>photo.png</Key><Size>90</Size></Contents>
+      <IsTruncated>false</IsTruncated>
+    </ListBucketResult>`;
+
+    let listAuth = "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        const u = String(url);
+        if (u.includes("list-type=2")) {
+          listAuth = String((init?.headers as Record<string, string>)?.authorization ?? "");
+          return new Response(xml, { status: 200 });
+        }
+        if (u.includes("/notes.txt")) return new Response("content from s3", { status: 200 });
+        return new Response("", { status: 404 });
+      }),
+    );
+
+    const res = await ingestCloudStorage({
+      provider: "s3",
+      s3: {
+        accessKeyId: "AKIAEXAMPLE",
+        secretAccessKey: "secret",
+        region: "us-east-1",
+        bucket: "my-bucket",
+      },
+      nowSeconds: 1_700_000_000,
+    });
+    // A real SigV4 Authorization header was attached to the list request.
+    expect(listAuth).toContain("AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/");
+    expect(listAuth).toContain("SignedHeaders=host;x-amz-content-sha256;x-amz-date");
+    expect(res.rootName).toBe("my-bucket");
+    expect(res.documents).toHaveLength(1); // .png filtered out
+    expect(res.documents[0].title).toBe("notes.txt");
+    expect(res.documents[0].text).toContain("content from s3");
+    expect(res.skipped).toBe(1);
   });
 });
 
