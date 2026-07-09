@@ -54,7 +54,7 @@ const AVAILABILITY: Record<ChannelType, ConnectionAvailability> = {
   phone_call: "foundation",
   instagram_dm: "foundation",
   facebook_messenger: "foundation",
-  microsoft_teams: "coming_soon",
+  microsoft_teams: "foundation",
 };
 
 export const CONNECTION_AVAILABILITY_LABELS: Record<ConnectionAvailability, string> = {
@@ -131,6 +131,7 @@ export function connectionSetupHref(employeeId: string, type: ChannelType): stri
   const base = `/dashboard/employees/${employeeId}/channels`;
   if (type === "phone_call") return `${base}/voice`;
   if (type === "slack") return `${base}/slack`;
+  if (type === "microsoft_teams") return `${base}/teams`;
   if (
     type === "whatsapp" ||
     type === "sms" ||

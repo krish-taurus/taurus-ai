@@ -52,6 +52,7 @@ const PROVIDER_SECRET_FIELDS: Record<string, { required: string[]; primary: stri
   slack: { required: ["botToken"], primary: "botToken" },
   meta_messenger: { required: ["accessToken"], primary: "accessToken" },
   meta_instagram: { required: ["accessToken"], primary: "accessToken" },
+  microsoft_graph: { required: ["appId", "appPassword"], primary: "appPassword" },
   custom_webhook: { required: [], primary: "apiKey" },
 };
 

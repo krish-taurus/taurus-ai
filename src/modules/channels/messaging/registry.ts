@@ -18,6 +18,7 @@ import {
   instagramProvider,
 } from "@/modules/channels/messaging/providers/meta-messaging";
 import { slackProvider } from "@/modules/channels/slack/provider";
+import { teamsProvider } from "@/modules/channels/teams/provider";
 import { createSimulatedProvider } from "@/modules/channels/messaging/providers/simulated";
 
 export const customWebhookProvider = createSimulatedProvider(
@@ -35,6 +36,7 @@ const REGISTRY: Partial<Record<ChannelProviderType, MessagingProvider>> = {
   meta_messenger: messengerProvider,
   meta_instagram: instagramProvider,
   slack: slackProvider,
+  microsoft_graph: teamsProvider,
   custom_webhook: customWebhookProvider,
 };
 

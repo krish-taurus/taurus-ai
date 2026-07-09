@@ -53,6 +53,11 @@ function envSecretsFor(providerType: ChannelProviderType): Record<string, string
       set("appSecret", process.env.META_APP_SECRET ?? process.env.WHATSAPP_APP_SECRET);
       set("verifyToken", process.env.META_WEBHOOK_VERIFY_TOKEN);
       break;
+    case "microsoft_graph":
+      // Teams / Bot Framework app credentials (also enterable per connection).
+      set("appId", process.env.TEAMS_APP_ID);
+      set("appPassword", process.env.TEAMS_APP_PASSWORD);
+      break;
     default:
       break;
   }

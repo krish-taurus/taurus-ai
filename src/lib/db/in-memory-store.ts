@@ -1949,6 +1949,19 @@ export class InMemoryStore implements DataStore {
     return null;
   }
 
+  async getEmployeeChannelByTeamsTenant(tenantId: string): Promise<EmployeeChannel | null> {
+    for (const channel of this.channels.values()) {
+      if (
+        channel.channelType === "microsoft_teams" &&
+        channel.status !== "archived" &&
+        channel.providerConfig?.tenant_id === tenantId
+      ) {
+        return channel;
+      }
+    }
+    return null;
+  }
+
   async updateEmployeeChannel(
     organizationId: string,
     channelId: string,

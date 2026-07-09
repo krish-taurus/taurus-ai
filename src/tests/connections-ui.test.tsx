@@ -100,7 +100,6 @@ describe("ConnectionCatalog (Sprint 014)", () => {
     }
     expect(text).toContain("Available now");
     expect(text).toContain("Ready to set up");
-    expect(text).toContain("Coming soon");
     // Available channels say "Connect"; provider-needed ones say "Set up".
     expect(text).toContain("Connect");
     expect(text).toContain("Set up");

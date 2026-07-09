@@ -135,7 +135,7 @@ export const CHANNEL_DEFINITIONS: ChannelDefinition[] = [
     label: "Microsoft Teams",
     description: "Bring your AI Employee into Microsoft Teams.",
     providerType: "microsoft_graph",
-    availability: "coming_soon",
+    availability: "available",
   },
 ];
 

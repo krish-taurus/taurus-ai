@@ -101,7 +101,7 @@ describe("connection catalog metadata", () => {
     ]);
   });
 
-  it("marks web + telegram + slack available, provider channels foundation, teams coming soon", () => {
+  it("marks web + telegram + slack available and the provider channels foundation", () => {
     for (const type of [
       "website_widget",
       "hosted_chat",
@@ -119,13 +119,13 @@ describe("connection catalog metadata", () => {
       "phone_call",
       "facebook_messenger",
       "instagram_dm",
+      "microsoft_teams",
     ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("foundation");
     }
-    expect(connectionAvailability("microsoft_teams")).toBe("coming_soon");
   });
 
-  it("only offers available + foundation types for configuration", () => {
+  it("offers every type for configuration (all are available or foundation)", () => {
     expect(CONFIGURABLE_CONNECTION_TYPES).toEqual([
       "website_widget",
       "hosted_chat",
@@ -139,8 +139,9 @@ describe("connection catalog metadata", () => {
       "instagram_dm",
       "phone_call",
       "slack",
+      "microsoft_teams",
     ]);
-    expect(isConfigurableType("microsoft_teams")).toBe(false);
+    expect(isConfigurableType("microsoft_teams")).toBe(true);
     expect(isConfigurableType("website_widget")).toBe(true);
     expect(isConfigurableType("facebook_messenger")).toBe(true);
   });
@@ -172,6 +173,9 @@ describe("connectionSetupHref", () => {
     );
     expect(connectionSetupHref("emp-1", "instagram_dm")).toBe(
       "/dashboard/employees/emp-1/channels/messaging/instagram_dm",
+    );
+    expect(connectionSetupHref("emp-1", "microsoft_teams")).toBe(
+      "/dashboard/employees/emp-1/channels/teams",
     );
   });
 });

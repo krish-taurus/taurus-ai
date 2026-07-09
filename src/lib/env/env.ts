@@ -92,6 +92,11 @@ const serverSchema = z
     // + server-only; absent → those channels run in simulated mode.
     META_APP_SECRET: z.string().optional().or(z.literal("")),
     META_WEBHOOK_VERIFY_TOKEN: z.string().optional().or(z.literal("")),
+    // Microsoft Teams / Bot Framework (Sprint 043). AAD app id + password; also
+    // enterable per connection. Optional + server-only; absent → Teams runs in
+    // simulated mode.
+    TEAMS_APP_ID: z.string().optional().or(z.literal("")),
+    TEAMS_APP_PASSWORD: z.string().optional().or(z.literal("")),
     TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: z.string().optional().or(z.literal("")),
     // Voice Call Channel (Prompt 010). All optional and server-only; their absence
     // never breaks local dev or tests — voice falls back to simulated providers.
@@ -233,6 +238,8 @@ export function getServerEnv(): ServerEnv {
       WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
       META_APP_SECRET: process.env.META_APP_SECRET,
       META_WEBHOOK_VERIFY_TOKEN: process.env.META_WEBHOOK_VERIFY_TOKEN,
+      TEAMS_APP_ID: process.env.TEAMS_APP_ID,
+      TEAMS_APP_PASSWORD: process.env.TEAMS_APP_PASSWORD,
       TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY: process.env.TAURUS_CHANNEL_CREDENTIALS_MASTER_KEY,
       TELNYX_API_KEY: process.env.TELNYX_API_KEY,
       TELNYX_PUBLIC_KEY: process.env.TELNYX_PUBLIC_KEY,
