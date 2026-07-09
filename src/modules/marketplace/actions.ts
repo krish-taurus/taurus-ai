@@ -19,12 +19,22 @@ import {
   declineHire,
   publishListing,
   requestHire,
+  setListingPrice,
+  startHirePurchase,
   submitReview,
   unpublishListing,
   type MarketplaceActor,
   type VaultDescriber,
 } from "@/modules/marketplace/service";
 import { generateListingCopy, generateVaultDescription } from "@/modules/marketplace/generation";
+import {
+  availablePaymentProviders,
+  getMarketplacePaymentProvider,
+  platformFeeBps,
+} from "@/modules/marketplace/payments";
+import { majorToMinor } from "@/modules/marketplace/pricing";
+import { getClientEnv } from "@/lib/env/env";
+import type { MarketplacePaymentProviderId, MarketplacePricingModel } from "@/lib/db/types";
 
 export interface MarketplaceActionState {
   error?: string;
@@ -118,6 +128,83 @@ export async function unpublishListingAction(
   }
   revalidatePath("/dashboard/marketplace");
   redirect("/dashboard/marketplace/listings");
+}
+
+/** Set (or clear) the one-time hire price on a listing. Owner only. */
+export async function setListingPriceAction(
+  _prev: MarketplaceActionState,
+  formData: FormData,
+): Promise<MarketplaceActionState> {
+  const ctx = await requirePermission("employee.manage");
+  if (!ctx.ok) return { error: DENIED };
+
+  const listingId = String(formData.get("listingId") ?? "");
+  const priceModel = (String(formData.get("priceModel") ?? "free") as MarketplacePricingModel);
+  try {
+    let priceAmount: number | null = null;
+    let priceCurrency: string | null = null;
+    if (priceModel === "one_time") {
+      priceCurrency = String(formData.get("priceCurrency") ?? "usd").toLowerCase();
+      priceAmount = majorToMinor(String(formData.get("priceAmount") ?? ""), priceCurrency);
+      if (priceAmount === null) return { error: "Enter a valid price greater than zero." };
+    }
+    await setListingPrice(getStore(), ctx.actor, {
+      listingId,
+      priceModel,
+      priceAmount,
+      priceCurrency,
+    });
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not update the price." };
+  }
+  revalidatePath(`/dashboard/marketplace/${listingId}`);
+  redirect(`/dashboard/marketplace/${listingId}?priced=1`);
+}
+
+/**
+ * Buy a priced listing. Starts a hosted checkout (Stripe/Razorpay) or, in
+ * simulated mode, completes the purchase in-process and clones the DNA.
+ */
+export async function startHirePurchaseAction(
+  _prev: MarketplaceActionState,
+  formData: FormData,
+): Promise<MarketplaceActionState> {
+  const ctx = await requirePermission("employee.create");
+  if (!ctx.ok) return { error: DENIED };
+
+  const listingId = String(formData.get("listingId") ?? "");
+  const requested = String(formData.get("provider") ?? "") as MarketplacePaymentProviderId;
+  const available = availablePaymentProviders();
+  // Honor the requested provider when configured; else the first live one; else simulated.
+  const provider: MarketplacePaymentProviderId = available.includes(requested)
+    ? requested
+    : (available[0] ?? "simulated");
+  const paymentProvider = getMarketplacePaymentProvider(provider);
+  const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+
+  let redirectTo: string;
+  try {
+    const result = await startHirePurchase(
+      getStore(),
+      ctx.actor,
+      { listingId },
+      {
+        provider,
+        feeBps: platformFeeBps(),
+        successUrl: `${appUrl}/dashboard/marketplace/${listingId}?purchased=1`,
+        cancelUrl: `${appUrl}/dashboard/marketplace/${listingId}?canceled=1`,
+        createCheckout: (input) => paymentProvider.createCheckout(input),
+      },
+    );
+    redirectTo =
+      result.status === "redirect"
+        ? result.url
+        : `/dashboard/marketplace/${listingId}?purchased=1`;
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not start the purchase." };
+  }
+  revalidatePath(`/dashboard/marketplace/${listingId}`);
+  redirect(redirectTo);
 }
 
 export async function requestHireAction(

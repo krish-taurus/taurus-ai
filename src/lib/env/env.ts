@@ -82,6 +82,14 @@ const serverSchema = z
     STRIPE_WEBHOOK_SECRET: z.string().optional().or(z.literal("")),
     STRIPE_PRICE_GROWTH: z.string().optional().or(z.literal("")),
     STRIPE_PRICE_SCALE: z.string().optional().or(z.literal("")),
+    // Marketplace paid lease / revenue-share (Sprint 034). All optional and
+    // SERVER-ONLY. When neither Stripe nor Razorpay is configured, marketplace
+    // purchases run in simulated mode — dev and tests never charge.
+    RAZORPAY_KEY_ID: z.string().optional().or(z.literal("")),
+    RAZORPAY_KEY_SECRET: z.string().optional().or(z.literal("")),
+    RAZORPAY_WEBHOOK_SECRET: z.string().optional().or(z.literal("")),
+    // Platform revenue-share cut in basis points (default 1500 = 15%).
+    MARKETPLACE_PLATFORM_FEE_BPS: z.string().optional().or(z.literal("")),
     // Usage & Margin (Sprint 016). Comma-separated allowlist of platform-OPERATOR
     // user ids that may see Taurus's cross-tenant cost/margin. SERVER-ONLY (never
     // NEXT_PUBLIC_*); this is NOT an org role and is never assignable from the
@@ -199,6 +207,10 @@ export function getServerEnv(): ServerEnv {
       STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
       STRIPE_PRICE_GROWTH: process.env.STRIPE_PRICE_GROWTH,
       STRIPE_PRICE_SCALE: process.env.STRIPE_PRICE_SCALE,
+      RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,
+      RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET,
+      RAZORPAY_WEBHOOK_SECRET: process.env.RAZORPAY_WEBHOOK_SECRET,
+      MARKETPLACE_PLATFORM_FEE_BPS: process.env.MARKETPLACE_PLATFORM_FEE_BPS,
       PLATFORM_OPERATOR_USER_IDS: process.env.PLATFORM_OPERATOR_USER_IDS,
       MANAGED_INTERACTION_PRICE_USD: process.env.MANAGED_INTERACTION_PRICE_USD,
       MANAGED_INTERACTION_PRICE_BUDGET_USD: process.env.MANAGED_INTERACTION_PRICE_BUDGET_USD,

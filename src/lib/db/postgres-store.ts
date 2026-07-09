@@ -117,6 +117,10 @@ import type {
   UpdateMarketplaceHireInput,
   MarketplaceReview,
   UpsertMarketplaceReviewInput,
+  MarketplacePayment,
+  CreateMarketplacePaymentInput,
+  UpdateMarketplacePaymentInput,
+  MarketplacePaymentProviderId,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -447,6 +451,10 @@ function mapMarketplaceListing(row: Row): MarketplaceListing {
     roleTitle: row.role_title,
     status: row.status as MarketplaceListing["status"],
     includeVaults: !!row.include_vaults,
+    priceModel: (row.price_model as MarketplaceListing["priceModel"]) ?? "free",
+    priceAmount:
+      row.price_amount === null || row.price_amount === undefined ? null : Number(row.price_amount),
+    priceCurrency: row.price_currency ?? null,
     dnaVersionNumber: row.dna_version_number,
     dnaSnapshot: row.dna_snapshot as MarketplaceListing["dnaSnapshot"],
     performanceSnapshot: row.performance_snapshot as MarketplaceListing["performanceSnapshot"],
@@ -487,6 +495,28 @@ function mapMarketplaceHire(row: Row): MarketplaceHire {
     decidedByUserId: row.decided_by_user_id,
     decidedAt: row.decided_at ? new Date(row.decided_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
+  };
+}
+
+function mapMarketplacePayment(row: Row): MarketplacePayment {
+  return {
+    id: row.id,
+    listingId: row.listing_id,
+    hireId: row.hire_id ?? null,
+    buyerOrganizationId: row.buyer_organization_id,
+    sellerOrganizationId: row.seller_organization_id,
+    provider: row.provider as MarketplacePayment["provider"],
+    reference: row.reference,
+    externalPaymentId: row.external_payment_id ?? null,
+    amount: Number(row.amount),
+    currency: row.currency,
+    platformFee: Number(row.platform_fee ?? 0),
+    sellerNet: Number(row.seller_net ?? 0),
+    status: row.status as MarketplacePayment["status"],
+    createdByUserId: row.created_by_user_id ?? null,
+    paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
   };
 }
 
@@ -1726,9 +1756,9 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `insert into marketplace_listings
          (organization_id, employee_id, public_key, title, headline, summary, role_title,
-          status, include_vaults, dna_version_number, dna_snapshot, performance_snapshot,
-          vault_snapshot, created_by_user_id, published_at)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+          status, include_vaults, price_model, price_amount, price_currency, dna_version_number,
+          dna_snapshot, performance_snapshot, vault_snapshot, created_by_user_id, published_at)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
        returning *`,
       [
         input.organizationId,
@@ -1740,6 +1770,9 @@ export class PostgresStore implements DataStore {
         input.roleTitle ?? null,
         input.status ?? "draft",
         input.includeVaults ?? false,
+        input.priceModel ?? "free",
+        input.priceAmount ?? null,
+        input.priceCurrency ?? null,
         input.dnaVersionNumber ?? null,
         JSON.stringify(input.dnaSnapshot),
         JSON.stringify(input.performanceSnapshot),
@@ -1794,6 +1827,9 @@ export class PostgresStore implements DataStore {
     if ("roleTitle" in patch) add("role_title", patch.roleTitle ?? null);
     if (patch.status !== undefined) add("status", patch.status);
     if (patch.includeVaults !== undefined) add("include_vaults", patch.includeVaults);
+    if (patch.priceModel !== undefined) add("price_model", patch.priceModel);
+    if ("priceAmount" in patch) add("price_amount", patch.priceAmount ?? null);
+    if ("priceCurrency" in patch) add("price_currency", patch.priceCurrency ?? null);
     if (patch.dnaVersionNumber !== undefined) add("dna_version_number", patch.dnaVersionNumber);
     if (patch.dnaSnapshot !== undefined) add("dna_snapshot", JSON.stringify(patch.dnaSnapshot));
     if (patch.performanceSnapshot !== undefined)
@@ -1939,6 +1975,100 @@ export class PostgresStore implements DataStore {
       [listingId, hirerOrganizationId],
     );
     return rows.length > 0;
+  }
+
+  // --- Marketplace payments (Sprint 034) ------------------------------------
+
+  async createMarketplacePayment(
+    input: CreateMarketplacePaymentInput,
+  ): Promise<MarketplacePayment> {
+    const { rows } = await this.query(
+      `insert into marketplace_payments
+         (listing_id, buyer_organization_id, seller_organization_id, provider, reference,
+          amount, currency, platform_fee, seller_net, status, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning *`,
+      [
+        input.listingId,
+        input.buyerOrganizationId,
+        input.sellerOrganizationId,
+        input.provider,
+        input.reference,
+        input.amount,
+        input.currency,
+        input.platformFee,
+        input.sellerNet,
+        input.status ?? "pending",
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapMarketplacePayment(rows[0]);
+  }
+
+  async getMarketplacePayment(paymentId: string): Promise<MarketplacePayment | null> {
+    const { rows } = await this.query("select * from marketplace_payments where id = $1", [
+      paymentId,
+    ]);
+    return rows[0] ? mapMarketplacePayment(rows[0]) : null;
+  }
+
+  async getMarketplacePaymentByReference(reference: string): Promise<MarketplacePayment | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payments where reference = $1",
+      [reference],
+    );
+    return rows[0] ? mapMarketplacePayment(rows[0]) : null;
+  }
+
+  async getMarketplacePaymentByExternalId(
+    provider: MarketplacePaymentProviderId,
+    externalPaymentId: string,
+  ): Promise<MarketplacePayment | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payments where provider = $1 and external_payment_id = $2",
+      [provider, externalPaymentId],
+    );
+    return rows[0] ? mapMarketplacePayment(rows[0]) : null;
+  }
+
+  async updateMarketplacePayment(
+    paymentId: string,
+    patch: UpdateMarketplacePaymentInput,
+  ): Promise<MarketplacePayment | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if ("hireId" in patch) add("hire_id", patch.hireId ?? null);
+    if ("externalPaymentId" in patch) add("external_payment_id", patch.externalPaymentId ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if ("paidAt" in patch) add("paid_at", patch.paidAt ?? null);
+    if (sets.length === 0) return this.getMarketplacePayment(paymentId);
+    sets.push("updated_at = now()");
+    values.push(paymentId);
+    const { rows } = await this.query(
+      `update marketplace_payments set ${sets.join(", ")} where id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapMarketplacePayment(rows[0]) : null;
+  }
+
+  async listMarketplacePaymentsForBuyer(organizationId: string): Promise<MarketplacePayment[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_payments where buyer_organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplacePayment);
+  }
+
+  async listMarketplacePaymentsForSeller(organizationId: string): Promise<MarketplacePayment[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_payments where seller_organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplacePayment);
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

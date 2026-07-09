@@ -10,9 +10,11 @@ import {
   approveHireAction,
   declineHireAction,
   requestHireAction,
+  startHirePurchaseAction,
   unpublishListingAction,
   type MarketplaceActionState,
 } from "@/modules/marketplace/actions";
+import type { MarketplacePaymentProviderId } from "@/lib/db/types";
 import { buttonClasses, FieldError } from "@/components/ui";
 
 function Submit({ label, busy, variant = "primary" }: { label: string; busy: string; variant?: "primary" | "secondary" | "danger" }) {
@@ -30,6 +32,47 @@ export function HireButton({ listingId }: { listingId: string }) {
     <form action={action} className="flex flex-col gap-1">
       <input type="hidden" name="listingId" value={listingId} />
       <Submit label="Request to hire" busy="Sending…" />
+      {state?.error ? <FieldError>{state.error}</FieldError> : null}
+    </form>
+  );
+}
+
+/**
+ * Buy a priced listing. `priceLabel` is the formatted amount; `providers` are the
+ * live payment options (empty → simulated, shown as an instant demo purchase).
+ */
+export function BuyButton({
+  listingId,
+  priceLabel,
+  providers,
+}: {
+  listingId: string;
+  priceLabel: string;
+  providers: MarketplacePaymentProviderId[];
+}) {
+  const [state, action] = useFormState(startHirePurchaseAction, {} as MarketplaceActionState);
+  const options: { id: MarketplacePaymentProviderId; label: string }[] =
+    providers.length > 0
+      ? providers.map((p) => ({
+          id: p,
+          label: p === "stripe" ? "Pay with card (Stripe)" : "Pay with Razorpay",
+        }))
+      : [{ id: "simulated", label: `Buy for ${priceLabel} (demo)` }];
+
+  return (
+    <form action={action} className="flex flex-col gap-2">
+      <input type="hidden" name="listingId" value={listingId} />
+      {options.map((opt) => (
+        <button
+          key={opt.id}
+          type="submit"
+          name="provider"
+          value={opt.id}
+          className={buttonClasses("primary")}
+        >
+          {providers.length > 0 ? `${opt.label} — ${priceLabel}` : opt.label}
+        </button>
+      ))}
       {state?.error ? <FieldError>{state.error}</FieldError> : null}
     </form>
   );

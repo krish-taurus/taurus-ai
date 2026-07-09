@@ -111,6 +111,10 @@ import type {
   UpdateMarketplaceHireInput,
   MarketplaceReview,
   UpsertMarketplaceReviewInput,
+  MarketplacePayment,
+  CreateMarketplacePaymentInput,
+  UpdateMarketplacePaymentInput,
+  MarketplacePaymentProviderId,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -305,6 +309,23 @@ export interface DataStore {
   listMarketplaceReviews(listingId: string): Promise<MarketplaceReview[]>;
   /** True if the org has an approved hire for the listing (gates reviewing). */
   hasApprovedMarketplaceHire(listingId: string, hirerOrganizationId: string): Promise<boolean>;
+
+  // Marketplace paid lease / revenue-share (Sprint 034).
+  createMarketplacePayment(input: CreateMarketplacePaymentInput): Promise<MarketplacePayment>;
+  getMarketplacePayment(paymentId: string): Promise<MarketplacePayment | null>;
+  getMarketplacePaymentByReference(reference: string): Promise<MarketplacePayment | null>;
+  getMarketplacePaymentByExternalId(
+    provider: MarketplacePaymentProviderId,
+    externalPaymentId: string,
+  ): Promise<MarketplacePayment | null>;
+  updateMarketplacePayment(
+    paymentId: string,
+    patch: UpdateMarketplacePaymentInput,
+  ): Promise<MarketplacePayment | null>;
+  /** Payments made BY this org (buyer purchases). */
+  listMarketplacePaymentsForBuyer(organizationId: string): Promise<MarketplacePayment[]>;
+  /** Payments received for this org's listings (seller earnings). */
+  listMarketplacePaymentsForSeller(organizationId: string): Promise<MarketplacePayment[]>;
 
   // Model Hub + LLM Gateway (Prompt 006B).
   // Catalog (code-authoritative; not organization-scoped).

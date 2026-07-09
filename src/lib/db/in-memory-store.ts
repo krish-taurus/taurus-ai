@@ -92,6 +92,10 @@ import type {
   UpdateMarketplaceHireInput,
   MarketplaceReview,
   UpsertMarketplaceReviewInput,
+  MarketplacePayment,
+  CreateMarketplacePaymentInput,
+  UpdateMarketplacePaymentInput,
+  MarketplacePaymentProviderId,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -166,6 +170,7 @@ export class InMemoryStore implements DataStore {
   private marketplaceListings = new Map<string, MarketplaceListing>();
   private marketplaceHires = new Map<string, MarketplaceHire>();
   private marketplaceReviews = new Map<string, MarketplaceReview>();
+  private marketplacePayments = new Map<string, MarketplacePayment>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -933,6 +938,9 @@ export class InMemoryStore implements DataStore {
       roleTitle: input.roleTitle ?? null,
       status: input.status ?? "draft",
       includeVaults: input.includeVaults ?? false,
+      priceModel: input.priceModel ?? "free",
+      priceAmount: input.priceAmount ?? null,
+      priceCurrency: input.priceCurrency ?? null,
       dnaVersionNumber: input.dnaVersionNumber ?? null,
       dnaSnapshot: input.dnaSnapshot,
       performanceSnapshot: input.performanceSnapshot,
@@ -1094,6 +1102,79 @@ export class InMemoryStore implements DataStore {
         h.hirerOrganizationId === hirerOrganizationId &&
         h.status === "approved",
     );
+  }
+
+  // --- Marketplace payments (Sprint 034) ------------------------------------
+
+  async createMarketplacePayment(
+    input: CreateMarketplacePaymentInput,
+  ): Promise<MarketplacePayment> {
+    const timestamp = now();
+    const payment: MarketplacePayment = {
+      id: uuid(),
+      listingId: input.listingId,
+      hireId: null,
+      buyerOrganizationId: input.buyerOrganizationId,
+      sellerOrganizationId: input.sellerOrganizationId,
+      provider: input.provider,
+      reference: input.reference,
+      externalPaymentId: null,
+      amount: input.amount,
+      currency: input.currency,
+      platformFee: input.platformFee,
+      sellerNet: input.sellerNet,
+      status: input.status ?? "pending",
+      createdByUserId: input.createdByUserId ?? null,
+      paidAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.marketplacePayments.set(payment.id, payment);
+    return payment;
+  }
+
+  async getMarketplacePayment(paymentId: string): Promise<MarketplacePayment | null> {
+    return this.marketplacePayments.get(paymentId) ?? null;
+  }
+
+  async getMarketplacePaymentByReference(reference: string): Promise<MarketplacePayment | null> {
+    return (
+      [...this.marketplacePayments.values()].find((p) => p.reference === reference) ?? null
+    );
+  }
+
+  async getMarketplacePaymentByExternalId(
+    provider: MarketplacePaymentProviderId,
+    externalPaymentId: string,
+  ): Promise<MarketplacePayment | null> {
+    return (
+      [...this.marketplacePayments.values()].find(
+        (p) => p.provider === provider && p.externalPaymentId === externalPaymentId,
+      ) ?? null
+    );
+  }
+
+  async updateMarketplacePayment(
+    paymentId: string,
+    patch: UpdateMarketplacePaymentInput,
+  ): Promise<MarketplacePayment | null> {
+    const existing = this.marketplacePayments.get(paymentId);
+    if (!existing) return null;
+    const updated: MarketplacePayment = { ...existing, ...patch, updatedAt: now() };
+    this.marketplacePayments.set(paymentId, updated);
+    return updated;
+  }
+
+  async listMarketplacePaymentsForBuyer(organizationId: string): Promise<MarketplacePayment[]> {
+    return [...this.marketplacePayments.values()]
+      .filter((p) => p.buyerOrganizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async listMarketplacePaymentsForSeller(organizationId: string): Promise<MarketplacePayment[]> {
+    return [...this.marketplacePayments.values()]
+      .filter((p) => p.sellerOrganizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

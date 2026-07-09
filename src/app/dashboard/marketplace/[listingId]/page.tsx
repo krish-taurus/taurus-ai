@@ -4,8 +4,15 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { canReviewListing, getMyReview, listListingReviews } from "@/modules/marketplace/service";
+import { availablePaymentProviders, platformFeeBps } from "@/modules/marketplace/payments";
+import { formatMoney, isPricedListing } from "@/modules/marketplace/pricing";
 import { ResumeView } from "@/components/marketplace/resume-view";
-import { HireButton, UnpublishButton } from "@/components/marketplace/marketplace-buttons";
+import {
+  BuyButton,
+  HireButton,
+  UnpublishButton,
+} from "@/components/marketplace/marketplace-buttons";
+import { PriceForm } from "@/components/marketplace/price-form";
 import { RatingSummary, RatingStars } from "@/components/marketplace/rating-stars";
 import { ReviewForm } from "@/components/marketplace/review-form";
 import { CopyButton } from "@/components/channels/copy-button";
@@ -17,7 +24,7 @@ export default async function MarketplaceListingPage({
   searchParams,
 }: {
   params: { listingId: string };
-  searchParams?: { requested?: string; reviewed?: string };
+  searchParams?: { requested?: string; reviewed?: string; purchased?: string; canceled?: string };
 }) {
   const { organization, membership } = await requireCurrentOrganization();
   if (!hasPermission(membership.role, "employee.view")) redirect("/dashboard");
@@ -31,6 +38,9 @@ export default async function MarketplaceListingPage({
   const canHire = hasPermission(membership.role, "employee.create");
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   const publicUrl = `${appUrl}/marketplace/${listing.publicKey}`;
+  const priced = isPricedListing(listing);
+  const priceLabel = priced ? formatMoney(listing.priceAmount as number, listing.priceCurrency as string) : null;
+  const providers = availablePaymentProviders();
 
   // Reviews: list them (with reviewer org names) + the viewer's own review if any.
   const reviews = await listListingReviews(store, listing.id);
@@ -53,8 +63,13 @@ export default async function MarketplaceListingPage({
         </Link>
       </p>
 
-      <div className="mb-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <RatingSummary avg={listing.ratingAvg} count={listing.ratingCount} />
+        {priceLabel ? (
+          <Badge tone="soft">{priceLabel} to hire</Badge>
+        ) : (
+          <Badge tone="outline">Free to hire</Badge>
+        )}
       </div>
 
       <PageHeader
@@ -68,10 +83,26 @@ export default async function MarketplaceListingPage({
               {listing.status === "published" ? <UnpublishButton listingId={listing.id} /> : null}
             </div>
           ) : canHire ? (
-            <HireButton listingId={listing.id} />
+            priced ? (
+              <BuyButton listingId={listing.id} priceLabel={priceLabel as string} providers={providers} />
+            ) : (
+              <HireButton listingId={listing.id} />
+            )
           ) : undefined
         }
       />
+
+      {searchParams?.purchased ? (
+        <Card className="mb-6 border-taurus-line bg-taurus-muted p-4 text-sm text-taurus-text">
+          Payment received. A copy of this AI Employee (its DNA only) is being added to your AI
+          Employees — the owner&apos;s knowledge vault is never shared.
+        </Card>
+      ) : null}
+      {searchParams?.canceled ? (
+        <Card className="mb-6 border-taurus-line bg-taurus-muted p-4 text-sm text-taurus-sub">
+          Checkout was canceled — you have not been charged.
+        </Card>
+      ) : null}
 
       {searchParams?.requested ? (
         <Card className="mb-6 border-taurus-line bg-taurus-muted p-4 text-sm text-taurus-text">
@@ -99,6 +130,21 @@ export default async function MarketplaceListingPage({
               <CopyButton value={publicUrl} label="Copy link" />
             </Card>
           ) : null}
+
+          <Card className="mb-6 p-4">
+            <p className="mb-1 text-sm font-medium text-taurus-text">Hire price</p>
+            <p className="mb-3 text-xs text-taurus-faint">
+              Charge a one-time fee (buyers pay before the DNA is cloned) or keep it free
+              (request → approve). You keep {100 - platformFeeBps() / 100}% after the platform fee.
+              Only the DNA is ever sold — your knowledge vault is never shared.
+            </p>
+            <PriceForm
+              listingId={listing.id}
+              priceModel={listing.priceModel}
+              priceMajor={priced ? String((listing.priceAmount as number) / 100) : ""}
+              priceCurrency={listing.priceCurrency}
+            />
+          </Card>
         </>
       ) : null}
 
@@ -107,11 +153,17 @@ export default async function MarketplaceListingPage({
       {!own && canHire ? (
         <Card className="mt-6 p-5">
           <p className="mb-3 text-sm text-taurus-sub">
-            Hiring clones this AI Employee&apos;s DNA into your workspace as a new AI Employee. The
-            owner&apos;s knowledge vault is never shared — you attach your own knowledge and model
-            keys.
+            {priced
+              ? `Buying clones this AI Employee's DNA into your workspace as a new AI Employee (${priceLabel}, one-time). `
+              : "Hiring clones this AI Employee's DNA into your workspace as a new AI Employee. "}
+            The owner&apos;s knowledge vault is never shared — you attach your own knowledge and
+            model keys.
           </p>
-          <HireButton listingId={listing.id} />
+          {priced ? (
+            <BuyButton listingId={listing.id} priceLabel={priceLabel as string} providers={providers} />
+          ) : (
+            <HireButton listingId={listing.id} />
+          )}
         </Card>
       ) : null}
 

@@ -362,6 +362,11 @@ export interface AssignVaultInput {
 export type MarketplaceListingStatus = "draft" | "published" | "unpublished";
 export type MarketplaceHireStatus = "requested" | "approved" | "declined";
 
+/** How a listing is priced. "free" = today's request→approve flow. */
+export type MarketplacePricingModel = "free" | "one_time";
+export type MarketplacePaymentProviderId = "stripe" | "razorpay" | "simulated";
+export type MarketplacePaymentStatus = "pending" | "paid" | "failed" | "refunded";
+
 /** A performance summary captured on the resume (all derived from review runs). */
 export interface PerformanceSnapshot {
   reviewCount: number;
@@ -388,6 +393,10 @@ export interface MarketplaceListing {
   roleTitle: string | null;
   status: MarketplaceListingStatus;
   includeVaults: boolean;
+  /** Pricing (Sprint 034). "free" keeps the request→approve flow. */
+  priceModel: MarketplacePricingModel;
+  priceAmount: number | null; // minor units (e.g. cents); null when free
+  priceCurrency: string | null; // ISO 4217 lower, e.g. "usd" | "inr"
   dnaVersionNumber: number | null;
   /** Full DNA to display + clone (org-specific companyContext blanked). */
   dnaSnapshot: EmployeeDnaV1;
@@ -433,6 +442,9 @@ export interface CreateMarketplaceListingInput {
   roleTitle?: string | null;
   status?: MarketplaceListingStatus;
   includeVaults?: boolean;
+  priceModel?: MarketplacePricingModel;
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
   dnaVersionNumber?: number | null;
   dnaSnapshot: EmployeeDnaV1;
   performanceSnapshot: PerformanceSnapshot;
@@ -448,6 +460,9 @@ export interface UpdateMarketplaceListingInput {
   roleTitle?: string | null;
   status?: MarketplaceListingStatus;
   includeVaults?: boolean;
+  priceModel?: MarketplacePricingModel;
+  priceAmount?: number | null;
+  priceCurrency?: string | null;
   dnaVersionNumber?: number | null;
   dnaSnapshot?: EmployeeDnaV1;
   performanceSnapshot?: PerformanceSnapshot;
@@ -484,6 +499,49 @@ export interface UpdateMarketplaceHireInput {
   hirerEmployeeId?: string | null;
   decidedByUserId?: string | null;
   decidedAt?: string | null;
+}
+
+/** A purchase of a priced listing + its revenue-share split (Sprint 034). */
+export interface MarketplacePayment {
+  id: string;
+  listingId: string;
+  hireId: string | null;
+  buyerOrganizationId: string;
+  sellerOrganizationId: string;
+  provider: MarketplacePaymentProviderId;
+  /** Opaque reference we generate and hand to the provider (reconciliation key). */
+  reference: string;
+  externalPaymentId: string | null;
+  amount: number; // minor units
+  currency: string;
+  platformFee: number; // minor units retained by the platform
+  sellerNet: number; // minor units owed to the seller
+  status: MarketplacePaymentStatus;
+  createdByUserId: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMarketplacePaymentInput {
+  listingId: string;
+  buyerOrganizationId: string;
+  sellerOrganizationId: string;
+  provider: MarketplacePaymentProviderId;
+  reference: string;
+  amount: number;
+  currency: string;
+  platformFee: number;
+  sellerNet: number;
+  status?: MarketplacePaymentStatus;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateMarketplacePaymentInput {
+  hireId?: string | null;
+  externalPaymentId?: string | null;
+  status?: MarketplacePaymentStatus;
+  paidAt?: string | null;
 }
 
 export interface CreateKnowledgeSourceInput {
