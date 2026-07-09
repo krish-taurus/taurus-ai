@@ -1,5 +1,27 @@
 # Changelog
 
+## Sprint 032 - Marketplace ratings & reviews — 2026-07-09
+
+Added:
+
+- **Ratings & reviews on the marketplace** — an organization that has actually
+  **hired** a listed AI Employee (an approved hire) can leave a **1–5 star rating
+  + review** on its resume. The directory cards and the resume header show the
+  average rating and review count.
+  - **Credible by design**: reviewing requires an **approved hire** for that
+    listing (enforced in the service) and you can't review your own listing; one
+    review per organization per listing (upsert — editable). Rating is validated
+    1–5, comment capped.
+  - New `marketplace_reviews` table + denormalized `rating_count` / `rating_avg`
+    on `marketplace_listings` (`db/migrations/0024_marketplace_reviews.sql`,
+    recomputed from the full review set whenever a review is written).
+  - New store methods (both backends), `submitReview` / `canReviewListing` /
+    `listListingReviews` service + a `submitReviewAction`, a star display +
+    review form, wired into the resume page and directory cards.
+  - Verified end-to-end on a live PostgreSQL (`0024` applies; one-review-per-org
+    upsert updates in place; the 1–5 CHECK rejects out-of-range) and by unit tests
+    (hire-gated reviewing, aggregate recompute, own-listing + range rejection).
+
 ## Sprint 031 - Inter-company marketplace (2/2): AI-written resumes — 2026-07-09
 
 Added:

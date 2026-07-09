@@ -109,6 +109,8 @@ import type {
   MarketplaceHire,
   CreateMarketplaceHireInput,
   UpdateMarketplaceHireInput,
+  MarketplaceReview,
+  UpsertMarketplaceReviewInput,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -293,6 +295,16 @@ export interface DataStore {
     hireId: string,
     patch: UpdateMarketplaceHireInput,
   ): Promise<MarketplaceHire | null>;
+
+  // Marketplace reviews (Sprint 032).
+  upsertMarketplaceReview(input: UpsertMarketplaceReviewInput): Promise<MarketplaceReview>;
+  getMarketplaceReviewForReviewer(
+    listingId: string,
+    reviewerOrganizationId: string,
+  ): Promise<MarketplaceReview | null>;
+  listMarketplaceReviews(listingId: string): Promise<MarketplaceReview[]>;
+  /** True if the org has an approved hire for the listing (gates reviewing). */
+  hasApprovedMarketplaceHire(listingId: string, hirerOrganizationId: string): Promise<boolean>;
 
   // Model Hub + LLM Gateway (Prompt 006B).
   // Catalog (code-authoritative; not organization-scoped).

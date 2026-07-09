@@ -16,6 +16,7 @@ import type { DataStore } from "@/lib/db/store";
 import type {
   MarketplaceListing,
   MarketplaceHire,
+  MarketplaceReview,
   PerformanceSnapshot,
   VaultSnapshotItem,
 } from "@/lib/db/types";
@@ -382,4 +383,81 @@ export function listOutgoingHires(
   organizationId: string,
 ): Promise<MarketplaceHire[]> {
   return store.listMarketplaceHiresForHirerOrg(organizationId);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Ratings & reviews (Sprint 032)                                             */
+/* -------------------------------------------------------------------------- */
+
+/** Can this org leave a review? Only after it has hired the agent (and not its own). */
+export async function canReviewListing(
+  store: DataStore,
+  organizationId: string,
+  listing: MarketplaceListing,
+): Promise<boolean> {
+  if (listing.organizationId === organizationId) return false;
+  return store.hasApprovedMarketplaceHire(listing.id, organizationId);
+}
+
+export function listListingReviews(
+  store: DataStore,
+  listingId: string,
+): Promise<MarketplaceReview[]> {
+  return store.listMarketplaceReviews(listingId);
+}
+
+export function getMyReview(
+  store: DataStore,
+  listingId: string,
+  organizationId: string,
+): Promise<MarketplaceReview | null> {
+  return store.getMarketplaceReviewForReviewer(listingId, organizationId);
+}
+
+/** Leave (or update) a rating + review for an agent you've hired. */
+export async function submitReview(
+  store: DataStore,
+  actor: MarketplaceActor,
+  input: { listingId: string; rating: number; comment?: string },
+): Promise<MarketplaceReview> {
+  const rating = Math.round(Number(input.rating));
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+    throw new MarketplaceError("Choose a rating from 1 to 5 stars.");
+  }
+  const listing = await store.getMarketplaceListing(input.listingId);
+  if (!listing) throw new MarketplaceError("This listing could not be found.");
+  if (listing.organizationId === actor.organizationId) {
+    throw new MarketplaceError("You can't review your own listing.");
+  }
+  const hired = await store.hasApprovedMarketplaceHire(listing.id, actor.organizationId);
+  if (!hired) {
+    throw new MarketplaceError("You can review an AI Employee once you've hired it.");
+  }
+
+  const comment = input.comment?.trim() ? input.comment.trim().slice(0, 2000) : null;
+  const review = await store.upsertMarketplaceReview({
+    listingId: listing.id,
+    reviewerOrganizationId: actor.organizationId,
+    reviewerUserId: actor.userId,
+    rating,
+    comment,
+  });
+
+  // Recompute the denormalized aggregate from the full review set.
+  const all = await store.listMarketplaceReviews(listing.id);
+  const count = all.length;
+  const avg = count > 0 ? all.reduce((sum, r) => sum + r.rating, 0) / count : null;
+  await store.updateMarketplaceListing(listing.id, { ratingCount: count, ratingAvg: avg });
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "marketplace_review.submitted",
+    targetType: "marketplace_listing",
+    targetId: listing.id,
+    metadata: { listingId: listing.id, rating },
+  });
+
+  return review;
 }

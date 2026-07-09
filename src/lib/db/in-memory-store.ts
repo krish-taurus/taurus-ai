@@ -90,6 +90,8 @@ import type {
   MarketplaceHire,
   CreateMarketplaceHireInput,
   UpdateMarketplaceHireInput,
+  MarketplaceReview,
+  UpsertMarketplaceReviewInput,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -163,6 +165,7 @@ export class InMemoryStore implements DataStore {
   private knowledgeVaultAssignments = new Map<string, EmployeeVaultAssignment>();
   private marketplaceListings = new Map<string, MarketplaceListing>();
   private marketplaceHires = new Map<string, MarketplaceHire>();
+  private marketplaceReviews = new Map<string, MarketplaceReview>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -935,6 +938,8 @@ export class InMemoryStore implements DataStore {
       performanceSnapshot: input.performanceSnapshot,
       vaultSnapshot: input.vaultSnapshot ?? [],
       hireCount: 0,
+      ratingCount: 0,
+      ratingAvg: null,
       createdByUserId: input.createdByUserId ?? null,
       publishedAt: input.publishedAt ?? null,
       createdAt: timestamp,
@@ -1031,6 +1036,64 @@ export class InMemoryStore implements DataStore {
     const updated: MarketplaceHire = { ...existing, ...patch };
     this.marketplaceHires.set(hireId, updated);
     return updated;
+  }
+
+  async upsertMarketplaceReview(input: UpsertMarketplaceReviewInput): Promise<MarketplaceReview> {
+    const existing = [...this.marketplaceReviews.values()].find(
+      (r) =>
+        r.listingId === input.listingId &&
+        r.reviewerOrganizationId === input.reviewerOrganizationId,
+    );
+    const timestamp = now();
+    const review: MarketplaceReview = existing
+      ? {
+          ...existing,
+          rating: input.rating,
+          comment: input.comment ?? null,
+          reviewerUserId: input.reviewerUserId ?? existing.reviewerUserId,
+          updatedAt: timestamp,
+        }
+      : {
+          id: uuid(),
+          listingId: input.listingId,
+          reviewerOrganizationId: input.reviewerOrganizationId,
+          reviewerUserId: input.reviewerUserId ?? null,
+          rating: input.rating,
+          comment: input.comment ?? null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+    this.marketplaceReviews.set(review.id, review);
+    return review;
+  }
+
+  async getMarketplaceReviewForReviewer(
+    listingId: string,
+    reviewerOrganizationId: string,
+  ): Promise<MarketplaceReview | null> {
+    return (
+      [...this.marketplaceReviews.values()].find(
+        (r) => r.listingId === listingId && r.reviewerOrganizationId === reviewerOrganizationId,
+      ) ?? null
+    );
+  }
+
+  async listMarketplaceReviews(listingId: string): Promise<MarketplaceReview[]> {
+    return [...this.marketplaceReviews.values()]
+      .filter((r) => r.listingId === listingId)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  async hasApprovedMarketplaceHire(
+    listingId: string,
+    hirerOrganizationId: string,
+  ): Promise<boolean> {
+    return [...this.marketplaceHires.values()].some(
+      (h) =>
+        h.listingId === listingId &&
+        h.hirerOrganizationId === hirerOrganizationId &&
+        h.status === "approved",
+    );
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

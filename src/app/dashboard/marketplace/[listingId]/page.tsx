@@ -3,8 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
+import { canReviewListing, getMyReview, listListingReviews } from "@/modules/marketplace/service";
 import { ResumeView } from "@/components/marketplace/resume-view";
 import { HireButton, UnpublishButton } from "@/components/marketplace/marketplace-buttons";
+import { RatingSummary, RatingStars } from "@/components/marketplace/rating-stars";
+import { ReviewForm } from "@/components/marketplace/review-form";
 import { Badge, Card, PageHeader } from "@/components/ui";
 
 export default async function MarketplaceListingPage({
@@ -12,17 +15,31 @@ export default async function MarketplaceListingPage({
   searchParams,
 }: {
   params: { listingId: string };
-  searchParams?: { requested?: string };
+  searchParams?: { requested?: string; reviewed?: string };
 }) {
   const { organization, membership } = await requireCurrentOrganization();
   if (!hasPermission(membership.role, "employee.view")) redirect("/dashboard");
 
-  const listing = await getStore().getMarketplaceListing(params.listingId);
+  const store = getStore();
+  const listing = await store.getMarketplaceListing(params.listingId);
   // Only published listings are visible cross-org; owners can see their own.
   const own = listing?.organizationId === organization.id;
   if (!listing || (listing.status !== "published" && !own)) notFound();
 
   const canHire = hasPermission(membership.role, "employee.create");
+
+  // Reviews: list them (with reviewer org names) + the viewer's own review if any.
+  const reviews = await listListingReviews(store, listing.id);
+  const reviewRows = await Promise.all(
+    reviews.map(async (r) => ({
+      review: r,
+      orgName: (await store.getOrganizationById(r.reviewerOrganizationId))?.name ?? "An organization",
+    })),
+  );
+  const canReview =
+    hasPermission(membership.role, "employee.create") &&
+    (await canReviewListing(store, organization.id, listing));
+  const myReview = canReview ? await getMyReview(store, listing.id, organization.id) : null;
 
   return (
     <div className="max-w-3xl">
@@ -31,6 +48,10 @@ export default async function MarketplaceListingPage({
           ← Back to Marketplace
         </Link>
       </p>
+
+      <div className="mb-3">
+        <RatingSummary avg={listing.ratingAvg} count={listing.ratingCount} />
+      </div>
 
       <PageHeader
         eyebrow="Employee resume"
@@ -74,6 +95,47 @@ export default async function MarketplaceListingPage({
           <HireButton listingId={listing.id} />
         </Card>
       ) : null}
+
+      {/* Reviews */}
+      <div className="mt-8">
+        <h2 className="mb-3 text-base font-semibold text-taurus-text">Reviews</h2>
+
+        {canReview ? (
+          <Card className="mb-4 p-5">
+            <p className="mb-3 text-sm text-taurus-sub">
+              You&apos;ve hired this AI Employee — share how it performed for your team.
+            </p>
+            {searchParams?.reviewed ? (
+              <p className="mb-3 text-sm text-taurus-text">Thanks — your review was saved.</p>
+            ) : null}
+            <ReviewForm
+              listingId={listing.id}
+              defaultRating={myReview?.rating}
+              defaultComment={myReview?.comment ?? undefined}
+            />
+          </Card>
+        ) : null}
+
+        {reviewRows.length === 0 ? (
+          <p className="text-sm text-taurus-faint">
+            No reviews yet. Organizations that hire this AI Employee can leave one.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {reviewRows.map(({ review, orgName }) => (
+              <li key={review.id} className="rounded-lg border border-taurus-line bg-taurus-elevated p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium text-taurus-text">{orgName}</span>
+                  <RatingStars value={review.rating} />
+                </div>
+                {review.comment ? (
+                  <p className="mt-1.5 text-sm text-taurus-sub">{review.comment}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   );
 }

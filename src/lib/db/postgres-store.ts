@@ -115,6 +115,8 @@ import type {
   MarketplaceHire,
   CreateMarketplaceHireInput,
   UpdateMarketplaceHireInput,
+  MarketplaceReview,
+  UpsertMarketplaceReviewInput,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -450,8 +452,23 @@ function mapMarketplaceListing(row: Row): MarketplaceListing {
     performanceSnapshot: row.performance_snapshot as MarketplaceListing["performanceSnapshot"],
     vaultSnapshot: (row.vault_snapshot as MarketplaceListing["vaultSnapshot"]) ?? [],
     hireCount: Number(row.hire_count ?? 0),
+    ratingCount: Number(row.rating_count ?? 0),
+    ratingAvg: row.rating_avg === null || row.rating_avg === undefined ? null : Number(row.rating_avg),
     createdByUserId: row.created_by_user_id,
     publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketplaceReview(row: Row): MarketplaceReview {
+  return {
+    id: row.id,
+    listingId: row.listing_id,
+    reviewerOrganizationId: row.reviewer_organization_id,
+    reviewerUserId: row.reviewer_user_id,
+    rating: Number(row.rating),
+    comment: row.comment,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
   };
@@ -1783,6 +1800,8 @@ export class PostgresStore implements DataStore {
       add("performance_snapshot", JSON.stringify(patch.performanceSnapshot));
     if (patch.vaultSnapshot !== undefined) add("vault_snapshot", JSON.stringify(patch.vaultSnapshot));
     if ("publishedAt" in patch) add("published_at", patch.publishedAt ?? null);
+    if (patch.ratingCount !== undefined) add("rating_count", patch.ratingCount);
+    if (patch.ratingAvg !== undefined) add("rating_avg", patch.ratingAvg);
     if (sets.length === 0) return this.getMarketplaceListing(listingId);
     sets.push("updated_at = now()");
     values.push(listingId);
@@ -1867,6 +1886,59 @@ export class PostgresStore implements DataStore {
       values,
     );
     return rows[0] ? mapMarketplaceHire(rows[0]) : null;
+  }
+
+  async upsertMarketplaceReview(input: UpsertMarketplaceReviewInput): Promise<MarketplaceReview> {
+    const { rows } = await this.query(
+      `insert into marketplace_reviews
+         (listing_id, reviewer_organization_id, reviewer_user_id, rating, comment)
+       values ($1,$2,$3,$4,$5)
+       on conflict (listing_id, reviewer_organization_id) do update
+         set rating = excluded.rating,
+             comment = excluded.comment,
+             reviewer_user_id = excluded.reviewer_user_id,
+             updated_at = now()
+       returning *`,
+      [
+        input.listingId,
+        input.reviewerOrganizationId,
+        input.reviewerUserId ?? null,
+        input.rating,
+        input.comment ?? null,
+      ],
+    );
+    return mapMarketplaceReview(rows[0]);
+  }
+
+  async getMarketplaceReviewForReviewer(
+    listingId: string,
+    reviewerOrganizationId: string,
+  ): Promise<MarketplaceReview | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_reviews where listing_id = $1 and reviewer_organization_id = $2",
+      [listingId, reviewerOrganizationId],
+    );
+    return rows[0] ? mapMarketplaceReview(rows[0]) : null;
+  }
+
+  async listMarketplaceReviews(listingId: string): Promise<MarketplaceReview[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_reviews where listing_id = $1 order by updated_at desc",
+      [listingId],
+    );
+    return rows.map(mapMarketplaceReview);
+  }
+
+  async hasApprovedMarketplaceHire(
+    listingId: string,
+    hirerOrganizationId: string,
+  ): Promise<boolean> {
+    const { rows } = await this.query(
+      `select 1 from marketplace_hires
+       where listing_id = $1 and hirer_organization_id = $2 and status = 'approved' limit 1`,
+      [listingId, hirerOrganizationId],
+    );
+    return rows.length > 0;
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

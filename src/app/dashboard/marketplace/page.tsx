@@ -4,6 +4,7 @@ import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { listMarketplace } from "@/modules/marketplace/service";
+import { RatingSummary } from "@/components/marketplace/rating-stars";
 import { buttonClasses, Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 
 function scorePct(v: number | null): string {
@@ -57,6 +58,7 @@ export default async function MarketplacePage() {
                   {l.headline ? (
                     <p className="line-clamp-2 text-sm text-taurus-sub">{l.headline}</p>
                   ) : null}
+                  <RatingSummary avg={l.ratingAvg} count={l.ratingCount} />
                   <div className="mt-auto flex flex-wrap gap-2 pt-1">
                     <Badge tone="soft">Best {scorePct(l.performanceSnapshot.bestScore)}</Badge>
                     <Badge tone="outline">

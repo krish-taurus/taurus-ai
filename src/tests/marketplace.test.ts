@@ -11,6 +11,9 @@ import {
   listMarketplace,
   getPublishedListing,
   sanitizeDnaForMarketplace,
+  submitReview,
+  canReviewListing,
+  listListingReviews,
   MarketplaceError,
 } from "@/modules/marketplace/service";
 
@@ -200,6 +203,56 @@ describe("marketplace — hire clones DNA, never the vault", () => {
     // Buyer (not the owner) must not be able to approve.
     await expect(
       approveHire(store, actor(buyerOrg.id, buyerUser.id), hire.id),
+    ).rejects.toBeInstanceOf(MarketplaceError);
+  });
+
+  it("only a hirer can review; the review updates the listing's rating aggregate", async () => {
+    const { store, sellerUser, buyerUser, sellerOrg, buyerOrg, employee } = await setup();
+    const listing = await publishListing(store, actor(sellerOrg.id, sellerUser.id), {
+      employeeId: employee.id,
+    });
+
+    // Before hiring, the buyer cannot review.
+    expect(await canReviewListing(store, buyerOrg.id, listing)).toBe(false);
+    await expect(
+      submitReview(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id, rating: 5 }),
+    ).rejects.toBeInstanceOf(MarketplaceError);
+
+    // Hire + approve, then the buyer can review.
+    const hire = await requestHire(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id });
+    await approveHire(store, actor(sellerOrg.id, sellerUser.id), hire.id);
+    expect(await canReviewListing(store, buyerOrg.id, listing)).toBe(true);
+
+    await submitReview(store, actor(buyerOrg.id, buyerUser.id), {
+      listingId: listing.id,
+      rating: 4,
+      comment: "Solid performer.",
+    });
+    let refreshed = await getPublishedListing(store, listing.id);
+    expect(refreshed?.ratingCount).toBe(1);
+    expect(refreshed?.ratingAvg).toBe(4);
+    expect((await listListingReviews(store, listing.id))[0].comment).toBe("Solid performer.");
+
+    // Updating the review (upsert) recomputes the average, not a second row.
+    await submitReview(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id, rating: 2 });
+    refreshed = await getPublishedListing(store, listing.id);
+    expect(refreshed?.ratingCount).toBe(1);
+    expect(refreshed?.ratingAvg).toBe(2);
+  });
+
+  it("rejects reviewing your own listing and out-of-range ratings", async () => {
+    const { store, sellerUser, buyerUser, sellerOrg, buyerOrg, employee } = await setup();
+    const listing = await publishListing(store, actor(sellerOrg.id, sellerUser.id), {
+      employeeId: employee.id,
+    });
+    await expect(
+      submitReview(store, actor(sellerOrg.id, sellerUser.id), { listingId: listing.id, rating: 5 }),
+    ).rejects.toBeInstanceOf(MarketplaceError);
+
+    const hire = await requestHire(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id });
+    await approveHire(store, actor(sellerOrg.id, sellerUser.id), hire.id);
+    await expect(
+      submitReview(store, actor(buyerOrg.id, buyerUser.id), { listingId: listing.id, rating: 9 }),
     ).rejects.toBeInstanceOf(MarketplaceError);
   });
 
