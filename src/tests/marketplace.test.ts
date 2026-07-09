@@ -96,6 +96,35 @@ describe("marketplace — publish + discover", () => {
     ).rejects.toBeInstanceOf(MarketplaceError);
   });
 
+  it("fills missing vault descriptions from the injected AI writer, keeps existing ones", async () => {
+    const { store, sellerUser, sellerOrg, employee } = await setup();
+    // One vault with a description, one without.
+    const described = await store.createKnowledgeVault({
+      organizationId: sellerOrg.id,
+      name: "Refund policy",
+      description: "Existing description",
+    });
+    const bare = await store.createKnowledgeVault({ organizationId: sellerOrg.id, name: "Playbooks" });
+    for (const v of [described, bare]) {
+      await store.assignVaultToEmployee({
+        organizationId: sellerOrg.id,
+        employeeId: employee.id,
+        vaultId: v.id,
+      });
+    }
+
+    const listing = await publishListing(
+      store,
+      actor(sellerOrg.id, sellerUser.id),
+      { employeeId: employee.id, includeVaults: true },
+      { describeVault: async (name) => `AI description of ${name}` },
+    );
+
+    const byName = Object.fromEntries(listing.vaultSnapshot.map((v) => [v.name, v.description]));
+    expect(byName["Refund policy"]).toBe("Existing description"); // kept
+    expect(byName["Playbooks"]).toBe("AI description of Playbooks"); // AI-filled
+  });
+
   it("sanitize blanks companyContext but keeps everything else", () => {
     const s = sanitizeDnaForMarketplace(dna());
     expect(s.companyContext.companyDescription).toBe("");

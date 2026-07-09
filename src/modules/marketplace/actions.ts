@@ -21,7 +21,9 @@ import {
   requestHire,
   unpublishListing,
   type MarketplaceActor,
+  type VaultDescriber,
 } from "@/modules/marketplace/service";
+import { generateListingCopy, generateVaultDescription } from "@/modules/marketplace/generation";
 
 export interface MarketplaceActionState {
   error?: string;
@@ -44,22 +46,62 @@ export async function publishListingAction(
   const ctx = await requirePermission("employee.manage");
   if (!ctx.ok) return { error: DENIED };
 
+  const employeeId = String(formData.get("employeeId") ?? "");
+  const includeVaults = formData.get("includeVaults") === "on";
+  const autoDescribeVaults = formData.get("autoDescribeVaults") === "on";
+
   let listingId: string;
   try {
-    const listing = await publishListing(getStore(), ctx.actor, {
-      employeeId: String(formData.get("employeeId") ?? ""),
-      title: (formData.get("title") as string) || undefined,
-      headline: (formData.get("headline") as string) || undefined,
-      summary: (formData.get("summary") as string) || undefined,
-      includeVaults: formData.get("includeVaults") === "on",
-    });
+    // Optionally let the AI writer fill in vault descriptions during publish.
+    let describeVault: VaultDescriber | undefined;
+    if (includeVaults && autoDescribeVaults) {
+      const published = await getStore().getPublishedEmployeeDna(ctx.actor.organizationId, employeeId);
+      const roleSummary = published?.dna.identity.roleSummary ?? "";
+      describeVault = (vaultName) =>
+        generateVaultDescription(getStore(), {
+          organizationId: ctx.actor.organizationId,
+          employeeId,
+          roleSummary,
+          vaultName,
+        });
+    }
+
+    const listing = await publishListing(
+      getStore(),
+      ctx.actor,
+      {
+        employeeId,
+        title: (formData.get("title") as string) || undefined,
+        headline: (formData.get("headline") as string) || undefined,
+        summary: (formData.get("summary") as string) || undefined,
+        includeVaults,
+      },
+      { describeVault },
+    );
     listingId = listing.id;
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not publish this agent." };
+    return { error: err instanceof Error ? err.message : "Could not publish this AI Employee." };
   }
 
   revalidatePath("/dashboard/marketplace");
   redirect(`/dashboard/marketplace/${listingId}`);
+}
+
+/** Generate resume headline + summary with AI. Called directly from the form. */
+export async function generateListingCopyAction(
+  employeeId: string,
+): Promise<{ headline?: string; summary?: string; error?: string }> {
+  const ctx = await requirePermission("employee.manage");
+  if (!ctx.ok) return { error: DENIED };
+  try {
+    const copy = await generateListingCopy(getStore(), {
+      organizationId: ctx.actor.organizationId,
+      employeeId,
+    });
+    return { headline: copy.headline, summary: copy.summary };
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not generate copy." };
+  }
 }
 
 export async function unpublishListingAction(
