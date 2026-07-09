@@ -7,13 +7,22 @@
 
 import type { ChannelProviderType, ChannelType } from "@/lib/db/types";
 
-export const MESSAGING_CHANNEL_TYPES: ChannelType[] = ["whatsapp", "sms", "email", "telegram"];
+export const MESSAGING_CHANNEL_TYPES: ChannelType[] = [
+  "whatsapp",
+  "sms",
+  "email",
+  "telegram",
+  "facebook_messenger",
+  "instagram_dm",
+];
 
 export const MESSAGING_CHANNEL_LABELS: Partial<Record<ChannelType, string>> = {
   whatsapp: "WhatsApp",
   sms: "SMS",
   email: "Email",
   telegram: "Telegram",
+  facebook_messenger: "Facebook Messenger",
+  instagram_dm: "Instagram DM",
 };
 
 export const MESSAGING_PROVIDER_LABELS: Partial<Record<ChannelProviderType, string>> = {
@@ -22,6 +31,8 @@ export const MESSAGING_PROVIDER_LABELS: Partial<Record<ChannelProviderType, stri
   sendgrid: "SendGrid",
   mailgun: "Mailgun",
   telegram: "Telegram Bot",
+  meta_messenger: "Meta (Facebook Page)",
+  meta_instagram: "Meta (Instagram)",
   custom_webhook: "Custom webhook",
 };
 
@@ -31,6 +42,8 @@ export const PROVIDERS_FOR_CHANNEL: Record<string, ChannelProviderType[]> = {
   sms: ["twilio", "custom_webhook"],
   email: ["sendgrid", "mailgun", "custom_webhook"],
   telegram: ["telegram"],
+  facebook_messenger: ["meta_messenger"],
+  instagram_dm: ["meta_instagram"],
 };
 
 export function providersForChannelType(channelType: ChannelType): ChannelProviderType[] {
@@ -51,4 +64,6 @@ export const SENDER_ID_LABELS: Partial<Record<ChannelType, string>> = {
   sms: "SMS phone number",
   email: "From email address",
   telegram: "Telegram username (optional)",
+  facebook_messenger: "Facebook Page name (optional)",
+  instagram_dm: "Instagram handle (optional)",
 };

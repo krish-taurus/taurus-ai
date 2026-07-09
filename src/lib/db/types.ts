@@ -1079,6 +1079,8 @@ export type ChannelProviderType =
   | "slack"
   | "microsoft_graph"
   | "telegram"
+  | "meta_messenger"
+  | "meta_instagram"
   | "custom_webhook"
   // Voice Call Channel (Prompt 010).
   | "twilio_voice"

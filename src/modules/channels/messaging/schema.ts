@@ -4,13 +4,22 @@
 
 import { z } from "zod";
 
-export const messagingChannelTypeSchema = z.enum(["whatsapp", "sms", "email", "telegram"]);
+export const messagingChannelTypeSchema = z.enum([
+  "whatsapp",
+  "sms",
+  "email",
+  "telegram",
+  "facebook_messenger",
+  "instagram_dm",
+]);
 export const messagingProviderSchema = z.enum([
   "twilio",
   "meta_whatsapp_cloud",
   "sendgrid",
   "mailgun",
   "telegram",
+  "meta_messenger",
+  "meta_instagram",
   "custom_webhook",
 ]);
 

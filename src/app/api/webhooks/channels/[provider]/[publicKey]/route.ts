@@ -19,16 +19,22 @@ import type { WebhookRequest } from "@/modules/channels/messaging/types";
 
 export const dynamic = "force-dynamic";
 
+// Meta channels answer a GET hub.challenge handshake, each with its verify token.
+const META_VERIFY_TOKENS: Record<string, string | undefined> = {
+  "meta-whatsapp": process.env.META_WHATSAPP_VERIFY_TOKEN,
+  messenger: process.env.META_WEBHOOK_VERIFY_TOKEN,
+  instagram: process.env.META_WEBHOOK_VERIFY_TOKEN,
+};
+
 export async function GET(
   request: Request,
   { params }: { params: { provider: string; publicKey: string } },
 ) {
-  // Only Meta WhatsApp uses a GET verification challenge.
-  if (params.provider !== "meta-whatsapp") {
+  if (!(params.provider in META_VERIFY_TOKENS)) {
     return new NextResponse("Method not allowed", { status: 405 });
   }
   const query = Object.fromEntries(new URL(request.url).searchParams);
-  const challenge = metaVerifyChallenge(query, process.env.META_WHATSAPP_VERIFY_TOKEN);
+  const challenge = metaVerifyChallenge(query, META_VERIFY_TOKENS[params.provider]);
   if (challenge === null) return new NextResponse("Forbidden", { status: 403 });
   return new NextResponse(challenge, {
     status: 200,

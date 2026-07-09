@@ -1,5 +1,30 @@
 # Changelog
 
+## Sprint 042 - Facebook Messenger + Instagram DM channels — 2026-07-09
+
+Added:
+
+- **Facebook Messenger + Instagram DM** — the AI Employee now answers Messenger
+  conversations and Instagram direct messages. Both ship together because they
+  share the same Meta stack (Graph API + `X-Hub-Signature-256` webhook +
+  `hub.challenge` GET handshake + `/me/messages` send).
+  - **One shared adapter factory** (`providers/meta-messaging.ts`) serves both —
+    only the webhook object name (`page` vs `instagram`) and channel identity
+    differ. Parses `entry[].messaging[]` events, **ignores the page's own echoes**
+    (loop guard) and delivery/read events, verifies the app-secret signature, and
+    replies via the Graph API. Reuses the shared messaging runtime; runs in
+    **simulated mode** without a Page token (dev/tests never hit the network).
+  - New `meta_messenger` / `meta_instagram` provider types wired through the
+    registry, webhook slugs (`…/channels/messenger|instagram/{publicKey}`), the
+    generic messaging setup page (paste a Page access token → webhook URL →
+    simulate → live), and the GET verification handshake (`META_WEBHOOK_VERIFY_TOKEN`).
+    Both now show **available** in the catalog + Connections. New optional
+    server-only `META_APP_SECRET` / `META_WEBHOOK_VERIFY_TOKEN`.
+  - Verified by unit tests (Messenger + Instagram parsing, echo-ignore,
+    `X-Hub-Signature-256` verification) and the updated catalog/connections
+    assertions. `tsc` clean · `next lint` clean · **561 tests + 6 skipped** ·
+    build compiles.
+
 ## Sprint 041 - WhatsApp: Embedded Signup one-tap connect — 2026-07-09
 
 Added:

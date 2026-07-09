@@ -78,7 +78,7 @@ describe("ConnectionCard (Sprint 014)", () => {
 });
 
 describe("ConnectionCatalog (Sprint 014)", () => {
-  it("renders all twelve connection types with availability badges", () => {
+  it("renders all thirteen connection types with availability badges", () => {
     const { container } = render(<ConnectionCatalog canManage />);
     const text = container.textContent ?? "";
     for (const label of [
@@ -93,6 +93,7 @@ describe("ConnectionCatalog (Sprint 014)", () => {
       "Slack",
       "Microsoft Teams",
       "Instagram DM",
+      "Facebook Messenger",
       "Telegram",
     ]) {
       expect(text).toContain(label);

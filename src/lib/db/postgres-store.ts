@@ -3439,7 +3439,14 @@ export class PostgresStore implements DataStore {
     const channels = (
       await this.listEmployeeChannelsForEmployee(organizationId, employeeId)
     ).filter((c) => c.status !== "archived");
-    const messagingTypes: ChannelType[] = ["whatsapp", "sms", "email", "telegram"];
+    const messagingTypes: ChannelType[] = [
+      "whatsapp",
+      "sms",
+      "email",
+      "telegram",
+      "facebook_messenger",
+      "instagram_dm",
+    ];
     const summaries: MessagingChannelSummary[] = [];
     for (const channelType of messagingTypes) {
       const channel = channels.find((c) => c.channelType === channelType) ?? null;

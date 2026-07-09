@@ -50,6 +50,8 @@ const PROVIDER_SECRET_FIELDS: Record<string, { required: string[]; primary: stri
   mailgun: { required: ["apiKey"], primary: "apiKey" },
   telegram: { required: ["botToken"], primary: "botToken" },
   slack: { required: ["botToken"], primary: "botToken" },
+  meta_messenger: { required: ["accessToken"], primary: "accessToken" },
+  meta_instagram: { required: ["accessToken"], primary: "accessToken" },
   custom_webhook: { required: [], primary: "apiKey" },
 };
 

@@ -94,20 +94,20 @@ export const CHANNEL_DEFINITIONS: ChannelDefinition[] = [
     availability: "available",
   },
   {
-    type: "instagram_dm",
-    category: "messaging",
-    label: "Instagram DM",
-    description: "Reply to Instagram direct messages.",
-    providerType: "custom_webhook",
-    availability: "coming_soon",
-  },
-  {
     type: "facebook_messenger",
     category: "messaging",
     label: "Facebook Messenger",
     description: "Reply to Messenger conversations.",
-    providerType: "custom_webhook",
-    availability: "coming_soon",
+    providerType: "meta_messenger",
+    availability: "available",
+  },
+  {
+    type: "instagram_dm",
+    category: "messaging",
+    label: "Instagram DM",
+    description: "Reply to Instagram direct messages.",
+    providerType: "meta_instagram",
+    availability: "available",
   },
 
   // --- Voice (coming soon) -------------------------------------------------

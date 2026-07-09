@@ -22,6 +22,8 @@ export const CHANNEL_PROVIDERS: Record<ChannelProviderType, ChannelProvider & Ch
   slack: createPlaceholderProvider("slack", ["workplace"]),
   microsoft_graph: createPlaceholderProvider("microsoft_graph", ["workplace"]),
   telegram: createPlaceholderProvider("telegram", ["messaging"]),
+  meta_messenger: createPlaceholderProvider("meta_messenger", ["messaging"]),
+  meta_instagram: createPlaceholderProvider("meta_instagram", ["messaging"]),
   custom_webhook: createPlaceholderProvider("custom_webhook", ["messaging"]),
   // Voice providers (Prompt 010) run through the dedicated voice-runtime module,
   // not the web/messaging chat-generation path — placeholders here.

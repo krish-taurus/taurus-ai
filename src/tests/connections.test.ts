@@ -83,7 +83,7 @@ describe("listEmployeeChannelsForOrganization", () => {
 // --- Connection catalog metadata -------------------------------------------
 
 describe("connection catalog metadata", () => {
-  it("lists all twelve required connection types in order", () => {
+  it("lists all thirteen required connection types in order", () => {
     expect(CONNECTION_TYPE_ORDER).toEqual([
       "website_widget",
       "hosted_chat",
@@ -93,14 +93,15 @@ describe("connection catalog metadata", () => {
       "sms",
       "email",
       "telegram",
+      "facebook_messenger",
+      "instagram_dm",
       "phone_call",
       "slack",
       "microsoft_teams",
-      "instagram_dm",
     ]);
   });
 
-  it("marks web + telegram + slack available, provider channels foundation, rest coming soon", () => {
+  it("marks web + telegram + slack available, provider channels foundation, teams coming soon", () => {
     for (const type of [
       "website_widget",
       "hosted_chat",
@@ -111,12 +112,17 @@ describe("connection catalog metadata", () => {
     ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("available");
     }
-    for (const type of ["whatsapp", "sms", "email", "phone_call"] as ChannelType[]) {
+    for (const type of [
+      "whatsapp",
+      "sms",
+      "email",
+      "phone_call",
+      "facebook_messenger",
+      "instagram_dm",
+    ] as ChannelType[]) {
       expect(connectionAvailability(type)).toBe("foundation");
     }
-    for (const type of ["microsoft_teams", "instagram_dm"] as ChannelType[]) {
-      expect(connectionAvailability(type)).toBe("coming_soon");
-    }
+    expect(connectionAvailability("microsoft_teams")).toBe("coming_soon");
   });
 
   it("only offers available + foundation types for configuration", () => {
@@ -129,12 +135,14 @@ describe("connection catalog metadata", () => {
       "sms",
       "email",
       "telegram",
+      "facebook_messenger",
+      "instagram_dm",
       "phone_call",
       "slack",
     ]);
     expect(isConfigurableType("microsoft_teams")).toBe(false);
     expect(isConfigurableType("website_widget")).toBe(true);
-    expect(isConfigurableType("slack")).toBe(true);
+    expect(isConfigurableType("facebook_messenger")).toBe(true);
   });
 });
 
@@ -159,6 +167,12 @@ describe("connectionSetupHref", () => {
       "/dashboard/employees/emp-1/channels/messaging/telegram",
     );
     expect(connectionSetupHref("emp-1", "slack")).toBe("/dashboard/employees/emp-1/channels/slack");
+    expect(connectionSetupHref("emp-1", "facebook_messenger")).toBe(
+      "/dashboard/employees/emp-1/channels/messaging/facebook_messenger",
+    );
+    expect(connectionSetupHref("emp-1", "instagram_dm")).toBe(
+      "/dashboard/employees/emp-1/channels/messaging/instagram_dm",
+    );
   });
 });
 
