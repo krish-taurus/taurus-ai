@@ -47,6 +47,12 @@ function envSecretsFor(providerType: ChannelProviderType): Record<string, string
       // stored as an encrypted BYOK credential).
       set("signingSecret", process.env.SLACK_SIGNING_SECRET);
       break;
+    case "meta_messenger":
+    case "meta_instagram":
+      // App-level secret + verify token (the per-Page access token is BYOK).
+      set("appSecret", process.env.META_APP_SECRET ?? process.env.WHATSAPP_APP_SECRET);
+      set("verifyToken", process.env.META_WEBHOOK_VERIFY_TOKEN);
+      break;
     default:
       break;
   }

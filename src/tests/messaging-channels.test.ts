@@ -17,11 +17,15 @@ import { twilioProvider } from "@/modules/channels/messaging/providers/twilio";
 import { sendgridProvider } from "@/modules/channels/messaging/providers/sendgrid-email";
 import { telegramProvider } from "@/modules/channels/messaging/providers/telegram";
 import {
+  messengerProvider,
+  instagramProvider,
+} from "@/modules/channels/messaging/providers/meta-messaging";
+import {
   inboundAddressFor,
   extractPublicKeyFromRecipient,
 } from "@/modules/channels/messaging/email-address";
 import { htmlToSafeText } from "@/modules/channels/messaging/html";
-import { hmacBase64 } from "@/modules/channels/messaging/crypto";
+import { hmacBase64, hmacHex } from "@/modules/channels/messaging/crypto";
 import type { ChatGateway } from "@/modules/employee-chat/service";
 import type { AiEmployee, EmployeeChannel } from "@/lib/db/types";
 import type { GatewayRequest, GatewayResponse } from "@/modules/model-gateway/types";
@@ -131,14 +135,23 @@ afterEach(() => {
 // --- Catalog metadata -------------------------------------------------------
 
 describe("Messaging catalog", () => {
-  it("supports whatsapp, sms, email and telegram with the right providers", () => {
-    expect(MESSAGING_CHANNEL_TYPES).toEqual(["whatsapp", "sms", "email", "telegram"]);
+  it("supports whatsapp, sms, email, telegram, messenger and instagram with the right providers", () => {
+    expect(MESSAGING_CHANNEL_TYPES).toEqual([
+      "whatsapp",
+      "sms",
+      "email",
+      "telegram",
+      "facebook_messenger",
+      "instagram_dm",
+    ]);
     expect(providersForChannelType("whatsapp")).toContain("twilio");
     expect(providersForChannelType("whatsapp")).toContain("meta_whatsapp_cloud");
     expect(providersForChannelType("sms")).toContain("twilio");
     expect(providersForChannelType("email")).toContain("sendgrid");
     expect(providersForChannelType("email")).toContain("mailgun");
     expect(providersForChannelType("telegram")).toEqual(["telegram"]);
+    expect(providersForChannelType("facebook_messenger")).toEqual(["meta_messenger"]);
+    expect(providersForChannelType("instagram_dm")).toEqual(["meta_instagram"]);
   });
 });
 
@@ -395,6 +408,57 @@ describe("Twilio adapter", () => {
           config,
         )
       ).verified,
+    ).toBe(false);
+  });
+});
+
+describe("Meta Messenger + Instagram adapter", () => {
+  const inbound = (channel: string) => ({
+    object: channel,
+    entry: [
+      {
+        messaging: [
+          { sender: { id: "USER1" }, recipient: { id: "PAGE1" }, timestamp: 1_700_000_000_000, message: { mid: "m1", text: "Hi there" } },
+        ],
+      },
+    ],
+  });
+
+  it("parses a Messenger message and ignores the page's own echoes", () => {
+    const msg = messengerProvider.parseInboundWebhook({
+      method: "POST", url: "", headers: {}, query: {}, rawBody: "", form: {}, json: inbound("page"),
+    });
+    expect(msg?.channelType).toBe("facebook_messenger");
+    expect(msg?.messageText).toBe("Hi there");
+    expect(msg?.senderExternalId).toBe("USER1");
+
+    const echo = {
+      object: "page",
+      entry: [{ messaging: [{ sender: { id: "PAGE1" }, message: { text: "auto", is_echo: true } }] }],
+    };
+    expect(
+      messengerProvider.parseInboundWebhook({ method: "POST", url: "", headers: {}, query: {}, rawBody: "", form: {}, json: echo }),
+    ).toBeNull();
+  });
+
+  it("parses an Instagram DM the same way", () => {
+    const msg = instagramProvider.parseInboundWebhook({
+      method: "POST", url: "", headers: {}, query: {}, rawBody: "", form: {}, json: inbound("instagram"),
+    });
+    expect(msg?.channelType).toBe("instagram_dm");
+    expect(msg?.providerType).toBe("meta_instagram");
+    expect(msg?.messageText).toBe("Hi there");
+  });
+
+  it("verifies the X-Hub-Signature-256 with the app secret", async () => {
+    const body = JSON.stringify(inbound("page"));
+    const good = `sha256=${await hmacHex("SHA-256", "appsecret", body)}`;
+    const config = { mode: "live" as const, secrets: { accessToken: "PAGE_TOKEN", appSecret: "appsecret" }, channelConfig: {} };
+    expect(
+      (await messengerProvider.verifyWebhook({ method: "POST", url: "", headers: { "x-hub-signature-256": good }, query: {}, rawBody: body, form: {}, json: null }, config)).verified,
+    ).toBe(true);
+    expect(
+      (await messengerProvider.verifyWebhook({ method: "POST", url: "", headers: { "x-hub-signature-256": "sha256=bad" }, query: {}, rawBody: body, form: {}, json: null }, config)).verified,
     ).toBe(false);
   });
 });

@@ -2383,6 +2383,8 @@ export class InMemoryStore implements DataStore {
       "sms",
       "email",
       "telegram",
+      "facebook_messenger",
+      "instagram_dm",
     ];
     const summaries: MessagingChannelSummary[] = [];
     for (const channelType of messagingTypes) {

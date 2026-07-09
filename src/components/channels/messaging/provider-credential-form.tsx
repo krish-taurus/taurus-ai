@@ -45,6 +45,16 @@ const FIELDS: Partial<
     { name: "botToken", label: "Access Token (from @BotFather)" },
     { name: "webhookSecret", label: "Webhook Secret", optional: true },
   ],
+  meta_messenger: [
+    { name: "accessToken", label: "Page Access Token" },
+    { name: "appSecret", label: "App Secret", optional: true },
+    { name: "verifyToken", label: "Verify Token", optional: true },
+  ],
+  meta_instagram: [
+    { name: "accessToken", label: "Page Access Token" },
+    { name: "appSecret", label: "App Secret", optional: true },
+    { name: "verifyToken", label: "Verify Token", optional: true },
+  ],
   custom_webhook: [{ name: "apiKey", label: "Shared secret", optional: true }],
 };
 

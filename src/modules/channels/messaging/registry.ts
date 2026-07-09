@@ -13,6 +13,10 @@ import { metaWhatsAppProvider } from "@/modules/channels/messaging/providers/met
 import { sendgridProvider } from "@/modules/channels/messaging/providers/sendgrid-email";
 import { mailgunProvider } from "@/modules/channels/messaging/providers/mailgun-email";
 import { telegramProvider } from "@/modules/channels/messaging/providers/telegram";
+import {
+  messengerProvider,
+  instagramProvider,
+} from "@/modules/channels/messaging/providers/meta-messaging";
 import { slackProvider } from "@/modules/channels/slack/provider";
 import { createSimulatedProvider } from "@/modules/channels/messaging/providers/simulated";
 
@@ -28,6 +32,8 @@ const REGISTRY: Partial<Record<ChannelProviderType, MessagingProvider>> = {
   sendgrid: sendgridProvider,
   mailgun: mailgunProvider,
   telegram: telegramProvider,
+  meta_messenger: messengerProvider,
+  meta_instagram: instagramProvider,
   slack: slackProvider,
   custom_webhook: customWebhookProvider,
 };
@@ -43,5 +49,7 @@ export const WEBHOOK_PROVIDER_SLUGS: Record<string, ChannelProviderType> = {
   sendgrid: "sendgrid",
   mailgun: "mailgun",
   telegram: "telegram",
+  messenger: "meta_messenger",
+  instagram: "meta_instagram",
   custom: "custom_webhook",
 };
