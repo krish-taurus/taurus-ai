@@ -9,11 +9,21 @@
 
 import type {
   CheckoutResult,
+  ConnectedAccountResult,
+  CreateConnectedAccountInput,
+  CreateTransferInput,
   MarketplacePaymentProvider,
+  MarketplacePayoutProvider,
+  OnboardingLinkResult,
   PaymentWebhookEvent,
+  PayoutAccountStatus,
+  PayoutWebhookEvent,
+  TransferResult,
 } from "@/modules/marketplace/payments/types";
 
-export class SimulatedPaymentProvider implements MarketplacePaymentProvider {
+export class SimulatedPaymentProvider
+  implements MarketplacePaymentProvider, MarketplacePayoutProvider
+{
   readonly id = "simulated" as const;
 
   async createCheckout(): Promise<CheckoutResult> {
@@ -38,6 +48,46 @@ export class SimulatedPaymentProvider implements MarketplacePaymentProvider {
       type: status === "failed" ? "failed" : "paid",
       reference,
       externalPaymentId: typeof body.externalPaymentId === "string" ? body.externalPaymentId : null,
+    };
+  }
+
+  // --- Payouts (Sprint 035) -------------------------------------------------
+
+  async createConnectedAccount(input: CreateConnectedAccountInput): Promise<ConnectedAccountResult> {
+    // No hosted onboarding in simulated mode — the account is immediately usable.
+    return {
+      externalAccountId: `acct_sim_${input.organizationId}`,
+      status: "active",
+    };
+  }
+
+  async createOnboardingLink(): Promise<OnboardingLinkResult> {
+    return { mode: "simulated" };
+  }
+
+  async getAccountStatus(): Promise<PayoutAccountStatus> {
+    return "active";
+  }
+
+  async createTransfer(): Promise<TransferResult> {
+    return { mode: "simulated" };
+  }
+
+  parsePayoutWebhookEvent(payload: string): PayoutWebhookEvent | null {
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+    const status = str(body.status) ?? "paid";
+    return {
+      type: status === "failed" ? "payout.failed" : "payout.paid",
+      externalAccountId: str(body.externalAccountId),
+      accountStatus: null,
+      reference: str(body.reference),
+      externalTransferId: str(body.externalTransferId),
     };
   }
 }

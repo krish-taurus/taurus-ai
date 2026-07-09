@@ -13,8 +13,8 @@
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/db/store";
 import type { MarketplacePaymentProviderId } from "@/lib/db/types";
-import { getWebhookProvider } from "@/modules/marketplace/payments";
-import { fulfillMarketplacePayment } from "@/modules/marketplace/service";
+import { getWebhookProvider, getMarketplacePayoutProvider } from "@/modules/marketplace/payments";
+import { fulfillMarketplacePayment, fulfillPayoutWebhook } from "@/modules/marketplace/service";
 
 export const dynamic = "force-dynamic";
 
@@ -40,11 +40,21 @@ export async function POST(request: Request, { params }: { params: { provider: s
     return NextResponse.json({ error: "invalid_signature" }, { status: 400 });
   }
 
-  const event = paymentProvider.parseWebhookEvent(rawBody);
-  if (!event) {
-    return NextResponse.json({ error: "unparseable" }, { status: 400 });
+  const store = getStore();
+
+  // Payment events first; account/payout events share this endpoint, so fall
+  // through to the payout handler when this isn't a payment event.
+  const paymentEvent = paymentProvider.parseWebhookEvent(rawBody);
+  if (paymentEvent && paymentEvent.type !== "ignored") {
+    const result = await fulfillMarketplacePayment(store, provider, paymentEvent);
+    return NextResponse.json({ kind: "payment", ...result }, { status: 200 });
   }
 
-  const result = await fulfillMarketplacePayment(getStore(), provider, event);
-  return NextResponse.json(result, { status: 200 });
+  const payoutEvent = getMarketplacePayoutProvider(provider).parsePayoutWebhookEvent(rawBody);
+  if (payoutEvent && payoutEvent.type !== "ignored") {
+    const result = await fulfillPayoutWebhook(store, provider, payoutEvent);
+    return NextResponse.json(result, { status: 200 });
+  }
+
+  return NextResponse.json({ handled: false, kind: "ignored" }, { status: 200 });
 }

@@ -544,6 +544,69 @@ export interface UpdateMarketplacePaymentInput {
   paidAt?: string | null;
 }
 
+/** Seller payouts (Sprint 035). */
+export type MarketplacePayoutAccountStatus = "onboarding" | "active" | "restricted";
+export type MarketplacePayoutStatus = "pending" | "paid" | "failed";
+
+/** An org's connected payout account (the destination for its earnings). */
+export interface MarketplacePayoutAccount {
+  id: string;
+  organizationId: string;
+  provider: MarketplacePaymentProviderId;
+  externalAccountId: string | null;
+  status: MarketplacePayoutAccountStatus;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpsertMarketplacePayoutAccountInput {
+  organizationId: string;
+  provider: MarketplacePaymentProviderId;
+  externalAccountId?: string | null;
+  status?: MarketplacePayoutAccountStatus;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateMarketplacePayoutAccountInput {
+  externalAccountId?: string | null;
+  status?: MarketplacePayoutAccountStatus;
+}
+
+/** A withdrawal of accrued balance to the org's payout account. */
+export interface MarketplacePayout {
+  id: string;
+  organizationId: string;
+  provider: MarketplacePaymentProviderId;
+  externalAccountId: string | null;
+  externalTransferId: string | null;
+  reference: string;
+  amount: number; // minor units
+  currency: string;
+  status: MarketplacePayoutStatus;
+  createdByUserId: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateMarketplacePayoutInput {
+  organizationId: string;
+  provider: MarketplacePaymentProviderId;
+  externalAccountId?: string | null;
+  reference: string;
+  amount: number;
+  currency: string;
+  status?: MarketplacePayoutStatus;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateMarketplacePayoutInput {
+  externalTransferId?: string | null;
+  status?: MarketplacePayoutStatus;
+  paidAt?: string | null;
+}
+
 export interface CreateKnowledgeSourceInput {
   organizationId: string;
   vaultId?: string | null;

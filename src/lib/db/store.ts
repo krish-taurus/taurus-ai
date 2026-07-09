@@ -115,6 +115,12 @@ import type {
   CreateMarketplacePaymentInput,
   UpdateMarketplacePaymentInput,
   MarketplacePaymentProviderId,
+  MarketplacePayoutAccount,
+  UpsertMarketplacePayoutAccountInput,
+  UpdateMarketplacePayoutAccountInput,
+  MarketplacePayout,
+  CreateMarketplacePayoutInput,
+  UpdateMarketplacePayoutInput,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -326,6 +332,32 @@ export interface DataStore {
   listMarketplacePaymentsForBuyer(organizationId: string): Promise<MarketplacePayment[]>;
   /** Payments received for this org's listings (seller earnings). */
   listMarketplacePaymentsForSeller(organizationId: string): Promise<MarketplacePayment[]>;
+
+  // Marketplace seller payouts (Sprint 035).
+  getMarketplacePayoutAccount(organizationId: string): Promise<MarketplacePayoutAccount | null>;
+  getMarketplacePayoutAccountByExternalId(
+    externalAccountId: string,
+  ): Promise<MarketplacePayoutAccount | null>;
+  upsertMarketplacePayoutAccount(
+    input: UpsertMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount>;
+  updateMarketplacePayoutAccount(
+    organizationId: string,
+    patch: UpdateMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount | null>;
+
+  createMarketplacePayout(input: CreateMarketplacePayoutInput): Promise<MarketplacePayout>;
+  getMarketplacePayout(payoutId: string): Promise<MarketplacePayout | null>;
+  getMarketplacePayoutByReference(reference: string): Promise<MarketplacePayout | null>;
+  getMarketplacePayoutByExternalTransferId(
+    provider: MarketplacePaymentProviderId,
+    externalTransferId: string,
+  ): Promise<MarketplacePayout | null>;
+  updateMarketplacePayout(
+    payoutId: string,
+    patch: UpdateMarketplacePayoutInput,
+  ): Promise<MarketplacePayout | null>;
+  listMarketplacePayoutsForOrg(organizationId: string): Promise<MarketplacePayout[]>;
 
   // Model Hub + LLM Gateway (Prompt 006B).
   // Catalog (code-authoritative; not organization-scoped).

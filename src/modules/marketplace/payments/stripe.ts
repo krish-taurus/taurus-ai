@@ -14,14 +14,25 @@
 import crypto from "node:crypto";
 import type {
   CheckoutResult,
+  ConnectedAccountResult,
   CreateCheckoutInput,
+  CreateConnectedAccountInput,
+  CreateOnboardingLinkInput,
+  CreateTransferInput,
   MarketplacePaymentProvider,
+  MarketplacePayoutProvider,
+  OnboardingLinkResult,
   PaymentWebhookEvent,
+  PayoutAccountStatus,
+  PayoutWebhookEvent,
+  TransferResult,
 } from "@/modules/marketplace/payments/types";
 
 const STRIPE_API_BASE = "https://api.stripe.com/v1";
 
-export class StripeMarketplacePaymentProvider implements MarketplacePaymentProvider {
+export class StripeMarketplacePaymentProvider
+  implements MarketplacePaymentProvider, MarketplacePayoutProvider
+{
   readonly id = "stripe" as const;
 
   private readonly secretKey: string;
@@ -34,16 +45,18 @@ export class StripeMarketplacePaymentProvider implements MarketplacePaymentProvi
 
   private async stripeFetch(
     path: string,
-    form: Record<string, string>,
+    method: "GET" | "POST",
+    form?: Record<string, string>,
   ): Promise<Record<string, unknown>> {
-    const res = await fetch(`${STRIPE_API_BASE}${path}`, {
-      method: "POST",
+    const init: RequestInit = {
+      method,
       headers: {
         Authorization: `Bearer ${this.secretKey}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams(form).toString(),
-    });
+    };
+    if (form) init.body = new URLSearchParams(form).toString();
+    const res = await fetch(`${STRIPE_API_BASE}${path}`, init);
     const json = (await res.json()) as Record<string, unknown>;
     if (!res.ok) {
       const message =
@@ -66,7 +79,7 @@ export class StripeMarketplacePaymentProvider implements MarketplacePaymentProvi
       "metadata[reference]": input.reference,
       "payment_intent_data[metadata][reference]": input.reference,
     };
-    const session = await this.stripeFetch("/checkout/sessions", form);
+    const session = await this.stripeFetch("/checkout/sessions", "POST", form);
     const url = typeof session.url === "string" ? session.url : null;
     if (!url) throw new Error("Could not start checkout. Please try again.");
     return {
@@ -132,4 +145,106 @@ export class StripeMarketplacePaymentProvider implements MarketplacePaymentProvi
     }
     return { type: "ignored", reference: referenceFrom(object), externalPaymentId: str(object.id) };
   }
+
+  // --- Payouts via Stripe Connect (Express) ---------------------------------
+
+  async createConnectedAccount(input: CreateConnectedAccountInput): Promise<ConnectedAccountResult> {
+    const form: Record<string, string> = {
+      type: "express",
+      "capabilities[transfers][requested]": "true",
+      "metadata[organizationId]": input.organizationId,
+    };
+    if (input.email) form.email = input.email;
+    if (input.country) form.country = input.country;
+    const account = await this.stripeFetch("/accounts", "POST", form);
+    const id = typeof account.id === "string" ? account.id : null;
+    if (!id) throw new Error("Could not create a payout account. Please try again.");
+    return { externalAccountId: id, status: statusFromAccount(account) };
+  }
+
+  async createOnboardingLink(input: CreateOnboardingLinkInput): Promise<OnboardingLinkResult> {
+    const link = await this.stripeFetch("/account_links", "POST", {
+      account: input.externalAccountId,
+      refresh_url: input.refreshUrl,
+      return_url: input.returnUrl,
+      type: "account_onboarding",
+    });
+    const url = typeof link.url === "string" ? link.url : null;
+    if (!url) throw new Error("Could not start payout onboarding. Please try again.");
+    return { mode: "redirect", url };
+  }
+
+  async getAccountStatus(externalAccountId: string): Promise<PayoutAccountStatus> {
+    const account = await this.stripeFetch(`/accounts/${externalAccountId}`, "GET");
+    return statusFromAccount(account);
+  }
+
+  async createTransfer(input: CreateTransferInput): Promise<TransferResult> {
+    const transfer = await this.stripeFetch("/transfers", "POST", {
+      amount: String(input.amount),
+      currency: input.currency,
+      destination: input.externalAccountId,
+      "metadata[reference]": input.reference,
+      transfer_group: input.reference,
+    });
+    return {
+      mode: "transferred",
+      externalTransferId: typeof transfer.id === "string" ? transfer.id : null,
+    };
+  }
+
+  parsePayoutWebhookEvent(payload: string): PayoutWebhookEvent | null {
+    let event: Record<string, unknown>;
+    try {
+      event = JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    const type = typeof event.type === "string" ? event.type : "";
+    const object = ((event.data as Record<string, unknown> | undefined)?.object ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
+    const reference = str((object.metadata as Record<string, unknown> | undefined)?.reference);
+
+    if (type === "account.updated") {
+      return {
+        type: "account.updated",
+        externalAccountId: str(object.id),
+        accountStatus: statusFromAccount(object),
+        reference: null,
+        externalTransferId: null,
+      };
+    }
+    // A transfer to a connected account settles on creation (funds reach the
+    // seller's Stripe balance); their bank payout runs on Stripe's schedule.
+    if (type === "transfer.created" || type === "transfer.paid") {
+      return {
+        type: "payout.paid",
+        externalAccountId: str(object.destination),
+        accountStatus: null,
+        reference,
+        externalTransferId: str(object.id),
+      };
+    }
+    if (type === "transfer.reversed" || type === "transfer.failed") {
+      return {
+        type: "payout.failed",
+        externalAccountId: str(object.destination),
+        accountStatus: null,
+        reference,
+        externalTransferId: str(object.id),
+      };
+    }
+    return { type: "ignored", externalAccountId: null, accountStatus: null, reference, externalTransferId: null };
+  }
+}
+
+/** Derive our coarse status from a Stripe account object. */
+function statusFromAccount(account: Record<string, unknown>): PayoutAccountStatus {
+  if (account.payouts_enabled === true && account.charges_enabled === true) return "active";
+  const requirements = account.requirements as { disabled_reason?: unknown } | undefined;
+  if (requirements?.disabled_reason) return "restricted";
+  return "onboarding";
 }

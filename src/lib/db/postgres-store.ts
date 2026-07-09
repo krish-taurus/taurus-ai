@@ -121,6 +121,12 @@ import type {
   CreateMarketplacePaymentInput,
   UpdateMarketplacePaymentInput,
   MarketplacePaymentProviderId,
+  MarketplacePayoutAccount,
+  UpsertMarketplacePayoutAccountInput,
+  UpdateMarketplacePayoutAccountInput,
+  MarketplacePayout,
+  CreateMarketplacePayoutInput,
+  UpdateMarketplacePayoutInput,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -513,6 +519,37 @@ function mapMarketplacePayment(row: Row): MarketplacePayment {
     platformFee: Number(row.platform_fee ?? 0),
     sellerNet: Number(row.seller_net ?? 0),
     status: row.status as MarketplacePayment["status"],
+    createdByUserId: row.created_by_user_id ?? null,
+    paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketplacePayoutAccount(row: Row): MarketplacePayoutAccount {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    provider: row.provider as MarketplacePayoutAccount["provider"],
+    externalAccountId: row.external_account_id ?? null,
+    status: row.status as MarketplacePayoutAccount["status"],
+    createdByUserId: row.created_by_user_id ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapMarketplacePayout(row: Row): MarketplacePayout {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    provider: row.provider as MarketplacePayout["provider"],
+    externalAccountId: row.external_account_id ?? null,
+    externalTransferId: row.external_transfer_id ?? null,
+    reference: row.reference,
+    amount: Number(row.amount),
+    currency: row.currency,
+    status: row.status as MarketplacePayout["status"],
     createdByUserId: row.created_by_user_id ?? null,
     paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
@@ -2069,6 +2106,150 @@ export class PostgresStore implements DataStore {
       [organizationId],
     );
     return rows.map(mapMarketplacePayment);
+  }
+
+  // --- Marketplace payouts (Sprint 035) -------------------------------------
+
+  async getMarketplacePayoutAccount(
+    organizationId: string,
+  ): Promise<MarketplacePayoutAccount | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payout_accounts where organization_id = $1",
+      [organizationId],
+    );
+    return rows[0] ? mapMarketplacePayoutAccount(rows[0]) : null;
+  }
+
+  async getMarketplacePayoutAccountByExternalId(
+    externalAccountId: string,
+  ): Promise<MarketplacePayoutAccount | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payout_accounts where external_account_id = $1",
+      [externalAccountId],
+    );
+    return rows[0] ? mapMarketplacePayoutAccount(rows[0]) : null;
+  }
+
+  async upsertMarketplacePayoutAccount(
+    input: UpsertMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount> {
+    const { rows } = await this.query(
+      `insert into marketplace_payout_accounts
+         (organization_id, provider, external_account_id, status, created_by_user_id)
+       values ($1,$2,$3,$4,$5)
+       on conflict (organization_id) do update
+         set provider = excluded.provider,
+             external_account_id = coalesce(excluded.external_account_id, marketplace_payout_accounts.external_account_id),
+             status = excluded.status,
+             updated_at = now()
+       returning *`,
+      [
+        input.organizationId,
+        input.provider,
+        input.externalAccountId ?? null,
+        input.status ?? "onboarding",
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapMarketplacePayoutAccount(rows[0]);
+  }
+
+  async updateMarketplacePayoutAccount(
+    organizationId: string,
+    patch: UpdateMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if ("externalAccountId" in patch) add("external_account_id", patch.externalAccountId ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (sets.length === 0) return this.getMarketplacePayoutAccount(organizationId);
+    sets.push("updated_at = now()");
+    values.push(organizationId);
+    const { rows } = await this.query(
+      `update marketplace_payout_accounts set ${sets.join(", ")} where organization_id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapMarketplacePayoutAccount(rows[0]) : null;
+  }
+
+  async createMarketplacePayout(input: CreateMarketplacePayoutInput): Promise<MarketplacePayout> {
+    const { rows } = await this.query(
+      `insert into marketplace_payouts
+         (organization_id, provider, external_account_id, reference, amount, currency, status, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7,$8) returning *`,
+      [
+        input.organizationId,
+        input.provider,
+        input.externalAccountId ?? null,
+        input.reference,
+        input.amount,
+        input.currency,
+        input.status ?? "pending",
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapMarketplacePayout(rows[0]);
+  }
+
+  async getMarketplacePayout(payoutId: string): Promise<MarketplacePayout | null> {
+    const { rows } = await this.query("select * from marketplace_payouts where id = $1", [payoutId]);
+    return rows[0] ? mapMarketplacePayout(rows[0]) : null;
+  }
+
+  async getMarketplacePayoutByReference(reference: string): Promise<MarketplacePayout | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payouts where reference = $1",
+      [reference],
+    );
+    return rows[0] ? mapMarketplacePayout(rows[0]) : null;
+  }
+
+  async getMarketplacePayoutByExternalTransferId(
+    provider: MarketplacePaymentProviderId,
+    externalTransferId: string,
+  ): Promise<MarketplacePayout | null> {
+    const { rows } = await this.query(
+      "select * from marketplace_payouts where provider = $1 and external_transfer_id = $2",
+      [provider, externalTransferId],
+    );
+    return rows[0] ? mapMarketplacePayout(rows[0]) : null;
+  }
+
+  async updateMarketplacePayout(
+    payoutId: string,
+    patch: UpdateMarketplacePayoutInput,
+  ): Promise<MarketplacePayout | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if ("externalTransferId" in patch) add("external_transfer_id", patch.externalTransferId ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if ("paidAt" in patch) add("paid_at", patch.paidAt ?? null);
+    if (sets.length === 0) return this.getMarketplacePayout(payoutId);
+    sets.push("updated_at = now()");
+    values.push(payoutId);
+    const { rows } = await this.query(
+      `update marketplace_payouts set ${sets.join(", ")} where id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapMarketplacePayout(rows[0]) : null;
+  }
+
+  async listMarketplacePayoutsForOrg(organizationId: string): Promise<MarketplacePayout[]> {
+    const { rows } = await this.query(
+      "select * from marketplace_payouts where organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapMarketplacePayout);
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

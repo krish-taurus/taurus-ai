@@ -11,34 +11,45 @@ import { redirect } from "next/navigation";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
-import { listBuyerPayments, listSellerPayments } from "@/modules/marketplace/service";
+import {
+  listBuyerPayments,
+  listSellerPayments,
+  getPayoutAccount,
+  getSellerBalances,
+  listPayouts,
+} from "@/modules/marketplace/service";
+import { availablePaymentProviders } from "@/modules/marketplace/payments";
 import { formatMoney } from "@/modules/marketplace/pricing";
-import type { MarketplacePayment } from "@/lib/db/types";
+import type { MarketplacePayment, MarketplacePayout } from "@/lib/db/types";
+import {
+  ConnectPayoutButton,
+  WithdrawButton,
+} from "@/components/marketplace/payout-buttons";
 import { Badge, Card, EmptyState, PageHeader } from "@/components/ui";
 
-function statusTone(status: MarketplacePayment["status"]): "soft" | "outline" {
+function statusTone(status: MarketplacePayment["status"] | MarketplacePayout["status"]): "soft" | "outline" {
   return status === "paid" ? "soft" : "outline";
 }
 
-/** Sum the seller's net across settled payments, grouped by currency. */
-function sumNetByCurrency(payments: MarketplacePayment[]): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const p of payments) {
-    if (p.status !== "paid") continue;
-    out[p.currency] = (out[p.currency] ?? 0) + p.sellerNet;
-  }
-  return out;
-}
-
-export default async function MarketplaceEarningsPage() {
+export default async function MarketplaceEarningsPage({
+  searchParams,
+}: {
+  searchParams?: { connected?: string; withdrawn?: string };
+}) {
   const { organization, membership } = await requireCurrentOrganization();
   if (!hasPermission(membership.role, "employee.view")) redirect("/dashboard");
+  const canManage = hasPermission(membership.role, "employee.manage");
 
   const store = getStore();
-  const [earnings, purchases] = await Promise.all([
+  const [earnings, purchases, payoutAccount, balances, payouts] = await Promise.all([
     listSellerPayments(store, organization.id),
     listBuyerPayments(store, organization.id),
+    getPayoutAccount(store, organization.id),
+    getSellerBalances(store, organization.id),
+    listPayouts(store, organization.id),
   ]);
+  const providers = availablePaymentProviders();
+  const accountActive = payoutAccount?.status === "active";
 
   const titleFor = async (listingId: string) =>
     (await store.getMarketplaceListing(listingId))?.title ?? "AI Employee";
@@ -48,7 +59,7 @@ export default async function MarketplaceEarningsPage() {
   const purchaseRows = await Promise.all(
     purchases.map(async (p) => ({ p, title: await titleFor(p.listingId) })),
   );
-  const netByCurrency = sumNetByCurrency(earnings);
+  const hasBalances = balances.some((b) => b.earned > 0);
 
   return (
     <div className="max-w-3xl">
@@ -66,23 +77,95 @@ export default async function MarketplaceEarningsPage() {
         description="Money received for your listings and what you've paid to hire. Only the DNA is sold — your knowledge vault is never shared."
       />
 
-      {/* Seller net balance */}
-      {Object.keys(netByCurrency).length > 0 ? (
+      {searchParams?.connected ? (
+        <Card className="mb-6 border-taurus-line bg-taurus-muted p-4 text-sm text-taurus-text">
+          Payout account connected. Available balances can now be withdrawn.
+        </Card>
+      ) : null}
+      {searchParams?.withdrawn ? (
+        <Card className="mb-6 border-taurus-line bg-taurus-muted p-4 text-sm text-taurus-text">
+          Withdrawal sent to your connected account.
+        </Card>
+      ) : null}
+
+      {/* Balance + payout account */}
+      {hasBalances ? (
         <Card className="mb-6 p-5">
-          <p className="text-sm font-medium text-taurus-text">Net earned (after platform fee)</p>
-          <div className="mt-2 flex flex-wrap gap-4">
-            {Object.entries(netByCurrency).map(([currency, net]) => (
-              <div key={currency}>
-                <div className="text-2xl font-semibold text-taurus-text">
-                  {formatMoney(net, currency)}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm font-medium text-taurus-text">
+              Balance (net of the platform fee)
+            </p>
+            {payoutAccount ? (
+              <Badge tone={accountActive ? "soft" : "outline"}>
+                {payoutAccount.provider} · {payoutAccount.status}
+              </Badge>
+            ) : null}
+          </div>
+
+          <div className="space-y-3">
+            {balances.map((b) => (
+              <div
+                key={b.currency}
+                className="flex flex-wrap items-center justify-between gap-3 border-t border-taurus-line pt-3 first:border-0 first:pt-0"
+              >
+                <div>
+                  <div className="text-2xl font-semibold text-taurus-text">
+                    {formatMoney(b.available, b.currency)}
+                  </div>
+                  <div className="text-xs text-taurus-faint">
+                    available · {formatMoney(b.paidOut, b.currency)} withdrawn ·{" "}
+                    {formatMoney(b.pending, b.currency)} in flight
+                  </div>
                 </div>
-                <div className="text-xs text-taurus-faint">settled</div>
+                {canManage && accountActive && b.available > 0 ? (
+                  <WithdrawButton
+                    currency={b.currency}
+                    label={`Withdraw ${formatMoney(b.available, b.currency)}`}
+                  />
+                ) : null}
               </div>
             ))}
           </div>
-          <p className="mt-3 text-xs text-taurus-faint">
-            This is your revenue-share balance. Payouts to your bank are coming soon.
-          </p>
+
+          {canManage ? (
+            <div className="mt-4 border-t border-taurus-line pt-4">
+              {accountActive ? (
+                <p className="text-xs text-taurus-faint">
+                  Withdrawals go to your connected {payoutAccount?.provider} account. Payouts move
+                  only the revenue-share balance — never your knowledge vault.
+                </p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-taurus-faint">
+                    {payoutAccount
+                      ? "Finish connecting your payout account to withdraw."
+                      : "Connect a payout account to withdraw your balance."}
+                  </p>
+                  <ConnectPayoutButton
+                    providers={providers}
+                    label={payoutAccount ? "Finish connecting" : "Connect payout account"}
+                  />
+                </div>
+              )}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {/* Payout history */}
+      {payouts.length > 0 ? (
+        <Card className="mb-8 p-5">
+          <p className="mb-3 text-sm font-medium text-taurus-text">Payout history</p>
+          <ul className="space-y-2">
+            {payouts.map((p) => (
+              <li key={p.id} className="flex items-center justify-between gap-3 text-sm">
+                <span className="text-taurus-sub">
+                  {formatMoney(p.amount, p.currency)} · via {p.provider}
+                </span>
+                <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+              </li>
+            ))}
+          </ul>
         </Card>
       ) : null}
 

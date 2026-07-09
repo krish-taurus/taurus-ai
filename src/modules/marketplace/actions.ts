@@ -21,6 +21,8 @@ import {
   requestHire,
   setListingPrice,
   startHirePurchase,
+  startPayoutOnboarding,
+  requestPayout,
   submitReview,
   unpublishListing,
   type MarketplaceActor,
@@ -30,6 +32,7 @@ import { generateListingCopy, generateVaultDescription } from "@/modules/marketp
 import {
   availablePaymentProviders,
   getMarketplacePaymentProvider,
+  getMarketplacePayoutProvider,
   platformFeeBps,
 } from "@/modules/marketplace/payments";
 import { majorToMinor } from "@/modules/marketplace/pricing";
@@ -205,6 +208,65 @@ export async function startHirePurchaseAction(
   }
   revalidatePath(`/dashboard/marketplace/${listingId}`);
   redirect(redirectTo);
+}
+
+/** Connect (or resume connecting) a payout account. Owner/manager only. */
+export async function startPayoutOnboardingAction(
+  _prev: MarketplaceActionState,
+  formData: FormData,
+): Promise<MarketplaceActionState> {
+  const ctx = await requirePermission("employee.manage");
+  if (!ctx.ok) return { error: DENIED };
+
+  const requested = String(formData.get("provider") ?? "") as MarketplacePaymentProviderId;
+  const available = availablePaymentProviders();
+  const provider: MarketplacePaymentProviderId = available.includes(requested)
+    ? requested
+    : (available[0] ?? "simulated");
+  const payoutProvider = getMarketplacePayoutProvider(provider);
+  const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+
+  let redirectTo: string;
+  try {
+    const result = await startPayoutOnboarding(getStore(), ctx.actor, {
+      provider,
+      returnUrl: `${appUrl}/dashboard/marketplace/earnings?connected=1`,
+      refreshUrl: `${appUrl}/dashboard/marketplace/earnings?refresh=1`,
+      createConnectedAccount: (input) => payoutProvider.createConnectedAccount(input),
+      createOnboardingLink: (input) => payoutProvider.createOnboardingLink(input),
+    });
+    redirectTo =
+      result.status === "redirect" ? result.url : "/dashboard/marketplace/earnings?connected=1";
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not start payout onboarding." };
+  }
+  revalidatePath("/dashboard/marketplace/earnings");
+  redirect(redirectTo);
+}
+
+/** Withdraw the available balance in a currency to the connected account. */
+export async function requestPayoutAction(
+  _prev: MarketplaceActionState,
+  formData: FormData,
+): Promise<MarketplaceActionState> {
+  const ctx = await requirePermission("employee.manage");
+  if (!ctx.ok) return { error: DENIED };
+
+  const currency = String(formData.get("currency") ?? "").toLowerCase();
+  const account = await getStore().getMarketplacePayoutAccount(ctx.actor.organizationId);
+  const payoutProvider = getMarketplacePayoutProvider(account?.provider);
+  try {
+    await requestPayout(
+      getStore(),
+      ctx.actor,
+      { currency },
+      { createTransfer: (input) => payoutProvider.createTransfer(input) },
+    );
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : "Could not withdraw your balance." };
+  }
+  revalidatePath("/dashboard/marketplace/earnings");
+  redirect("/dashboard/marketplace/earnings?withdrawn=1");
 }
 
 export async function requestHireAction(

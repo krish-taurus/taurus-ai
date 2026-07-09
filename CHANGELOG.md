@@ -1,5 +1,43 @@
 # Changelog
 
+## Sprint 035 - Marketplace seller payouts (Connect / Route) — 2026-07-09
+
+Added:
+
+- **Seller payouts** — closes the money loop from Sprint 034. A seller **connects
+  a payout account** (Stripe Connect / Razorpay Route — KYC handled by the
+  provider via hosted onboarding) and **withdraws** their accrued revenue-share
+  balance to it.
+  - **Balance is derived, never stored**: `available(currency) = Σ paid
+    seller_net − Σ (paid + pending) payouts`, per currency. An **Earnings** page
+    shows the connect status, per-currency available balance, a **Withdraw**
+    button, and payout history.
+  - **Balance-and-withdraw** (not at-purchase split): a withdrawal records a
+    payout row **first** (so a concurrent request can't double-spend), then moves
+    the money. Simulated + successful live transfers settle immediately; failures
+    are reconciled by webhook. Fulfillment is **idempotent**.
+  - **Safe by default**: money only moves with live keys. With none, the
+    simulated provider activates the account instantly and settles withdrawals
+    in-process — **no network, no transfer**. Bank details never touch Taurus
+    (they live with the provider); we store only the opaque connected-account id.
+  - The three provider classes now implement a `MarketplacePayoutProvider`
+    interface (`createConnectedAccount` / `createOnboardingLink` /
+    `getAccountStatus` / `createTransfer` / `parsePayoutWebhookEvent`) —
+    Stripe via **Connect Express transfers**, Razorpay via **Route**. Account +
+    payout webhooks share `POST /api/webhooks/marketplace/{provider}` (payment
+    events first, then account/payout events).
+  - New `0026_marketplace_payouts.sql` (`marketplace_payout_accounts` +
+    `marketplace_payouts`, each with the right unique/partial indexes), store
+    methods on both backends, and `startPayoutOnboarding` / `getSellerBalances` /
+    `requestPayout` / `fulfillPayoutWebhook` service functions (pure; the provider
+    is injected at the action layer).
+  - Verified end-to-end on a **live PostgreSQL** (0026 applies; onboarding →
+    withdraw drains the $85 net balance, records the payout with its transfer id,
+    and refuses a second empty withdrawal) and by unit tests (balance math,
+    simulated + redirect onboarding, withdraw idempotency + insufficient balance,
+    account.updated + payout.failed webhooks). `tsc` clean · `next lint` clean ·
+    **534 tests + 6 skipped** · build compiles.
+
 ## Sprint 034 - Marketplace paid lease / revenue-share (Stripe + Razorpay) — 2026-07-09
 
 Added:

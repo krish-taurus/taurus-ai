@@ -96,6 +96,12 @@ import type {
   CreateMarketplacePaymentInput,
   UpdateMarketplacePaymentInput,
   MarketplacePaymentProviderId,
+  MarketplacePayoutAccount,
+  UpsertMarketplacePayoutAccountInput,
+  UpdateMarketplacePayoutAccountInput,
+  MarketplacePayout,
+  CreateMarketplacePayoutInput,
+  UpdateMarketplacePayoutInput,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -171,6 +177,8 @@ export class InMemoryStore implements DataStore {
   private marketplaceHires = new Map<string, MarketplaceHire>();
   private marketplaceReviews = new Map<string, MarketplaceReview>();
   private marketplacePayments = new Map<string, MarketplacePayment>();
+  private marketplacePayoutAccounts = new Map<string, MarketplacePayoutAccount>();
+  private marketplacePayouts = new Map<string, MarketplacePayout>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -1174,6 +1182,119 @@ export class InMemoryStore implements DataStore {
   async listMarketplacePaymentsForSeller(organizationId: string): Promise<MarketplacePayment[]> {
     return [...this.marketplacePayments.values()]
       .filter((p) => p.sellerOrganizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  // --- Marketplace payouts (Sprint 035) -------------------------------------
+
+  async getMarketplacePayoutAccount(
+    organizationId: string,
+  ): Promise<MarketplacePayoutAccount | null> {
+    return this.marketplacePayoutAccounts.get(organizationId) ?? null;
+  }
+
+  async getMarketplacePayoutAccountByExternalId(
+    externalAccountId: string,
+  ): Promise<MarketplacePayoutAccount | null> {
+    return (
+      [...this.marketplacePayoutAccounts.values()].find(
+        (a) => a.externalAccountId === externalAccountId,
+      ) ?? null
+    );
+  }
+
+  async upsertMarketplacePayoutAccount(
+    input: UpsertMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount> {
+    const existing = this.marketplacePayoutAccounts.get(input.organizationId);
+    const timestamp = now();
+    const account: MarketplacePayoutAccount = existing
+      ? {
+          ...existing,
+          provider: input.provider,
+          externalAccountId: input.externalAccountId ?? existing.externalAccountId,
+          status: input.status ?? existing.status,
+          updatedAt: timestamp,
+        }
+      : {
+          id: uuid(),
+          organizationId: input.organizationId,
+          provider: input.provider,
+          externalAccountId: input.externalAccountId ?? null,
+          status: input.status ?? "onboarding",
+          createdByUserId: input.createdByUserId ?? null,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        };
+    this.marketplacePayoutAccounts.set(input.organizationId, account);
+    return account;
+  }
+
+  async updateMarketplacePayoutAccount(
+    organizationId: string,
+    patch: UpdateMarketplacePayoutAccountInput,
+  ): Promise<MarketplacePayoutAccount | null> {
+    const existing = this.marketplacePayoutAccounts.get(organizationId);
+    if (!existing) return null;
+    const updated: MarketplacePayoutAccount = { ...existing, ...patch, updatedAt: now() };
+    this.marketplacePayoutAccounts.set(organizationId, updated);
+    return updated;
+  }
+
+  async createMarketplacePayout(input: CreateMarketplacePayoutInput): Promise<MarketplacePayout> {
+    const timestamp = now();
+    const payout: MarketplacePayout = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      provider: input.provider,
+      externalAccountId: input.externalAccountId ?? null,
+      externalTransferId: null,
+      reference: input.reference,
+      amount: input.amount,
+      currency: input.currency,
+      status: input.status ?? "pending",
+      createdByUserId: input.createdByUserId ?? null,
+      paidAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.marketplacePayouts.set(payout.id, payout);
+    return payout;
+  }
+
+  async getMarketplacePayout(payoutId: string): Promise<MarketplacePayout | null> {
+    return this.marketplacePayouts.get(payoutId) ?? null;
+  }
+
+  async getMarketplacePayoutByReference(reference: string): Promise<MarketplacePayout | null> {
+    return [...this.marketplacePayouts.values()].find((p) => p.reference === reference) ?? null;
+  }
+
+  async getMarketplacePayoutByExternalTransferId(
+    provider: MarketplacePaymentProviderId,
+    externalTransferId: string,
+  ): Promise<MarketplacePayout | null> {
+    return (
+      [...this.marketplacePayouts.values()].find(
+        (p) => p.provider === provider && p.externalTransferId === externalTransferId,
+      ) ?? null
+    );
+  }
+
+  async updateMarketplacePayout(
+    payoutId: string,
+    patch: UpdateMarketplacePayoutInput,
+  ): Promise<MarketplacePayout | null> {
+    const existing = this.marketplacePayouts.get(payoutId);
+    if (!existing) return null;
+    const updated: MarketplacePayout = { ...existing, ...patch, updatedAt: now() };
+    this.marketplacePayouts.set(payoutId, updated);
+    return updated;
+  }
+
+  async listMarketplacePayoutsForOrg(organizationId: string): Promise<MarketplacePayout[]> {
+    return [...this.marketplacePayouts.values()]
+      .filter((p) => p.organizationId === organizationId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 

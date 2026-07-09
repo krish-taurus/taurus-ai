@@ -20,11 +20,20 @@ import type {
   MarketplacePayment,
   MarketplacePaymentProviderId,
   MarketplacePricingModel,
+  MarketplacePayout,
+  MarketplacePayoutAccount,
   PerformanceSnapshot,
   VaultSnapshotItem,
 } from "@/lib/db/types";
 import type { EmployeeDnaV1 } from "@/modules/employee-dna/schema";
-import type { CheckoutResult, PaymentWebhookEvent } from "@/modules/marketplace/payments/types";
+import type {
+  CheckoutResult,
+  PaymentWebhookEvent,
+  ConnectedAccountResult,
+  OnboardingLinkResult,
+  TransferResult,
+  PayoutWebhookEvent,
+} from "@/modules/marketplace/payments/types";
 import { isSupportedCurrency, isPricedListing } from "@/modules/marketplace/pricing";
 
 export interface MarketplaceActor {
@@ -761,4 +770,271 @@ export function listSellerPayments(
   organizationId: string,
 ): Promise<MarketplacePayment[]> {
   return store.listMarketplacePaymentsForSeller(organizationId);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Seller payouts (Sprint 035)                                                */
+/* -------------------------------------------------------------------------- */
+
+function newPayoutReference(): string {
+  return `po_${globalThis.crypto.randomUUID().replace(/-/g, "")}`;
+}
+
+export function getPayoutAccount(
+  store: DataStore,
+  organizationId: string,
+): Promise<MarketplacePayoutAccount | null> {
+  return store.getMarketplacePayoutAccount(organizationId);
+}
+
+export function listPayouts(
+  store: DataStore,
+  organizationId: string,
+): Promise<MarketplacePayout[]> {
+  return store.listMarketplacePayoutsForOrg(organizationId);
+}
+
+export interface CurrencyBalance {
+  currency: string;
+  earned: number; // Σ seller_net of paid payments
+  paidOut: number; // Σ amount of settled payouts
+  pending: number; // Σ amount of in-flight payouts
+  available: number; // earned − paidOut − pending
+}
+
+/**
+ * Per-currency payout balance derived from the ledgers (never stored):
+ * available = Σ paid seller_net − Σ (paid + pending) payouts.
+ */
+export async function getSellerBalances(
+  store: DataStore,
+  organizationId: string,
+): Promise<CurrencyBalance[]> {
+  const [payments, payouts] = await Promise.all([
+    store.listMarketplacePaymentsForSeller(organizationId),
+    store.listMarketplacePayoutsForOrg(organizationId),
+  ]);
+  const map = new Map<string, CurrencyBalance>();
+  const row = (currency: string): CurrencyBalance => {
+    let r = map.get(currency);
+    if (!r) {
+      r = { currency, earned: 0, paidOut: 0, pending: 0, available: 0 };
+      map.set(currency, r);
+    }
+    return r;
+  };
+  for (const p of payments) {
+    if (p.status === "paid") row(p.currency).earned += p.sellerNet;
+  }
+  for (const p of payouts) {
+    if (p.status === "paid") row(p.currency).paidOut += p.amount;
+    else if (p.status === "pending") row(p.currency).pending += p.amount;
+  }
+  for (const r of map.values()) r.available = r.earned - r.paidOut - r.pending;
+  return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency));
+}
+
+export interface StartPayoutOnboardingOptions {
+  provider: MarketplacePaymentProviderId;
+  returnUrl: string;
+  refreshUrl: string;
+  createConnectedAccount: (input: {
+    organizationId: string;
+  }) => Promise<ConnectedAccountResult>;
+  createOnboardingLink: (input: {
+    externalAccountId: string;
+    returnUrl: string;
+    refreshUrl: string;
+  }) => Promise<OnboardingLinkResult>;
+}
+
+export type StartPayoutOnboardingResult =
+  | { status: "redirect"; url: string; account: MarketplacePayoutAccount }
+  | { status: "active"; account: MarketplacePayoutAccount };
+
+/**
+ * Connect (or resume connecting) a payout account. Creates the connected account
+ * on first use, then returns a hosted onboarding link. In simulated mode the
+ * account is immediately active (no hosted onboarding).
+ */
+export async function startPayoutOnboarding(
+  store: DataStore,
+  actor: MarketplaceActor,
+  opts: StartPayoutOnboardingOptions,
+): Promise<StartPayoutOnboardingResult> {
+  let account = await store.getMarketplacePayoutAccount(actor.organizationId);
+
+  // Create the connected account on first connect (or if provider changed).
+  if (!account || !account.externalAccountId || account.provider !== opts.provider) {
+    const created = await opts.createConnectedAccount({ organizationId: actor.organizationId });
+    account = await store.upsertMarketplacePayoutAccount({
+      organizationId: actor.organizationId,
+      provider: opts.provider,
+      externalAccountId: created.externalAccountId,
+      status: created.status,
+      createdByUserId: actor.userId,
+    });
+  }
+
+  const link = await opts.createOnboardingLink({
+    externalAccountId: account.externalAccountId as string,
+    returnUrl: opts.returnUrl,
+    refreshUrl: opts.refreshUrl,
+  });
+
+  if (link.mode === "redirect") {
+    return { status: "redirect", url: link.url, account };
+  }
+
+  // Simulated: mark active immediately.
+  const active =
+    (await store.updateMarketplacePayoutAccount(actor.organizationId, { status: "active" })) ??
+    account;
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "marketplace_payout_account.connected",
+    targetType: "marketplace_payout_account",
+    targetId: active.id,
+    metadata: { provider: opts.provider, status: active.status },
+  });
+  return { status: "active", account: active };
+}
+
+export interface RequestPayoutOptions {
+  createTransfer: (input: {
+    externalAccountId: string;
+    amount: number;
+    currency: string;
+    reference: string;
+  }) => Promise<TransferResult>;
+}
+
+/**
+ * Withdraw the full available balance in a currency to the connected account.
+ * Records a payout row FIRST (so the balance can't be double-spent by a
+ * concurrent request), then moves the money. Simulated + successful live
+ * transfers settle immediately; failures are reconciled by webhook.
+ */
+export async function requestPayout(
+  store: DataStore,
+  actor: MarketplaceActor,
+  input: { currency: string },
+  opts: RequestPayoutOptions,
+): Promise<MarketplacePayout> {
+  const account = await store.getMarketplacePayoutAccount(actor.organizationId);
+  if (!account || account.status !== "active" || !account.externalAccountId) {
+    throw new MarketplaceError("Connect a payout account before withdrawing.");
+  }
+  const currency = input.currency.toLowerCase();
+  const balances = await getSellerBalances(store, actor.organizationId);
+  const balance = balances.find((b) => b.currency === currency);
+  if (!balance || balance.available <= 0) {
+    throw new MarketplaceError("You have no balance to withdraw in this currency.");
+  }
+
+  const reference = newPayoutReference();
+  const payout = await store.createMarketplacePayout({
+    organizationId: actor.organizationId,
+    provider: account.provider,
+    externalAccountId: account.externalAccountId,
+    reference,
+    amount: balance.available,
+    currency,
+    status: "pending",
+    createdByUserId: actor.userId,
+  });
+
+  let transfer: TransferResult;
+  try {
+    transfer = await opts.createTransfer({
+      externalAccountId: account.externalAccountId,
+      amount: balance.available,
+      currency,
+      reference,
+    });
+  } catch (err) {
+    await store.updateMarketplacePayout(payout.id, { status: "failed" });
+    throw err instanceof Error ? new MarketplaceError(err.message) : err;
+  }
+
+  // Both simulated and a successfully created transfer move funds to the seller.
+  const externalTransferId = transfer.mode === "transferred" ? transfer.externalTransferId : null;
+  const settled = await store.updateMarketplacePayout(payout.id, {
+    status: "paid",
+    paidAt: new Date().toISOString(),
+    externalTransferId,
+  });
+
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "marketplace_payout.sent",
+    targetType: "marketplace_payout",
+    targetId: payout.id,
+    metadata: {
+      payoutId: payout.id,
+      amount: balance.available,
+      currency,
+      provider: account.provider,
+    },
+  });
+
+  return settled ?? payout;
+}
+
+export interface FulfillPayoutResult {
+  handled: boolean;
+  kind: "account" | "payout" | "ignored" | "unknown";
+}
+
+/** Apply a normalized payout/account webhook event. Idempotent. */
+export async function fulfillPayoutWebhook(
+  store: DataStore,
+  provider: MarketplacePaymentProviderId,
+  event: PayoutWebhookEvent,
+): Promise<FulfillPayoutResult> {
+  if (event.type === "account.updated") {
+    if (!event.externalAccountId) return { handled: false, kind: "unknown" };
+    const account = await store.getMarketplacePayoutAccountByExternalId(event.externalAccountId);
+    if (!account) return { handled: false, kind: "unknown" };
+    if (event.accountStatus && event.accountStatus !== account.status) {
+      await store.updateMarketplacePayoutAccount(account.organizationId, {
+        status: event.accountStatus,
+      });
+    }
+    return { handled: true, kind: "account" };
+  }
+
+  if (event.type === "payout.paid" || event.type === "payout.failed") {
+    let payout: MarketplacePayout | null = null;
+    if (event.reference) payout = await store.getMarketplacePayoutByReference(event.reference);
+    if (!payout && event.externalTransferId) {
+      payout = await store.getMarketplacePayoutByExternalTransferId(
+        provider,
+        event.externalTransferId,
+      );
+    }
+    if (!payout || payout.provider !== provider) return { handled: false, kind: "unknown" };
+
+    if (event.type === "payout.failed") {
+      if (payout.status !== "failed") {
+        await store.updateMarketplacePayout(payout.id, { status: "failed" });
+      }
+      return { handled: true, kind: "payout" };
+    }
+    // paid — idempotent: only settle a still-pending payout.
+    if (payout.status !== "paid") {
+      await store.updateMarketplacePayout(payout.id, {
+        status: "paid",
+        paidAt: new Date().toISOString(),
+        externalTransferId: event.externalTransferId ?? payout.externalTransferId,
+      });
+    }
+    return { handled: true, kind: "payout" };
+  }
+
+  return { handled: false, kind: "ignored" };
 }
