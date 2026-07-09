@@ -1,5 +1,32 @@
 # Changelog
 
+## Sprint 029 - Assign whole vaults to employees — 2026-07-09
+
+Added:
+
+- **One-click vault assignment** — give an AI Employee a whole **vault** and it can
+  use every source in it, and anything added to that vault later flows through
+  automatically. This replaces per-source assignment as the live relationship.
+  - New `employee_knowledge_vaults` table
+    (`db/migrations/0022_employee_knowledge_vaults.sql`). The migration backfills
+    existing per-source assignments into vault assignments (an employee who had any
+    source from a vault is granted that whole vault), so no one loses access; the
+    old `employee_knowledge_sources` table is left in place (non-destructive).
+  - **Retrieval now resolves through vaults**: an employee sees a knowledge segment
+    only if the source's vault is assigned to them (both lexical and semantic paths,
+    both stores). `listKnowledgeSourcesForEmployee`, `listEmployeesForKnowledgeSource`,
+    the assigned-count, and the vault overview all resolve via vaults.
+  - Store: `assignVaultToEmployee` / `unassignVaultFromEmployee` /
+    `listVaultsForEmployee` / `listEmployeesForVault`. Service + actions:
+    `assignVaultToEmployee` / `unassignVaultFromEmployee` (org-scoped, audited).
+  - UI: the employee's knowledge page now lists **vaults** with per-vault source
+    counts and an Assign/Remove toggle; the header shows how many vaults and total
+    sources the employee can use.
+  - Verified end-to-end against a live PostgreSQL: `0001→0022` applies cleanly, the
+    vault-scoped retrieval join grants access only when the vault is assigned (and
+    revokes on unassign), and the backfill maps legacy per-source assignments to the
+    correct vault. Retrieval/chat unit tests updated to assign vaults.
+
 ## Sprint 028 - Multiple Knowledge Vaults (organizing layer) — 2026-07-09
 
 Added:

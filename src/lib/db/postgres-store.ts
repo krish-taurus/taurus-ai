@@ -107,6 +107,8 @@ import type {
   UpdateKnowledgeVaultInput,
   KnowledgeVaultSummary,
   KnowledgeVaultOverview,
+  EmployeeVaultAssignment,
+  AssignVaultInput,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -1532,28 +1534,91 @@ export class PostgresStore implements DataStore {
     return (rowCount ?? 0) > 0;
   }
 
+  // --- Vault → employee assignment (Sprint 029) ----------------------------
+
+  async assignVaultToEmployee(input: AssignVaultInput): Promise<EmployeeVaultAssignment> {
+    const { rows } = await this.query(
+      `insert into employee_knowledge_vaults
+         (organization_id, employee_id, vault_id, assigned_by_user_id)
+       values ($1, $2, $3, $4)
+       on conflict (employee_id, vault_id) do update set employee_id = excluded.employee_id
+       returning *`,
+      [input.organizationId, input.employeeId, input.vaultId, input.assignedByUserId ?? null],
+    );
+    const row = rows[0];
+    return {
+      id: row.id,
+      organizationId: row.organization_id,
+      employeeId: row.employee_id,
+      vaultId: row.vault_id,
+      assignedByUserId: row.assigned_by_user_id,
+      createdAt: new Date(row.created_at).toISOString(),
+    };
+  }
+
+  async unassignVaultFromEmployee(
+    organizationId: string,
+    employeeId: string,
+    vaultId: string,
+  ): Promise<boolean> {
+    const { rowCount } = await this.query(
+      `delete from employee_knowledge_vaults
+       where organization_id = $1 and employee_id = $2 and vault_id = $3`,
+      [organizationId, employeeId, vaultId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async listVaultsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeVault[]> {
+    const { rows } = await this.query(
+      `select v.* from knowledge_vaults v
+       join employee_knowledge_vaults a on a.vault_id = v.id
+       where a.organization_id = $1 and a.employee_id = $2
+       order by v.is_default desc, v.name asc`,
+      [organizationId, employeeId],
+    );
+    return rows.map(mapKnowledgeVault);
+  }
+
+  async listEmployeesForVault(organizationId: string, vaultId: string): Promise<AiEmployee[]> {
+    const { rows } = await this.query(
+      `select e.* from ai_employees e
+       join employee_knowledge_vaults a on a.employee_id = e.id
+       where a.organization_id = $1 and a.vault_id = $2
+       order by e.name asc`,
+      [organizationId, vaultId],
+    );
+    return rows.map(mapEmployee);
+  }
+
+  // Sources an employee can use = sources in the vaults assigned to that employee.
   async listKnowledgeSourcesForEmployee(
     organizationId: string,
     employeeId: string,
   ): Promise<KnowledgeSource[]> {
     const { rows } = await this.query(
       `select s.* from knowledge_sources s
-       join employee_knowledge_sources a on a.knowledge_source_id = s.id
-       where a.organization_id = $1 and a.employee_id = $2
+       join employee_knowledge_vaults a on a.vault_id = s.vault_id
+       where a.organization_id = $1 and a.employee_id = $2 and s.status <> 'archived'
        order by s.updated_at desc`,
       [organizationId, employeeId],
     );
     return rows.map(mapKnowledgeSource);
   }
 
+  // Employees using a source = employees assigned the vault that source lives in.
   async listEmployeesForKnowledgeSource(
     organizationId: string,
     knowledgeSourceId: string,
   ): Promise<AiEmployee[]> {
     const { rows } = await this.query(
-      `select e.* from ai_employees e
-       join employee_knowledge_sources a on a.employee_id = e.id
-       where a.organization_id = $1 and a.knowledge_source_id = $2
+      `select distinct e.* from ai_employees e
+       join employee_knowledge_vaults a on a.employee_id = e.id
+       join knowledge_sources s on s.vault_id = a.vault_id
+       where a.organization_id = $1 and s.id = $2
        order by e.name asc`,
       [organizationId, knowledgeSourceId],
     );
@@ -1565,8 +1630,9 @@ export class PostgresStore implements DataStore {
     employeeId: string,
   ): Promise<number> {
     const { rows } = await this.query(
-      `select count(*)::int as n from employee_knowledge_sources
-       where organization_id = $1 and employee_id = $2`,
+      `select count(*)::int as n from knowledge_sources s
+       join employee_knowledge_vaults a on a.vault_id = s.vault_id
+       where a.organization_id = $1 and a.employee_id = $2 and s.status <> 'archived'`,
       [organizationId, employeeId],
     );
     return rows[0]?.n ?? 0;
@@ -1577,14 +1643,14 @@ export class PostgresStore implements DataStore {
       (s) => s.status !== "archived",
     );
     const { rows } = await this.query(
-      "select distinct knowledge_source_id from employee_knowledge_sources where organization_id = $1",
+      "select distinct vault_id from employee_knowledge_vaults where organization_id = $1",
       [organizationId],
     );
-    const assignedIds = new Set(rows.map((r: Row) => r.knowledge_source_id));
+    const assignedVaultIds = new Set(rows.map((r: Row) => r.vault_id));
     return {
       total: sources.length,
       ready: sources.filter((s) => s.status === "ready").length,
-      assigned: sources.filter((s) => assignedIds.has(s.id)).length,
+      assigned: sources.filter((s) => s.vaultId != null && assignedVaultIds.has(s.vaultId)).length,
       recent: sources.slice(0, 5),
     };
   }
@@ -2134,14 +2200,14 @@ export class PostgresStore implements DataStore {
     // Only ready segments from assigned, non-archived sources in this org.
     const { rows } = await this.query(
       `select seg.* from knowledge_retrieval_segments seg
-         join employee_knowledge_sources eks
-           on eks.knowledge_source_id = seg.knowledge_source_id
-          and eks.organization_id = seg.organization_id
          join knowledge_sources src
            on src.id = seg.knowledge_source_id
           and src.organization_id = seg.organization_id
+         join employee_knowledge_vaults ekv
+           on ekv.vault_id = src.vault_id
+          and ekv.organization_id = seg.organization_id
        where seg.organization_id = $1
-         and eks.employee_id = $2
+         and ekv.employee_id = $2
          and seg.status = 'ready'
          and src.status <> 'archived'
        order by seg.segment_index asc`,
@@ -2176,14 +2242,14 @@ export class PostgresStore implements DataStore {
     const { rows } = await this.query(
       `select seg.*, 1 - (seg.embedding <=> $3::vector) as similarity
        from knowledge_retrieval_segments seg
-         join employee_knowledge_sources eks
-           on eks.knowledge_source_id = seg.knowledge_source_id
-          and eks.organization_id = seg.organization_id
          join knowledge_sources src
            on src.id = seg.knowledge_source_id
           and src.organization_id = seg.organization_id
+         join employee_knowledge_vaults ekv
+           on ekv.vault_id = src.vault_id
+          and ekv.organization_id = seg.organization_id
        where seg.organization_id = $1
-         and eks.employee_id = $2
+         and ekv.employee_id = $2
          and seg.status = 'ready'
          and src.status <> 'archived'
          and seg.embedding is not null

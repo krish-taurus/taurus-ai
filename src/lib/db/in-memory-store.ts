@@ -82,6 +82,8 @@ import type {
   CreateKnowledgeVaultInput,
   UpdateKnowledgeVaultInput,
   KnowledgeVaultSummary,
+  EmployeeVaultAssignment,
+  AssignVaultInput,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -152,6 +154,7 @@ export class InMemoryStore implements DataStore {
   private knowledgeSources = new Map<string, KnowledgeSource>();
   private knowledgeDocuments = new Map<string, KnowledgeDocument>();
   private knowledgeAssignments = new Map<string, EmployeeKnowledgeAssignment>();
+  private knowledgeVaultAssignments = new Map<string, EmployeeVaultAssignment>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -790,54 +793,114 @@ export class InMemoryStore implements DataStore {
     return true;
   }
 
-  async listKnowledgeSourcesForEmployee(
-    organizationId: string,
-    employeeId: string,
-  ): Promise<KnowledgeSource[]> {
-    const sourceIds = [...this.knowledgeAssignments.values()]
-      .filter((a) => a.organizationId === organizationId && a.employeeId === employeeId)
-      .map((a) => a.knowledgeSourceId);
-    return [...this.knowledgeSources.values()]
-      .filter((s) => s.organizationId === organizationId && sourceIds.includes(s.id))
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  // --- Vault → employee assignment (Sprint 029) ----------------------------
+
+  async assignVaultToEmployee(input: AssignVaultInput): Promise<EmployeeVaultAssignment> {
+    const existing = [...this.knowledgeVaultAssignments.values()].find(
+      (a) =>
+        a.organizationId === input.organizationId &&
+        a.employeeId === input.employeeId &&
+        a.vaultId === input.vaultId,
+    );
+    if (existing) return existing;
+    const assignment: EmployeeVaultAssignment = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      employeeId: input.employeeId,
+      vaultId: input.vaultId,
+      assignedByUserId: input.assignedByUserId ?? null,
+      createdAt: now(),
+    };
+    this.knowledgeVaultAssignments.set(assignment.id, assignment);
+    return assignment;
   }
 
-  async listEmployeesForKnowledgeSource(
+  async unassignVaultFromEmployee(
     organizationId: string,
-    knowledgeSourceId: string,
-  ): Promise<AiEmployee[]> {
-    const employeeIds = [...this.knowledgeAssignments.values()]
-      .filter(
-        (a) => a.organizationId === organizationId && a.knowledgeSourceId === knowledgeSourceId,
-      )
+    employeeId: string,
+    vaultId: string,
+  ): Promise<boolean> {
+    const existing = [...this.knowledgeVaultAssignments.values()].find(
+      (a) =>
+        a.organizationId === organizationId &&
+        a.employeeId === employeeId &&
+        a.vaultId === vaultId,
+    );
+    if (!existing) return false;
+    this.knowledgeVaultAssignments.delete(existing.id);
+    return true;
+  }
+
+  private assignedVaultIds(organizationId: string, employeeId: string): Set<string> {
+    return new Set(
+      [...this.knowledgeVaultAssignments.values()]
+        .filter((a) => a.organizationId === organizationId && a.employeeId === employeeId)
+        .map((a) => a.vaultId),
+    );
+  }
+
+  async listVaultsForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeVault[]> {
+    const ids = this.assignedVaultIds(organizationId, employeeId);
+    return [...this.knowledgeVaults.values()]
+      .filter((v) => v.organizationId === organizationId && ids.has(v.id))
+      .sort((a, b) =>
+        a.isDefault === b.isDefault ? a.name.localeCompare(b.name) : a.isDefault ? -1 : 1,
+      );
+  }
+
+  async listEmployeesForVault(organizationId: string, vaultId: string): Promise<AiEmployee[]> {
+    const employeeIds = [...this.knowledgeVaultAssignments.values()]
+      .filter((a) => a.organizationId === organizationId && a.vaultId === vaultId)
       .map((a) => a.employeeId);
     return [...this.employees.values()]
       .filter((e) => e.organizationId === organizationId && employeeIds.includes(e.id))
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  // Sources an employee can use = sources in the vaults assigned to that employee.
+  async listKnowledgeSourcesForEmployee(
+    organizationId: string,
+    employeeId: string,
+  ): Promise<KnowledgeSource[]> {
+    const vaultIds = this.assignedVaultIds(organizationId, employeeId);
+    return [...this.knowledgeSources.values()]
+      .filter((s) => s.organizationId === organizationId && !!s.vaultId && vaultIds.has(s.vaultId))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  }
+
+  // Employees using a source = employees assigned the vault that source lives in.
+  async listEmployeesForKnowledgeSource(
+    organizationId: string,
+    knowledgeSourceId: string,
+  ): Promise<AiEmployee[]> {
+    const source = this.knowledgeSources.get(knowledgeSourceId);
+    if (!source || source.organizationId !== organizationId || !source.vaultId) return [];
+    return this.listEmployeesForVault(organizationId, source.vaultId);
+  }
+
   async countAssignedKnowledgeForEmployee(
     organizationId: string,
     employeeId: string,
   ): Promise<number> {
-    return [...this.knowledgeAssignments.values()].filter(
-      (a) => a.organizationId === organizationId && a.employeeId === employeeId,
-    ).length;
+    return (await this.listKnowledgeSourcesForEmployee(organizationId, employeeId)).length;
   }
 
   async getKnowledgeVaultOverview(organizationId: string): Promise<KnowledgeVaultOverview> {
     const sources = (await this.listKnowledgeSources(organizationId)).filter(
       (s) => s.status !== "archived",
     );
-    const assignedSourceIds = new Set(
-      [...this.knowledgeAssignments.values()]
+    const assignedVaultIds = new Set(
+      [...this.knowledgeVaultAssignments.values()]
         .filter((a) => a.organizationId === organizationId)
-        .map((a) => a.knowledgeSourceId),
+        .map((a) => a.vaultId),
     );
     return {
       total: sources.length,
       ready: sources.filter((s) => s.status === "ready").length,
-      assigned: sources.filter((s) => assignedSourceIds.has(s.id)).length,
+      assigned: sources.filter((s) => !!s.vaultId && assignedVaultIds.has(s.vaultId)).length,
       recent: sources.slice(0, 5),
     };
   }
@@ -1316,18 +1379,15 @@ export class InMemoryStore implements DataStore {
     organizationId: string,
     employeeId: string,
   ): Promise<KnowledgeRetrievalSegment[]> {
-    // Only assigned, non-archived sources in this organization contribute.
-    const assignedSourceIds = new Set(
-      [...this.knowledgeAssignments.values()]
-        .filter((a) => a.organizationId === organizationId && a.employeeId === employeeId)
-        .map((a) => a.knowledgeSourceId),
-    );
+    // Sources in the vaults assigned to this employee, non-archived, contribute.
+    const vaultIds = this.assignedVaultIds(organizationId, employeeId);
     const activeSourceIds = new Set(
       [...this.knowledgeSources.values()]
         .filter(
           (s) =>
             s.organizationId === organizationId &&
-            assignedSourceIds.has(s.id) &&
+            !!s.vaultId &&
+            vaultIds.has(s.vaultId) &&
             s.status !== "archived",
         )
         .map((s) => s.id),

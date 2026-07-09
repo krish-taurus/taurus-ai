@@ -47,7 +47,7 @@ import {
 } from "@/modules/model-gateway/credentials";
 import {
   archiveSource,
-  assignKnowledgeToEmployee,
+  assignVaultToEmployee,
   createKnowledgeVault,
   renameKnowledgeVault,
   deleteKnowledgeVault,
@@ -62,7 +62,7 @@ import {
   syncDatabaseSource,
   syncGoogleDriveSource,
   syncSharePointSource,
-  unassignKnowledgeFromEmployee,
+  unassignVaultFromEmployee,
   updateSourceMetadata,
   type KnowledgeActor,
 } from "@/modules/knowledge/service";
@@ -723,19 +723,19 @@ export async function archiveSourceAction(
   redirect("/dashboard/knowledge");
 }
 
-export async function assignKnowledgeAction(
+export async function assignVaultAction(
   _prevState: KnowledgeActionState,
   formData: FormData,
 ): Promise<KnowledgeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
-  const knowledgeSourceId = String(formData.get("knowledgeSourceId") ?? "");
+  const vaultId = String(formData.get("vaultId") ?? "");
   const ctx = await requireManage();
   if (!ctx.ok) return { error: DENIED };
 
   try {
-    await assignKnowledgeToEmployee(getStore(), ctx.actor, { employeeId, knowledgeSourceId });
+    await assignVaultToEmployee(getStore(), ctx.actor, { employeeId, vaultId });
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not assign this knowledge." };
+    return { error: err instanceof Error ? err.message : "Could not assign this vault." };
   }
 
   revalidatePath(`/dashboard/employees/${employeeId}`);
@@ -743,19 +743,19 @@ export async function assignKnowledgeAction(
   redirect(`/dashboard/employees/${employeeId}/knowledge`);
 }
 
-export async function unassignKnowledgeAction(
+export async function unassignVaultAction(
   _prevState: KnowledgeActionState,
   formData: FormData,
 ): Promise<KnowledgeActionState> {
   const employeeId = String(formData.get("employeeId") ?? "");
-  const knowledgeSourceId = String(formData.get("knowledgeSourceId") ?? "");
+  const vaultId = String(formData.get("vaultId") ?? "");
   const ctx = await requireManage();
   if (!ctx.ok) return { error: DENIED };
 
   try {
-    await unassignKnowledgeFromEmployee(getStore(), ctx.actor, { employeeId, knowledgeSourceId });
+    await unassignVaultFromEmployee(getStore(), ctx.actor, { employeeId, vaultId });
   } catch (err) {
-    return { error: err instanceof Error ? err.message : "Could not remove this knowledge." };
+    return { error: err instanceof Error ? err.message : "Could not remove this vault." };
   }
 
   revalidatePath(`/dashboard/employees/${employeeId}`);

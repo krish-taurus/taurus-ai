@@ -52,7 +52,12 @@ async function seedSource(
   input: CreateKnowledgeSourceInput,
   text: string,
 ): Promise<KnowledgeSource> {
-  const source = await store.createKnowledgeSource(input);
+  // Each seeded source gets its own vault so it can be assigned in isolation.
+  const vault = await store.createKnowledgeVault({
+    organizationId: input.organizationId,
+    name: input.name,
+  });
+  const source = await store.createKnowledgeSource({ ...input, vaultId: vault.id });
   await store.updateKnowledgeSource(input.organizationId, source.id, { status: "ready" });
   await store.createKnowledgeDocument({
     organizationId: input.organizationId,
@@ -187,10 +192,10 @@ describe("Retrieval", () => {
       },
       "Refund coupons and pricing secrets live here.",
     );
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: emp.id,
-      knowledgeSourceId: assigned.id,
+      vaultId: assigned.vaultId!,
     });
     await rebuildKnowledgeRetrievalSegmentsForEmployee(store, "org-1", emp.id);
 
@@ -217,10 +222,10 @@ describe("Retrieval", () => {
       },
       "Refunds within 30 days.",
     );
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: emp.id,
-      knowledgeSourceId: src.id,
+      vaultId: src.vaultId!,
     });
     await rebuildKnowledgeRetrievalSegmentsForEmployee(store, "org-1", emp.id);
     await store.archiveKnowledgeSource("org-1", src.id);
@@ -247,10 +252,10 @@ describe("Retrieval", () => {
       },
       "Refunds within 30 days.",
     );
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: emp.id,
-      knowledgeSourceId: src.id,
+      vaultId: src.vaultId!,
     });
     await rebuildKnowledgeRetrievalSegmentsForEmployee(store, "org-1", emp.id);
 
@@ -266,8 +271,10 @@ describe("Retrieval", () => {
   it("does not prepare unsupported (pdf/docx) documents", async () => {
     const store = new InMemoryStore();
     const emp = await seedEmployee(store, "org-1");
+    const vault = await store.createKnowledgeVault({ organizationId: "org-1", name: "Docs" });
     const source = await store.createKnowledgeSource({
       organizationId: "org-1",
+      vaultId: vault.id,
       name: "Handbook.pdf",
       description: null,
       sourceType: "file",
@@ -281,10 +288,10 @@ describe("Retrieval", () => {
       textContent: null,
       extractionStatus: "unsupported",
     });
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: emp.id,
-      knowledgeSourceId: source.id,
+      vaultId: vault.id,
     });
     const prep = await rebuildKnowledgeRetrievalSegmentsForEmployee(store, "org-1", emp.id);
     expect(prep.totalSegments).toBe(0);
@@ -394,10 +401,10 @@ describe("Employee Chat service", () => {
       },
       "Refunds are available within 30 days of purchase.",
     );
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: "org-1",
       employeeId: emp.id,
-      knowledgeSourceId: src.id,
+      vaultId: src.vaultId!,
     });
     await rebuildKnowledgeRetrievalSegmentsForEmployee(store, "org-1", emp.id);
 

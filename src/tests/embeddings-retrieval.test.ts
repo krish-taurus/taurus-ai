@@ -59,8 +59,15 @@ async function makeSource(
   text: string,
   opts: { employeeId?: string; name?: string } = {},
 ) {
+  // Each source gets its own vault so assigning it to one employee doesn't leak
+  // to another (mirrors the old per-source isolation).
+  const vault = await store.createKnowledgeVault({
+    organizationId: orgId,
+    name: opts.name ?? "Support docs",
+  });
   const source = await store.createKnowledgeSource({
     organizationId: orgId,
+    vaultId: vault.id,
     name: opts.name ?? "Support docs",
     sourceType: "text",
     status: "ready",
@@ -73,10 +80,10 @@ async function makeSource(
     extractionStatus: "not_required",
   });
   if (opts.employeeId) {
-    await store.assignKnowledgeSourceToEmployee({
+    await store.assignVaultToEmployee({
       organizationId: orgId,
       employeeId: opts.employeeId,
-      knowledgeSourceId: source.id,
+      vaultId: vault.id,
     });
   }
   return source.id;

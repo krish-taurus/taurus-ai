@@ -8,7 +8,8 @@ import { createDefaultCredentialResolver } from "@/modules/model-gateway/credent
 import {
   createTextSource,
   createFileSource,
-  assignKnowledgeToEmployee,
+  assignVaultToEmployee,
+  listKnowledgeVaults,
   type KnowledgeStorage,
 } from "@/modules/knowledge/service";
 import { rebuildKnowledgeRetrievalSegmentsForEmployee } from "@/modules/employee-chat/preparation";
@@ -211,13 +212,11 @@ describe("End-to-end: Knowledge Vault extraction + retrieval", () => {
       status: "active",
       createdBy: userId,
     });
-    await assignKnowledgeToEmployee(store, actor, {
+    // Both sources filed into the default vault; assigning it grants both.
+    const [defaultVault] = await listKnowledgeVaults(store, orgId);
+    await assignVaultToEmployee(store, actor, {
       employeeId: employee.id,
-      knowledgeSourceId: note.id,
-    });
-    await assignKnowledgeToEmployee(store, actor, {
-      employeeId: employee.id,
-      knowledgeSourceId: fileSource.id,
+      vaultId: defaultVault.id,
     });
 
     const prep = await rebuildKnowledgeRetrievalSegmentsForEmployee(store, orgId, employee.id);
@@ -279,9 +278,10 @@ describe("End-to-end: chat runtime grounds a reply in knowledge", () => {
       visibility: "organization",
       text: "Refunds are available within 30 days for a full refund.",
     });
-    await assignKnowledgeToEmployee(store, actor, {
+    const [vault2] = await listKnowledgeVaults(store, orgId);
+    await assignVaultToEmployee(store, actor, {
       employeeId: employee.id,
-      knowledgeSourceId: source.id,
+      vaultId: vault2.id,
     });
     await rebuildKnowledgeRetrievalSegmentsForEmployee(store, orgId, employee.id);
 

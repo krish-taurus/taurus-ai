@@ -334,6 +334,23 @@ export interface EmployeeKnowledgeAssignment {
   createdAt: string;
 }
 
+/** Assignment of a whole vault to an AI Employee (Sprint 029). */
+export interface EmployeeVaultAssignment {
+  id: string;
+  organizationId: string;
+  employeeId: string;
+  vaultId: string;
+  assignedByUserId: string | null;
+  createdAt: string;
+}
+
+export interface AssignVaultInput {
+  organizationId: string;
+  employeeId: string;
+  vaultId: string;
+  assignedByUserId?: string | null;
+}
+
 export interface CreateKnowledgeSourceInput {
   organizationId: string;
   vaultId?: string | null;
