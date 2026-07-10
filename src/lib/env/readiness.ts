@@ -121,6 +121,22 @@ export function checkProductionReadiness(
     });
   }
 
+  // --- Embeddings model: real vs local semantic-lite ----------------------
+  // Knowledge retrieval embeds with OpenAI (text-embedding-3-small) when a key
+  // is available; without one it falls back to the deterministic local
+  // bag-of-words embedder (works, but weaker semantic recall). Only OPENAI_API_KEY
+  // powers the platform embedder — other provider keys don't. (Orgs with their
+  // own OpenAI BYOK key still get the real model regardless of this warning.)
+  if (!has("OPENAI_API_KEY")) {
+    warnings.push({
+      code: "embeddings_local_only",
+      severity: "warning",
+      title: "No OPENAI_API_KEY — knowledge retrieval uses the local semantic-lite embedder",
+      detail:
+        "Chat retrieval still works but with weaker semantic recall. Set OPENAI_API_KEY for real embeddings (text-embedding-3-small), then re-prepare knowledge or run the backfill to re-embed existing sources.",
+    });
+  }
+
   // --- Public app URL ------------------------------------------------------
   const appUrl = env.NEXT_PUBLIC_APP_URL ?? "";
   if (!appUrl.trim() || appUrl.includes("localhost")) {

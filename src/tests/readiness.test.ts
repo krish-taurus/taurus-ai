@@ -83,6 +83,19 @@ describe("checkProductionReadiness", () => {
     expect(codes).toContain("razorpay_webhook_secret_missing");
   });
 
+  it("warns that embeddings fall back to local when OPENAI_API_KEY is unset", () => {
+    const env = { ...healthyEnv() };
+    delete env.OPENAI_API_KEY;
+    env.ANTHROPIC_API_KEY = "sk-ant"; // a model provider, but not the embeddings one
+    const codes = checkProductionReadiness(env).warnings.map((w) => w.code);
+    expect(codes).toContain("embeddings_local_only");
+  });
+
+  it("does not warn about embeddings when OPENAI_API_KEY is set", () => {
+    const codes = checkProductionReadiness(healthyEnv()).warnings.map((w) => w.code);
+    expect(codes).not.toContain("embeddings_local_only");
+  });
+
   it("warns when the app URL is unset or localhost", () => {
     const env = { ...healthyEnv(), NEXT_PUBLIC_APP_URL: "http://localhost:3000" };
     expect(checkProductionReadiness(env).warnings.map((w) => w.code)).toContain("app_url_default");

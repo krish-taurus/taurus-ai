@@ -1,5 +1,39 @@
 # Changelog
 
+## Sprint 045 - Real embeddings model for knowledge retrieval — 2026-07-10
+
+Added:
+
+- **Provider-backed embeddings** — knowledge retrieval used a deterministic local
+  bag-of-words embedder even when a provider key was configured, capping semantic
+  recall. It now embeds with **OpenAI `text-embedding-3-small` (1536-dim)** when a
+  usable OpenAI credential resolves (a platform `OPENAI_API_KEY` or an org's own
+  BYOK key), and falls back to the local embedder when no key is set — nothing
+  hard-fails on setup.
+  - `createOpenAiEmbedder` + `resolveEmbedder(store, orgId)`
+    (`src/modules/knowledge/embedder-resolver.ts`) route through the SAME
+    credential resolver as chat, so BYOK and managed keys both light it up with no
+    extra config. Dependency-free `fetch`; reports input tokens + serving cost
+    (0 under BYOK) so indexing records usage like any managed call. Wired at all
+    three call sites (chat "Prepare knowledge", per-message query embedding, and
+    the `backfill-embeddings` script).
+  - **Migration 0027** widens the fixed `vector(256)` embedding column to a
+    **dimensionless `vector`** so a model change (256 → 1536) can be re-embedded in
+    place, and drops the fixed-dimension HNSW index. Retrieval only compares
+    **same-dimension** vectors: the Postgres semantic search filters by
+    `embedding_dim` inside a `MATERIALIZED` CTE so mismatched rows are excluded
+    **before** any distance is computed — a re-embed that mixes dimensions never
+    errors, and old-model rows are simply invisible to semantic search until
+    re-embedded (lexical still grounds the answer).
+  - New readiness **warning `embeddings_local_only`** — fires in production when
+    `OPENAI_API_KEY` is unset, telling operators retrieval is on the local
+    semantic-lite embedder and to re-prepare knowledge (or run the backfill) after
+    setting the key.
+  - Tested: OpenAI embedder (index ordering, token/cost accounting, BYOK = 0,
+    empty-input short-circuit, error surfacing), resolver fallback vs. platform
+    key, and the new readiness warning. `tsc` clean · `next lint` clean ·
+    **583 tests + 6 skipped**.
+
 ## Sprint 044 - Production readiness check (fail loudly, not silently) — 2026-07-10
 
 Added:

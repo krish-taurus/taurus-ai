@@ -2835,25 +2835,38 @@ export class PostgresStore implements DataStore {
   ): Promise<SemanticRetrievalSegment[]> {
     // pgvector cosine similarity, strictly org- + assignment-scoped. Same cosine
     // metric + tie-breaks as the in-memory path, so ordering matches.
+    //
+    // The embedding column is dimensionless (migration 0027) so a model change
+    // can be re-embedded in place. The <=> operator errors on mismatched
+    // dimensions, so a MATERIALIZED CTE filters to the query's dimension FIRST —
+    // only same-dimension rows ever reach the distance operator. Rows from an
+    // older model (different dim) are simply invisible until re-embedded.
     const vec = `[${queryVector.join(",")}]`;
+    const dim = queryVector.length;
     const { rows } = await this.query(
-      `select seg.*, 1 - (seg.embedding <=> $3::vector) as similarity
-       from knowledge_retrieval_segments seg
-         join knowledge_sources src
-           on src.id = seg.knowledge_source_id
-          and src.organization_id = seg.organization_id
-         join employee_knowledge_vaults ekv
-           on ekv.vault_id = src.vault_id
-          and ekv.organization_id = seg.organization_id
-       where seg.organization_id = $1
-         and ekv.employee_id = $2
-         and seg.status = 'ready'
-         and src.status <> 'archived'
-         and seg.embedding is not null
-         and (1 - (seg.embedding <=> $3::vector)) > 0
-       order by seg.embedding <=> $3::vector asc, seg.segment_index asc, seg.id asc
+      `with candidates as materialized (
+         select seg.*
+         from knowledge_retrieval_segments seg
+           join knowledge_sources src
+             on src.id = seg.knowledge_source_id
+            and src.organization_id = seg.organization_id
+           join employee_knowledge_vaults ekv
+             on ekv.vault_id = src.vault_id
+            and ekv.organization_id = seg.organization_id
+         where seg.organization_id = $1
+           and ekv.employee_id = $2
+           and seg.status = 'ready'
+           and src.status <> 'archived'
+           and seg.embedding is not null
+           and seg.embedding_dim = $5
+       )
+       select candidates.*, 1 - (candidates.embedding <=> $3::vector) as similarity
+       from candidates
+       where (1 - (candidates.embedding <=> $3::vector)) > 0
+       order by candidates.embedding <=> $3::vector asc,
+                candidates.segment_index asc, candidates.id asc
        limit $4`,
-      [organizationId, employeeId, vec, Math.max(1, limit)],
+      [organizationId, employeeId, vec, Math.max(1, limit), dim],
     );
     return rows.map((row: Row) => ({
       segment: mapRetrievalSegment(row),

@@ -484,7 +484,7 @@ CREATE TABLE public.knowledge_retrieval_segments (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    embedding public.vector(256),
+    embedding public.vector,
     embedding_model_id text,
     embedding_dim integer
 );
@@ -1828,13 +1828,6 @@ CREATE INDEX idx_knowledge_sources_org ON public.knowledge_sources USING btree (
 --
 
 CREATE INDEX idx_knowledge_sources_org_status ON public.knowledge_sources USING btree (organization_id, status);
-
-
---
--- Name: idx_krs_embedding_hnsw; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_krs_embedding_hnsw ON public.knowledge_retrieval_segments USING hnsw (embedding public.vector_cosine_ops);
 
 
 --

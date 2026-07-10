@@ -30,6 +30,7 @@ import {
   isProductionRuntime,
 } from "@/modules/model-gateway/credential-resolver";
 import { retrieveForEmployee, toSourceReferences } from "@/modules/employee-chat/retrieval";
+import { resolveEmbedder } from "@/modules/knowledge/embedder-resolver";
 import { buildRuntimeContext } from "@/modules/employee-chat/runtime-context";
 import { FRIENDLY_ERROR_MESSAGE, type ChatBlockReason } from "@/modules/employee-chat/metadata";
 import { assertWithinInteractionQuota } from "@/modules/billing/service";
@@ -182,10 +183,14 @@ export async function sendChatMessage(
   });
 
   // --- Retrieval (assigned knowledge only) ---------------------------------
+  // Embed the query with the org's active embedder so it matches the model the
+  // segments were indexed with (real provider model when a key is set, else the
+  // local default); the store filters to same-dimension vectors regardless.
   const retrieval = await retrieveForEmployee(store, {
     organizationId: orgId,
     employeeId: employee.id,
     query: message,
+    embedder: await resolveEmbedder(store, orgId),
   });
   const sources = toSourceReferences(retrieval.excerpts);
 
