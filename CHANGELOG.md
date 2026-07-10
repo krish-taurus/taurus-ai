@@ -1,5 +1,168 @@
 # Changelog
 
+## Sprint 049 - Workflows Phase 2: webhook trigger, send-message + sub-workflow nodes — 2026-07-10
+
+Added:
+
+- **Webhook trigger** — a workflow can now be started by an external system
+  (a form, CRM, Zapier, …) POSTing to a private URL. Switching a workflow's
+  trigger to "webhook" mints a secret token; `POST /api/workflows/hooks/<token>`
+  starts a run with the body's `message` as `{{input}}`. Unauthenticated by
+  design (the token is the secret) and **only fires while the workflow is
+  active**, so a paused/draft webhook is inert. Runs through the same governed
+  engine as a manual run.
+- **Send message node** — a step that sends text out through a connected
+  messaging channel (WhatsApp / SMS / email / Slack), so a workflow can notify a
+  person or reply on a channel. Reuses the existing provider + credential
+  resolution; sends live when the channel has credentials, otherwise records a
+  simulated send (safe in dev). Templated recipient + message.
+- **Run another workflow node** — one workflow runs another as a step and passes
+  its output on ("workflows one after another"). Guarded by a **depth cap**
+  (`MAX_WORKFLOW_DEPTH`) so a self-referential or deeply-nested chain fails
+  cleanly instead of recursing forever.
+- **Builder + trigger panel**: the builder gains *Send message* and *Run
+  workflow* step types (with channel / workflow pickers), and the workflow page
+  gains a Trigger panel to switch between manual and webhook and copy the URL.
+- Tested: sub-workflow output hand-off + depth-cap refusal, a simulated send +
+  missing-recipient failure, and the webhook path (active token runs;
+  inactive/unknown tokens rejected). `tsc` clean · `next lint` clean · production
+  build clean · **611 tests + 6 skipped**.
+
+Deferred to a later phase (all need the durable-tick resume machinery / touch the
+live inbound path): schedule trigger, inbound-channel trigger, human-approval
+pauses.
+
+## Sprint 048 - Workflows: chain AI Employees together (Phase 1) — 2026-07-10
+
+Added:
+
+- **Workflows** — a new automation surface where AI Employees hand work off to
+  one another. A workflow is a graph of steps: a trigger starts a run and each
+  step's output feeds the next (Triage → Refunds → notify). Modeled on how n8n
+  wires nodes together, but every node is one of your own AI Employees.
+  - **Execution engine** (`src/modules/workflows/engine.ts`) runs a workflow as a
+    durable, checkpointed state machine: start at the entry node, execute one
+    node at a time, persist a step row for each, follow the node's `next` pointer
+    until the graph ends. Phase 1 runs inline within the request; the run/step
+    ledger is already shaped for a later "resume a running run via a tick".
+    Employee steps run headlessly through the **same `sendChatMessage` path as
+    chat** (a system actor), so every governance gate, model-routing rule and
+    **billing quota** still applies — a workflow can't spend or answer in a way
+    normal chat couldn't. A hard **50-step cap** stops a mis-wired loop.
+  - **Node types**: *AI Employee* (send a message, capture the reply), *Branch*
+    (route on a comparison), and *Format* (reshape text with no model call).
+    Steps reference earlier output with `{{input}}` and `{{steps.<id>.output}}`
+    templating (safe, no code execution). Manual "Run now" trigger; channel and
+    schedule triggers are the next phase.
+  - **Builder + run history** under `/dashboard/workflows`: a list-style builder
+    (add/reorder/remove steps, pick an employee, wire branches), a Run panel, and
+    a full run trace showing each step's input, output and status in order.
+  - **Data**: migration `0028_workflows.sql` adds `workflows`, `workflow_runs`,
+    `workflow_run_steps` (org-scoped, a durable ledger with a unique
+    `(run_id, sequence)` index for idempotent advancement); full types + both
+    store implementations. New `workflow.view` / `workflow.manage` permissions
+    (manage = owner/admin/builder).
+  - Tested: templating + condition evaluation, employee-to-employee handoff with
+    data passing, conditional branching (only the taken path runs), a blocked
+    employee failing the run cleanly, and the loop cap. `tsc` clean · `next lint`
+    clean · production build clean · **606 tests + 6 skipped**.
+
+## Sprint 047 - Honest seller balances (decouple payout "paid" from transfer creation) — 2026-07-10
+
+Changed:
+
+- **Payouts no longer claim "paid" the instant a transfer is created.** A live
+  withdrawal marked the payout `paid` synchronously from the provider's
+  create-transfer response — before the transfer had actually settled — so a
+  seller's "withdrawn" total overstated what had really left the platform, and a
+  later reversal had to walk it back. Payouts now have an **`in_transit`** state:
+  - `requestPayout` sets a live transfer to **`in_transit`** on creation (funds
+    are moving, provider unconfirmed) and only the provider's **webhook
+    confirmation** advances it to **`paid`** (or `failed`). **Simulated** payouts
+    still settle to `paid` in-process (no webhook to wait for) — local dev and
+    tests are unchanged.
+  - `getSellerBalances` now reports `inTransit` separately and subtracts
+    **paid + in_transit + pending** from available, so in-flight funds still can't
+    be double-withdrawn but `paidOut` reflects only provider-confirmed
+    settlements. The earnings page shows "… withdrawn · … in transit" and labels
+    the `in_transit` badge "in transit".
+  - The webhook path is unchanged in intent (`transfer.created`/`processed` →
+    confirm `paid`; `reversed`/`failed` → `failed`) and remains idempotent; it now
+    advances `pending`/`in_transit` → `paid`. No DB migration (the status column is
+    free-text); the `MarketplacePayoutStatus` type gained `in_transit`.
+  - Tested: a live transfer stays `in_transit` and holds the balance, a webhook
+    confirmation settles it to `paid` (with `paidAt`), and a failed transfer
+    releases the balance. `tsc` clean · `next lint` clean ·
+    **596 tests + 6 skipped**.
+
+## Sprint 046 - Object-storage (S3) adapter for uploads — 2026-07-10
+
+Added:
+
+- **Persistent upload storage** — Knowledge Vault uploads wrote only to local
+  disk, which is ephemeral on serverless/containers (files vanish on redeploy).
+  Uploads now persist to **Amazon S3** (or any S3-compatible endpoint: Cloudflare
+  R2, MinIO, GCS S3-interop) when object storage is configured, and fall back to
+  local disk when it isn't — no behavior change for local dev.
+  - `S3KnowledgeStorage` (`src/modules/knowledge/storage-s3.ts`) implements the
+    same `save`/`read` seam as local storage, with the **same key scheme**
+    (`<orgId>/<opaque-key>`, optional prefix), so switching backends only moves
+    bytes. **Dependency-free**: requests are signed with **AWS Signature V4**
+    using `node:crypto` (no aws-sdk). Objects are private (never public-read) and
+    served through the existing authenticated, org-scoped download route.
+  - `getKnowledgeStorage()` selects S3 when `TAURUS_S3_BUCKET` + AWS credentials
+    are present, else local. Wired into the upload action and the document
+    download route. Supports virtual-hosted + path-style URLs, custom endpoints,
+    key prefixes, and temporary (session-token) credentials.
+  - Config via `TAURUS_S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+    `AWS_SECRET_ACCESS_KEY` (+ optional `AWS_SESSION_TOKEN`, `TAURUS_S3_ENDPOINT`,
+    `TAURUS_S3_FORCE_PATH_STYLE`, `TAURUS_S3_PREFIX`) — documented in
+    `.env.example` and the env schema.
+  - Readiness updated: the `uploads_local_disk` warning now clears once object
+    storage (or a persistent `TAURUS_UPLOAD_DIR`) is configured, and a new
+    `uploads_s3_incomplete` warning fires when a bucket is set without AWS
+    credentials (uploads silently fall back to local disk).
+  - Tested: SigV4 signing-key derivation vs. an independent reference chain,
+    deterministic + payload-sensitive signatures, virtual-hosted/path-style/custom
+    endpoint URLs, session-token signing, PUT/GET request shape (mocked fetch,
+    exact bytes, traversal rejection, error surfacing), the storage selector, and
+    the two readiness warnings. `tsc` clean · `next lint` clean ·
+    **595 tests + 6 skipped**.
+
+## Sprint 045 - Real embeddings model for knowledge retrieval — 2026-07-10
+
+Added:
+
+- **Provider-backed embeddings** — knowledge retrieval used a deterministic local
+  bag-of-words embedder even when a provider key was configured, capping semantic
+  recall. It now embeds with **OpenAI `text-embedding-3-small` (1536-dim)** when a
+  usable OpenAI credential resolves (a platform `OPENAI_API_KEY` or an org's own
+  BYOK key), and falls back to the local embedder when no key is set — nothing
+  hard-fails on setup.
+  - `createOpenAiEmbedder` + `resolveEmbedder(store, orgId)`
+    (`src/modules/knowledge/embedder-resolver.ts`) route through the SAME
+    credential resolver as chat, so BYOK and managed keys both light it up with no
+    extra config. Dependency-free `fetch`; reports input tokens + serving cost
+    (0 under BYOK) so indexing records usage like any managed call. Wired at all
+    three call sites (chat "Prepare knowledge", per-message query embedding, and
+    the `backfill-embeddings` script).
+  - **Migration 0027** widens the fixed `vector(256)` embedding column to a
+    **dimensionless `vector`** so a model change (256 → 1536) can be re-embedded in
+    place, and drops the fixed-dimension HNSW index. Retrieval only compares
+    **same-dimension** vectors: the Postgres semantic search filters by
+    `embedding_dim` inside a `MATERIALIZED` CTE so mismatched rows are excluded
+    **before** any distance is computed — a re-embed that mixes dimensions never
+    errors, and old-model rows are simply invisible to semantic search until
+    re-embedded (lexical still grounds the answer).
+  - New readiness **warning `embeddings_local_only`** — fires in production when
+    `OPENAI_API_KEY` is unset, telling operators retrieval is on the local
+    semantic-lite embedder and to re-prepare knowledge (or run the backfill) after
+    setting the key.
+  - Tested: OpenAI embedder (index ordering, token/cost accounting, BYOK = 0,
+    empty-input short-circuit, error surfacing), resolver fallback vs. platform
+    key, and the new readiness warning. `tsc` clean · `next lint` clean ·
+    **583 tests + 6 skipped**.
+
 ## Sprint 044 - Production readiness check (fail loudly, not silently) — 2026-07-10
 
 Added:

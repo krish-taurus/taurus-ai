@@ -83,6 +83,40 @@ describe("checkProductionReadiness", () => {
     expect(codes).toContain("razorpay_webhook_secret_missing");
   });
 
+  it("warns that embeddings fall back to local when OPENAI_API_KEY is unset", () => {
+    const env = { ...healthyEnv() };
+    delete env.OPENAI_API_KEY;
+    env.ANTHROPIC_API_KEY = "sk-ant"; // a model provider, but not the embeddings one
+    const codes = checkProductionReadiness(env).warnings.map((w) => w.code);
+    expect(codes).toContain("embeddings_local_only");
+  });
+
+  it("does not warn about embeddings when OPENAI_API_KEY is set", () => {
+    const codes = checkProductionReadiness(healthyEnv()).warnings.map((w) => w.code);
+    expect(codes).not.toContain("embeddings_local_only");
+  });
+
+  it("warns when TAURUS_S3_BUCKET is set without AWS credentials", () => {
+    const env: Record<string, string> = { ...healthyEnv(), TAURUS_S3_BUCKET: "my-bucket" };
+    delete env.TAURUS_UPLOAD_DIR;
+    const codes = checkProductionReadiness(env).warnings.map((w) => w.code);
+    expect(codes).toContain("uploads_s3_incomplete");
+    expect(codes).not.toContain("uploads_local_disk");
+  });
+
+  it("does not warn about uploads when object storage is fully configured", () => {
+    const env: Record<string, string> = {
+      ...healthyEnv(),
+      TAURUS_S3_BUCKET: "my-bucket",
+      AWS_ACCESS_KEY_ID: "AKIA",
+      AWS_SECRET_ACCESS_KEY: "secret",
+    };
+    delete env.TAURUS_UPLOAD_DIR;
+    const codes = checkProductionReadiness(env).warnings.map((w) => w.code);
+    expect(codes).not.toContain("uploads_local_disk");
+    expect(codes).not.toContain("uploads_s3_incomplete");
+  });
+
   it("warns when the app URL is unset or localhost", () => {
     const env = { ...healthyEnv(), NEXT_PUBLIC_APP_URL: "http://localhost:3000" };
     expect(checkProductionReadiness(env).warnings.map((w) => w.code)).toContain("app_url_default");

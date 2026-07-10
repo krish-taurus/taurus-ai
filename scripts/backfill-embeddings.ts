@@ -4,13 +4,14 @@
  * Usage:  npx tsx scripts/backfill-embeddings.ts <organizationId> [ownerUserId]
  *
  * Idempotent and safe to re-run: each source is chunked + re-embedded (existing
- * chunks are dropped and recreated). Uses the zero-setup local embedder; indexing
+ * chunks are dropped and recreated). Uses the org's real embeddings model when a
+ * provider key is configured, else the zero-setup local embedder; indexing
  * enforces the org's model access mode and records usage-cost like any managed
  * model call. The real work lives in `backfillOrganization` (tested).
  */
 
 import { getStore } from "@/lib/db/store";
-import { createLocalEmbedder } from "@/modules/knowledge/embeddings";
+import { resolveEmbedder } from "@/modules/knowledge/embedder-resolver";
 import { backfillOrganization } from "@/modules/knowledge/indexing";
 
 async function main() {
@@ -21,14 +22,18 @@ async function main() {
     process.exit(1);
   }
   const store = getStore();
+  const embedder = await resolveEmbedder(store, organizationId);
   const results = await backfillOrganization(
     store,
-    createLocalEmbedder(),
+    embedder,
     { organizationId, userId, role: "owner" },
   );
   const ready = results.filter((r) => r.ready).length;
   const chunks = results.reduce((s, r) => s + r.chunkCount, 0);
-  console.log(`Backfill complete: ${ready}/${results.length} sources ready, ${chunks} chunks.`);
+  console.log(
+    `Backfill complete (embedder ${embedder.modelId}, ${embedder.dim}-dim): ` +
+      `${ready}/${results.length} sources ready, ${chunks} chunks.`,
+  );
 }
 
 main().catch((err) => {

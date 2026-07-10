@@ -546,7 +546,15 @@ export interface UpdateMarketplacePaymentInput {
 
 /** Seller payouts (Sprint 035). */
 export type MarketplacePayoutAccountStatus = "onboarding" | "active" | "restricted";
-export type MarketplacePayoutStatus = "pending" | "paid" | "failed";
+/**
+ * Payout lifecycle. A live transfer is `in_transit` the moment we create it
+ * (funds are moving but the provider hasn't confirmed), and only becomes `paid`
+ * when the provider's webhook confirms the transfer settled to the seller's
+ * connected account. Simulated payouts settle to `paid` in-process. Both
+ * `in_transit` and `paid` (and `pending`) hold the balance so it can't be
+ * double-withdrawn; only `failed` releases it.
+ */
+export type MarketplacePayoutStatus = "pending" | "in_transit" | "paid" | "failed";
 
 /** An org's connected payout account (the destination for its earnings). */
 export interface MarketplacePayoutAccount {
@@ -605,6 +613,206 @@ export interface UpdateMarketplacePayoutInput {
   externalTransferId?: string | null;
   status?: MarketplacePayoutStatus;
   paidAt?: string | null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Workflows (Sprint 048)                                                     */
+/*                                                                            */
+/* A workflow is a graph of nodes: a trigger starts a run, and each node's    */
+/* output feeds the next. Most nodes are AI Employees, so a workflow chains   */
+/* employees together (Triage -> Refunds -> notify). The graph + trigger are  */
+/* stored as JSON; runs and steps are a durable, inspectable ledger.          */
+/* -------------------------------------------------------------------------- */
+
+export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
+
+/**
+ * What starts a run. `manual` runs from the dashboard; `webhook` runs when an
+ * external system POSTs to the workflow's private URL (the token is the secret).
+ * Schedule + channel triggers follow in a later phase.
+ */
+export type WorkflowTrigger =
+  | { type: "manual" }
+  | { type: "webhook"; token: string };
+
+export type WorkflowNodeType =
+  | "trigger"
+  | "employee"
+  | "condition"
+  | "transform"
+  | "send_message"
+  | "sub_workflow";
+
+/** Comparison operators for a condition (branch) node. */
+export type WorkflowConditionOperator =
+  | "contains"
+  | "not_contains"
+  | "equals"
+  | "not_equals"
+  | "is_empty"
+  | "is_not_empty";
+
+export interface WorkflowConditionExpression {
+  /** Templated left-hand value, e.g. "{{steps.triage.output}}". */
+  left: string;
+  operator: WorkflowConditionOperator;
+  /** Templated right-hand value; ignored for is_empty / is_not_empty. */
+  right?: string;
+  caseSensitive?: boolean;
+}
+
+interface WorkflowNodeBase {
+  id: string;
+  label?: string;
+}
+
+/**
+ * A node in the workflow graph. `next` points to the next node id (null ends
+ * the run). A condition node branches with nextIfTrue/nextIfFalse instead.
+ */
+export type WorkflowNode =
+  | (WorkflowNodeBase & { type: "trigger"; next: string | null })
+  | (WorkflowNodeBase & {
+      type: "employee";
+      employeeId: string;
+      /** Templated message sent to the employee. */
+      messageTemplate: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "transform";
+      /** Templated text; the interpolated result is this node's output. */
+      template: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "condition";
+      expression: WorkflowConditionExpression;
+      nextIfTrue: string | null;
+      nextIfFalse: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "send_message";
+      /** A connected messaging channel to send through. */
+      channelId: string;
+      /** Templated recipient (phone / email / chat id, per the channel). */
+      recipientTemplate: string;
+      /** Templated message body. */
+      messageTemplate: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "sub_workflow";
+      /** Another workflow in the same org to run as a step. */
+      workflowId: string;
+      /** Templated starting message passed to the sub-workflow. */
+      inputTemplate: string;
+      next: string | null;
+    });
+
+export interface WorkflowGraph {
+  /** The node a run starts at (null when the workflow has no steps yet). */
+  entryNodeId: string | null;
+  nodes: WorkflowNode[];
+}
+
+export interface Workflow {
+  id: string;
+  organizationId: string;
+  name: string;
+  description: string | null;
+  status: WorkflowStatus;
+  trigger: WorkflowTrigger;
+  graph: WorkflowGraph;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateWorkflowInput {
+  organizationId: string;
+  name: string;
+  description?: string | null;
+  status?: WorkflowStatus;
+  trigger?: WorkflowTrigger;
+  graph?: WorkflowGraph;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateWorkflowInput {
+  name?: string;
+  description?: string | null;
+  status?: WorkflowStatus;
+  trigger?: WorkflowTrigger;
+  graph?: WorkflowGraph;
+}
+
+export type WorkflowRunStatus = "running" | "succeeded" | "failed" | "canceled";
+export type WorkflowRunTriggerSource = "manual" | "channel" | "schedule" | "webhook" | "workflow";
+
+export interface WorkflowRun {
+  id: string;
+  organizationId: string;
+  workflowId: string;
+  status: WorkflowRunStatus;
+  triggeredBy: WorkflowRunTriggerSource;
+  /** The trigger payload the run started with. */
+  input: Record<string, unknown>;
+  /** The terminal step's output (the run's result). */
+  output: string | null;
+  error: string | null;
+  stepCount: number;
+  createdByUserId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface CreateWorkflowRunInput {
+  organizationId: string;
+  workflowId: string;
+  triggeredBy: WorkflowRunTriggerSource;
+  input?: Record<string, unknown>;
+  status?: WorkflowRunStatus;
+  createdByUserId?: string | null;
+}
+
+export interface UpdateWorkflowRunInput {
+  status?: WorkflowRunStatus;
+  output?: string | null;
+  error?: string | null;
+  stepCount?: number;
+  finishedAt?: string | null;
+}
+
+export type WorkflowRunStepStatus = "succeeded" | "failed" | "skipped";
+
+export interface WorkflowRunStep {
+  id: string;
+  organizationId: string;
+  runId: string;
+  nodeId: string;
+  nodeType: WorkflowNodeType;
+  employeeId: string | null;
+  /** 0-based execution order within the run. */
+  sequence: number;
+  status: WorkflowRunStepStatus;
+  input: string | null;
+  output: string | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface CreateWorkflowRunStepInput {
+  organizationId: string;
+  runId: string;
+  nodeId: string;
+  nodeType: WorkflowNodeType;
+  employeeId?: string | null;
+  sequence: number;
+  status: WorkflowRunStepStatus;
+  input?: string | null;
+  output?: string | null;
+  error?: string | null;
 }
 
 export interface CreateKnowledgeSourceInput {

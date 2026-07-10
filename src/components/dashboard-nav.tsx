@@ -31,6 +31,7 @@ export const NAV_GROUPS: NavGroup[] = [
       { href: "/dashboard", label: "Overview", icon: "overview" },
       { href: "/dashboard/employees", label: "AI Employees", icon: "employees" },
       { href: "/dashboard/hire", label: "Hiring Studio", icon: "hire" },
+      { href: "/dashboard/workflows", label: "Workflows", icon: "workflows" },
       { href: "/dashboard/marketplace", label: "Marketplace", icon: "marketplace" },
       { href: "/dashboard/knowledge", label: "Knowledge Vault", icon: "knowledge" },
     ],

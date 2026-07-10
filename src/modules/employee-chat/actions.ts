@@ -18,7 +18,7 @@ import { createLlmGateway } from "@/modules/model-gateway/credential-resolver";
 import { sendChatMessage, ChatBlockedError } from "@/modules/employee-chat/service";
 import { EntitlementError } from "@/modules/billing/service";
 import { indexKnowledgeSource } from "@/modules/knowledge/indexing";
-import { createLocalEmbedder } from "@/modules/knowledge/embeddings";
+import { resolveEmbedder } from "@/modules/knowledge/embedder-resolver";
 import { chatMessageSchema } from "@/modules/employee-chat/schema";
 import type { ChatBlockReason } from "@/modules/employee-chat/metadata";
 
@@ -95,10 +95,11 @@ export async function prepareEmployeeKnowledgeAction(
   if (!employee) return { error: "This AI Employee could not be found." };
 
   // Chunk + embed each assigned source so retrieval is hybrid (semantic + lexical).
-  // Uses the zero-setup local embedder by default; indexing enforces access mode
-  // and records cost (Sprint 019).
+  // Uses the org's real embeddings model when a provider key is configured, else
+  // the zero-setup local embedder; indexing enforces access mode and records
+  // cost (Sprint 019 / 045).
   const ctx = { organizationId: organization.id, userId: user.id, role: membership.role };
-  const embedder = createLocalEmbedder();
+  const embedder = await resolveEmbedder(store, organization.id);
   let preparedSources = 0;
   let totalSegments = 0;
   try {

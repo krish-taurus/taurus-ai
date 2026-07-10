@@ -1,0 +1,379 @@
+/**
+ * Workflow execution engine (Sprint 048) — server only.
+ *
+ * Runs a workflow as a durable, checkpointed state machine: start at the entry
+ * node, execute one node at a time, persist a step row for each, and follow the
+ * node's `next` pointer until the graph ends. Each employee node runs headlessly
+ * through the SAME `sendChatMessage` path as chat (a system actor), so every
+ * governance gate, model-routing rule and billing quota still applies — a
+ * workflow can never spend or answer in a way normal chat couldn't.
+ *
+ * Phase 1 drives this inline within the triggering request; the run/step ledger
+ * it writes is already shaped for a later "advance a running run via a tick"
+ * resume, so no rewrite is needed to make long/waiting runs durable.
+ */
+
+import type { DataStore } from "@/lib/db/store";
+import type {
+  AiEmployee,
+  Workflow,
+  WorkflowNode,
+  WorkflowRun,
+  WorkflowRunStepStatus,
+  WorkflowRunTriggerSource,
+} from "@/lib/db/types";
+import {
+  sendChatMessage,
+  ChatBlockedError,
+  type ChatGateway,
+} from "@/modules/employee-chat/service";
+import { EntitlementError } from "@/modules/billing/service";
+import { getMessagingProvider } from "@/modules/channels/messaging/registry";
+import { resolveProviderConfig } from "@/modules/channels/messaging/config";
+import { emptyContext, evaluateCondition, interpolate, type RunContext } from "@/modules/workflows/templating";
+
+/** Hard cap so a mis-wired graph (e.g. a cycle) can never run forever. */
+export const MAX_STEPS_PER_RUN = 50;
+/** How deep workflow-runs-workflow chains may nest before we refuse. */
+export const MAX_WORKFLOW_DEPTH = 3;
+
+export interface WorkflowEngineDeps {
+  store: DataStore;
+  gateway: ChatGateway;
+  isProduction?: () => boolean;
+}
+
+export interface RunWorkflowParams {
+  workflow: Workflow;
+  organizationName: string;
+  actor: { organizationId: string; userId: string | null };
+  triggeredBy: WorkflowRunTriggerSource;
+  /** Trigger payload; `message` is used as the run's starting text. */
+  input?: Record<string, unknown>;
+  /** Nesting depth for workflow-runs-workflow chains (0 = top level). */
+  depth?: number;
+}
+
+interface StepOutcome {
+  status: WorkflowRunStepStatus;
+  output: string;
+  error: string | null;
+  nextNodeId: string | null;
+  /** True for nodes whose output is a meaningful result (not pure routing). */
+  meaningful: boolean;
+  employeeId: string | null;
+  input: string | null;
+}
+
+function friendlyBlockedReason(err: ChatBlockedError): string {
+  switch (err.reason) {
+    case "needs_dna":
+      return "This AI Employee has no published DNA yet, so it can't run.";
+    case "archived":
+      return "This AI Employee has been archived.";
+    case "no_model":
+      return "This AI Employee has no model configured.";
+    case "needs_model_hub":
+      return "No live model provider is configured. Add a key in Model Hub to run this step.";
+    default:
+      return "This AI Employee is not available to run.";
+  }
+}
+
+/** Execute a single node and report its outcome (never throws). */
+async function executeNode(
+  deps: WorkflowEngineDeps,
+  params: RunWorkflowParams,
+  node: WorkflowNode,
+  context: RunContext,
+): Promise<StepOutcome> {
+  const { store, gateway } = deps;
+  const orgId = params.actor.organizationId;
+
+  if (node.type === "trigger") {
+    return {
+      status: "succeeded",
+      output: context.triggerInput,
+      error: null,
+      nextNodeId: node.next,
+      meaningful: false,
+      employeeId: null,
+      input: context.triggerInput || null,
+    };
+  }
+
+  if (node.type === "transform") {
+    const output = interpolate(node.template, context);
+    return {
+      status: "succeeded",
+      output,
+      error: null,
+      nextNodeId: node.next,
+      meaningful: true,
+      employeeId: null,
+      input: node.template,
+    };
+  }
+
+  if (node.type === "condition") {
+    const passed = evaluateCondition(node.expression, context);
+    return {
+      status: "succeeded",
+      output: passed ? "true" : "false",
+      error: null,
+      nextNodeId: passed ? node.nextIfTrue : node.nextIfFalse,
+      meaningful: false,
+      employeeId: null,
+      input: `${node.expression.left} ${node.expression.operator} ${node.expression.right ?? ""}`.trim(),
+    };
+  }
+
+  if (node.type === "send_message") {
+    const recipient = interpolate(node.recipientTemplate, context).trim();
+    const text = interpolate(node.messageTemplate, context);
+    const summary = `→ ${recipient || "(no recipient)"}: ${text}`;
+    if (!recipient) {
+      return { status: "failed", output: "", error: "This step has no recipient to send to.", nextNodeId: null, meaningful: false, employeeId: null, input: text || null };
+    }
+    const channel = await store.getEmployeeChannel(orgId, node.channelId);
+    if (!channel) {
+      return { status: "failed", output: "", error: "The channel for this step could not be found.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+    const provider = getMessagingProvider(channel.channelProvider);
+    if (!provider) {
+      return { status: "failed", output: "", error: "This channel type can't send messages.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+    try {
+      const config = await resolveProviderConfig(store, channel, provider);
+      const mode = provider.getProviderStatus(config).mode;
+      let result: { status: string; errorCode: string | null };
+      if (mode === "live") {
+        result = await provider.sendMessage(
+          {
+            providerType: channel.channelProvider,
+            channelType: channel.channelType,
+            recipientExternalId: recipient,
+            messageText: text,
+            conversationId: `workflow-${params.workflow.id}`,
+            channelId: channel.id,
+            metadata: {},
+          },
+          config,
+        );
+      } else {
+        result = { status: "simulated", errorCode: null };
+      }
+      if (result.status === "failed") {
+        return { status: "failed", output: "", error: `The message could not be sent (${result.errorCode ?? "error"}).`, nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+      }
+      return {
+        status: "succeeded",
+        output: `${result.status === "simulated" ? "Simulated send" : "Sent"} to ${recipient}`,
+        error: null,
+        nextNodeId: node.next,
+        meaningful: false,
+        employeeId: null,
+        input: summary,
+      };
+    } catch {
+      return { status: "failed", output: "", error: "The message could not be sent.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+  }
+
+  if (node.type === "sub_workflow") {
+    const subInput = interpolate(node.inputTemplate, context) || context.triggerInput;
+    if ((params.depth ?? 0) + 1 >= MAX_WORKFLOW_DEPTH) {
+      return { status: "failed", output: "", error: `Workflows are nested too deep (limit ${MAX_WORKFLOW_DEPTH}).`, nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    const sub = await store.getWorkflow(orgId, node.workflowId);
+    if (!sub) {
+      return { status: "failed", output: "", error: "The workflow this step runs could not be found.", nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    if (!sub.graph.entryNodeId || sub.graph.nodes.length === 0) {
+      return { status: "failed", output: "", error: `“${sub.name}” has no steps to run.`, nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    const childRun = await runWorkflow(deps, {
+      workflow: sub,
+      organizationName: params.organizationName,
+      actor: params.actor,
+      triggeredBy: "workflow",
+      input: { message: subInput },
+      depth: (params.depth ?? 0) + 1,
+    });
+    if (childRun.status !== "succeeded") {
+      return { status: "failed", output: childRun.output ?? "", error: `“${sub.name}” did not finish: ${childRun.error ?? "failed"}`, nextNodeId: null, meaningful: true, employeeId: null, input: subInput || null };
+    }
+    return {
+      status: "succeeded",
+      output: childRun.output ?? "",
+      error: null,
+      nextNodeId: node.next,
+      meaningful: true,
+      employeeId: null,
+      input: subInput || null,
+    };
+  }
+
+  // employee node
+  const message = interpolate(node.messageTemplate, context) || context.triggerInput;
+  const employee: AiEmployee | null = await store.getEmployee(orgId, node.employeeId);
+  if (!employee || employee.status === "archived") {
+    return {
+      status: "failed",
+      output: "",
+      error: "This AI Employee could not be found or has been archived.",
+      nextNodeId: null,
+      meaningful: false,
+      employeeId: node.employeeId,
+      input: message || null,
+    };
+  }
+
+  try {
+    // A fresh thread per step keeps each run isolated from prior runs + chat.
+    const thread = await store.createEmployeeChatThread({
+      organizationId: orgId,
+      employeeId: employee.id,
+      title: `Workflow · ${params.workflow.name}`.slice(0, 80),
+      createdByUserId: params.actor.userId,
+    });
+    const result = await sendChatMessage(
+      { store, gateway, isProduction: deps.isProduction },
+      {
+        actor: { organizationId: orgId, userId: params.actor.userId, actorType: "system" },
+        organizationName: params.organizationName,
+        employee,
+        threadId: thread.id,
+        message,
+        channelType: null,
+      },
+    );
+    return {
+      status: "succeeded",
+      output: result.assistantMessage.content,
+      error: null,
+      nextNodeId: node.next,
+      meaningful: true,
+      employeeId: employee.id,
+      input: message || null,
+    };
+  } catch (err) {
+    const error =
+      err instanceof ChatBlockedError
+        ? friendlyBlockedReason(err)
+        : err instanceof EntitlementError
+          ? err.message
+          : "This step could not be completed.";
+    return {
+      status: "failed",
+      output: "",
+      error,
+      nextNodeId: null,
+      meaningful: false,
+      employeeId: employee.id,
+      input: message || null,
+    };
+  }
+}
+
+/**
+ * Run a workflow end to end, persisting a run + one step per executed node.
+ * Returns the finished run. Never throws for author/graph errors — those become
+ * a `failed` run with a readable error so the run history explains what happened.
+ */
+export async function runWorkflow(
+  deps: WorkflowEngineDeps,
+  params: RunWorkflowParams,
+): Promise<WorkflowRun> {
+  const { store } = deps;
+  const orgId = params.actor.organizationId;
+  const { graph } = params.workflow;
+
+  const triggerInput =
+    typeof params.input?.message === "string" ? params.input.message : "";
+  const context = emptyContext(triggerInput);
+
+  const run = await store.createWorkflowRun({
+    organizationId: orgId,
+    workflowId: params.workflow.id,
+    triggeredBy: params.triggeredBy,
+    input: params.input ?? {},
+    status: "running",
+    createdByUserId: params.actor.userId,
+  });
+
+  await store.createAuditEvent({
+    organizationId: orgId,
+    actorType: "system",
+    actorId: params.actor.userId,
+    action: "workflow.run_started",
+    targetType: "workflow_run",
+    targetId: run.id,
+    metadata: { workflowId: params.workflow.id, triggeredBy: params.triggeredBy },
+  });
+
+  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
+  let currentId: string | null = graph.entryNodeId;
+  let executed = 0;
+  let finalOutput: string | null = null;
+  let failure: string | null = null;
+
+  if (!currentId || !nodesById.has(currentId)) {
+    failure = "This workflow has no steps to run yet. Add a step and try again.";
+  }
+
+  while (currentId && executed < MAX_STEPS_PER_RUN && !failure) {
+    const node = nodesById.get(currentId);
+    if (!node) break; // a dangling next pointer simply ends the run
+
+    const outcome = await executeNode(deps, params, node, context);
+    await store.createWorkflowRunStep({
+      organizationId: orgId,
+      runId: run.id,
+      nodeId: node.id,
+      nodeType: node.type,
+      employeeId: outcome.employeeId,
+      sequence: executed,
+      status: outcome.status,
+      input: outcome.input,
+      output: outcome.output || null,
+      error: outcome.error,
+    });
+    executed += 1;
+
+    context.steps[node.id] = { output: outcome.output };
+    if (outcome.meaningful && outcome.status === "succeeded") finalOutput = outcome.output;
+
+    if (outcome.status === "failed") {
+      failure = outcome.error ?? "A step failed.";
+      break;
+    }
+
+    currentId = outcome.nextNodeId;
+  }
+
+  if (!failure && currentId && executed >= MAX_STEPS_PER_RUN) {
+    failure = `This workflow stopped after ${MAX_STEPS_PER_RUN} steps — check for a loop.`;
+  }
+
+  const finished =
+    (await store.updateWorkflowRun(run.id, {
+      status: failure ? "failed" : "succeeded",
+      output: finalOutput,
+      error: failure,
+      stepCount: executed,
+      finishedAt: new Date().toISOString(),
+    })) ?? run;
+
+  await store.createAuditEvent({
+    organizationId: orgId,
+    actorType: "system",
+    actorId: params.actor.userId,
+    action: "workflow.run_finished",
+    targetType: "workflow_run",
+    targetId: run.id,
+    metadata: { workflowId: params.workflow.id, status: finished.status, steps: executed },
+  });
+
+  return finished;
+}

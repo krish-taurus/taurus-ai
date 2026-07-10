@@ -3,14 +3,15 @@
  *
  * Uploaded files are NEVER served publicly. This route resolves the current
  * organization from the session, confirms the document belongs to it, reads the
- * bytes from local storage, and forces a download (never inline HTML rendering).
+ * bytes from the active storage backend (S3 or local), and forces a download
+ * (never inline HTML rendering).
  */
 
 import { NextResponse } from "next/server";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
-import { localKnowledgeStorage } from "@/modules/knowledge/storage";
+import { getKnowledgeStorage } from "@/modules/knowledge/storage";
 
 export async function GET(
   _request: Request,
@@ -30,7 +31,7 @@ export async function GET(
 
   let bytes: Uint8Array;
   try {
-    bytes = await localKnowledgeStorage.read(organization.id, document.storageKey);
+    bytes = await getKnowledgeStorage().read(organization.id, document.storageKey);
   } catch {
     return new NextResponse("Not found", { status: 404 });
   }

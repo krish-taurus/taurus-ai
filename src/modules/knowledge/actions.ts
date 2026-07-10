@@ -16,7 +16,7 @@ import { revalidatePath } from "next/cache";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
-import { localKnowledgeStorage } from "@/modules/knowledge/storage";
+import { getKnowledgeStorage } from "@/modules/knowledge/storage";
 import { extractUploadedFileText, fetchWebsiteText } from "@/modules/knowledge/extraction";
 import { runDatabaseQuery } from "@/modules/knowledge/connectors/database";
 import {
@@ -157,7 +157,7 @@ export async function createFileSourceAction(
     const bytes = new Uint8Array(await file.arrayBuffer());
     // Extract the document's text (PDF/DOCX/text) so it can be indexed + answered.
     const extraction = await extractUploadedFileText(file.name, bytes);
-    const source = await createFileSource(getStore(), localKnowledgeStorage, ctx.actor, {
+    const source = await createFileSource(getStore(), getKnowledgeStorage(), ctx.actor, {
       meta: {
         name: formData.get("name"),
         description: formData.get("description") ?? undefined,

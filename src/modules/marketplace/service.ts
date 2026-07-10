@@ -797,14 +797,19 @@ export function listPayouts(
 export interface CurrencyBalance {
   currency: string;
   earned: number; // Σ seller_net of paid payments
-  paidOut: number; // Σ amount of settled payouts
-  pending: number; // Σ amount of in-flight payouts
-  available: number; // earned − paidOut − pending
+  paidOut: number; // Σ amount of confirmed-settled (paid) payouts
+  inTransit: number; // Σ amount of created-but-unconfirmed (in_transit) payouts
+  pending: number; // Σ amount of initiated-but-unsent (pending) payouts
+  available: number; // earned − paidOut − inTransit − pending
 }
 
 /**
  * Per-currency payout balance derived from the ledgers (never stored):
- * available = Σ paid seller_net − Σ (paid + pending) payouts.
+ * available = Σ paid seller_net − Σ (paid + in_transit + pending) payouts.
+ * A payout in any non-failed state holds the balance, so funds already moving
+ * to the seller can never be withdrawn twice. `paidOut` counts only payouts the
+ * provider has CONFIRMED settled — money in transit is reported separately so
+ * the displayed "withdrawn" total is honest.
  */
 export async function getSellerBalances(
   store: DataStore,
@@ -818,7 +823,7 @@ export async function getSellerBalances(
   const row = (currency: string): CurrencyBalance => {
     let r = map.get(currency);
     if (!r) {
-      r = { currency, earned: 0, paidOut: 0, pending: 0, available: 0 };
+      r = { currency, earned: 0, paidOut: 0, inTransit: 0, pending: 0, available: 0 };
       map.set(currency, r);
     }
     return r;
@@ -828,9 +833,10 @@ export async function getSellerBalances(
   }
   for (const p of payouts) {
     if (p.status === "paid") row(p.currency).paidOut += p.amount;
+    else if (p.status === "in_transit") row(p.currency).inTransit += p.amount;
     else if (p.status === "pending") row(p.currency).pending += p.amount;
   }
-  for (const r of map.values()) r.available = r.earned - r.paidOut - r.pending;
+  for (const r of map.values()) r.available = r.earned - r.paidOut - r.inTransit - r.pending;
   return [...map.values()].sort((a, b) => a.currency.localeCompare(b.currency));
 }
 
@@ -959,13 +965,21 @@ export async function requestPayout(
     throw err instanceof Error ? new MarketplaceError(err.message) : err;
   }
 
-  // Both simulated and a successfully created transfer move funds to the seller.
-  const externalTransferId = transfer.mode === "transferred" ? transfer.externalTransferId : null;
-  const settled = await store.updateMarketplacePayout(payout.id, {
-    status: "paid",
-    paidAt: new Date().toISOString(),
-    externalTransferId,
-  });
+  // Simulated payouts settle in-process (no money moves, no webhook to wait for).
+  // A LIVE transfer is only just created — funds are moving but the provider has
+  // not confirmed settlement yet, so it stays `in_transit` until the transfer
+  // webhook confirms it `paid` (or `failed`). This keeps "paid" honest: it
+  // reflects provider confirmation, not our optimistic API call.
+  const settled =
+    transfer.mode === "simulated"
+      ? await store.updateMarketplacePayout(payout.id, {
+          status: "paid",
+          paidAt: new Date().toISOString(),
+        })
+      : await store.updateMarketplacePayout(payout.id, {
+          status: "in_transit",
+          externalTransferId: transfer.externalTransferId,
+        });
 
   await store.createAuditEvent({
     organizationId: actor.organizationId,
@@ -979,6 +993,7 @@ export async function requestPayout(
       amount: balance.available,
       currency,
       provider: account.provider,
+      settlement: transfer.mode === "simulated" ? "paid" : "in_transit",
     },
   });
 
@@ -1025,7 +1040,8 @@ export async function fulfillPayoutWebhook(
       }
       return { handled: true, kind: "payout" };
     }
-    // paid — idempotent: only settle a still-pending payout.
+    // paid — the provider CONFIRMED the transfer settled. Idempotent: only
+    // advance a not-yet-paid payout (pending/in_transit → paid).
     if (payout.status !== "paid") {
       await store.updateMarketplacePayout(payout.id, {
         status: "paid",

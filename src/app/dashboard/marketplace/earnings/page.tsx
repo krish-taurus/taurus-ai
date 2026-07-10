@@ -31,6 +31,11 @@ function statusTone(status: MarketplacePayment["status"] | MarketplacePayout["st
   return status === "paid" ? "soft" : "outline";
 }
 
+/** Human label for a status (in_transit → "in transit"). */
+function statusLabel(status: MarketplacePayment["status"] | MarketplacePayout["status"]): string {
+  return status === "in_transit" ? "in transit" : status;
+}
+
 export default async function MarketplaceEarningsPage({
   searchParams,
 }: {
@@ -114,7 +119,7 @@ export default async function MarketplaceEarningsPage({
                   </div>
                   <div className="text-xs text-taurus-faint">
                     available · {formatMoney(b.paidOut, b.currency)} withdrawn ·{" "}
-                    {formatMoney(b.pending, b.currency)} in flight
+                    {formatMoney(b.inTransit + b.pending, b.currency)} in transit
                   </div>
                 </div>
                 {canManage && accountActive && b.available > 0 ? (
@@ -162,7 +167,7 @@ export default async function MarketplaceEarningsPage({
                 <span className="text-taurus-sub">
                   {formatMoney(p.amount, p.currency)} · via {p.provider}
                 </span>
-                <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
               </li>
             ))}
           </ul>
@@ -192,7 +197,7 @@ export default async function MarketplaceEarningsPage({
                   <div className="text-sm font-medium text-taurus-text">
                     {formatMoney(p.sellerNet, p.currency)}
                   </div>
-                  <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                  <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
                 </div>
               </li>
             ))}
@@ -225,7 +230,7 @@ export default async function MarketplaceEarningsPage({
                   <div className="text-sm font-medium text-taurus-text">
                     {formatMoney(p.amount, p.currency)}
                   </div>
-                  <Badge tone={statusTone(p.status)}>{p.status}</Badge>
+                  <Badge tone={statusTone(p.status)}>{statusLabel(p.status)}</Badge>
                 </div>
               </li>
             ))}
