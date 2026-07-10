@@ -32,6 +32,7 @@ import { getMessagingProvider } from "@/modules/channels/messaging/registry";
 import { resolveProviderConfig } from "@/modules/channels/messaging/config";
 import { indexKnowledgeSource } from "@/modules/knowledge/indexing";
 import { resolveEmbedder } from "@/modules/knowledge/embedder-resolver";
+import { resyncKnowledgeSource, ResyncError } from "@/modules/knowledge/resync";
 import {
   emptyContext,
   evaluateCondition,
@@ -276,6 +277,40 @@ async function executeNode(
         meaningful: false,
         employeeId: null,
         input: null,
+      };
+    }
+  }
+
+  if (node.type === "sync_source") {
+    // Re-fetch fresh content from the source's connector, then re-index it — the
+    // "extract from a data source on a schedule, then retrain" step.
+    const ctx = { organizationId: orgId, userId: params.actor.userId, role: "owner" as const };
+    try {
+      const embedder = await resolveEmbedder(store, orgId);
+      const result = await resyncKnowledgeSource(store, ctx, node.sourceId, embedder);
+      return {
+        status: "succeeded",
+        output: `Synced ${result.rowCount} rows and re-indexed ${result.chunkCount} chunks`,
+        error: null,
+        nextNodeId: node.next,
+        meaningful: false,
+        employeeId: null,
+        input: "Sync data source",
+      };
+    } catch (err) {
+      return {
+        status: "failed",
+        output: "",
+        error:
+          err instanceof ResyncError
+            ? err.message
+            : err instanceof Error
+              ? err.message
+              : "Could not sync the data source.",
+        nextNodeId: null,
+        meaningful: false,
+        employeeId: null,
+        input: "Sync data source",
       };
     }
   }

@@ -91,6 +91,13 @@ const nodeSchema = z.discriminatedUnion("type", [
     sourceId: z.string().optional(),
     next: z.string().nullable(),
   }),
+  z.object({
+    id: nodeIdSchema,
+    label: labelSchema,
+    type: z.literal("sync_source"),
+    sourceId: z.string().min(1),
+    next: z.string().nullable(),
+  }),
 ]);
 
 export const workflowGraphSchema = z.object({

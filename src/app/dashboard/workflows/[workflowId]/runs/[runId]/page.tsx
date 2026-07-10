@@ -33,6 +33,8 @@ function stepKind(step: WorkflowRunStep): string {
       return "Approval";
     case "refresh_knowledge":
       return "Refresh knowledge";
+    case "sync_source":
+      return "Sync data source";
     case "transform":
       return "Format";
     default:

@@ -655,7 +655,8 @@ export type WorkflowNodeType =
   | "send_message"
   | "sub_workflow"
   | "approval"
-  | "refresh_knowledge";
+  | "refresh_knowledge"
+  | "sync_source";
 
 /** Comparison operators for a condition (branch) node. */
 export type WorkflowConditionOperator =
@@ -735,6 +736,12 @@ export type WorkflowNode =
       target: "employee" | "source";
       employeeId?: string;
       sourceId?: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "sync_source";
+      /** A connector-backed knowledge source to re-fetch from + re-index. */
+      sourceId: string;
       next: string | null;
     });
 

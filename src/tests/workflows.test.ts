@@ -5,6 +5,8 @@ import type { ChatGateway } from "@/modules/employee-chat/service";
 import type { GatewayRequest, GatewayResponse } from "@/modules/model-gateway/types";
 import type { AiEmployee, WorkflowGraph } from "@/lib/db/types";
 import { emptyContext, interpolate, evaluateCondition } from "@/modules/workflows/templating";
+import { createLocalEmbedder } from "@/modules/knowledge/embeddings";
+import { resyncKnowledgeSource } from "@/modules/knowledge/resync";
 import { runWorkflow, MAX_STEPS_PER_RUN, MAX_WORKFLOW_DEPTH } from "@/modules/workflows/engine";
 import {
   createWorkflow,
@@ -529,6 +531,80 @@ describe("workflow channel trigger", () => {
     expect(run.status).toBe("succeeded");
     const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
     expect(steps[0].output).toMatch(/Simulated send to \+15550009999/);
+  });
+});
+
+describe("connector re-sync (resyncKnowledgeSource)", () => {
+  it("re-fetches a database source's content and re-indexes it", async () => {
+    const store = new InMemoryStore();
+    const vault = await store.createKnowledgeVault({ organizationId: actor.organizationId, name: "DB" });
+    const source = await store.createKnowledgeSource({
+      organizationId: actor.organizationId,
+      vaultId: vault.id,
+      name: "Orders",
+      sourceType: "database",
+      status: "ready",
+    });
+    // Injected fetcher stands in for the live DB query (no network / crypto).
+    const fetcher = async () => ({
+      text: "order 1: shipped\norder 2: refunded within 30 days",
+      status: "extracted" as const,
+      rowCount: 2,
+    });
+    const ctx = { organizationId: actor.organizationId, userId: null, role: "owner" as const };
+    const result = await resyncKnowledgeSource(store, ctx, source.id, createLocalEmbedder(), fetcher);
+
+    expect(result).toMatchObject({ sourceType: "database", rowCount: 2, ready: true });
+    expect(result.chunkCount).toBeGreaterThan(0);
+    const segments = await store.listKnowledgeRetrievalSegmentsForSource(actor.organizationId, source.id);
+    expect(segments.length).toBeGreaterThan(0);
+    expect(segments[0].content).toMatch(/refunded within 30 days/);
+  });
+
+  it("refuses a non-connector source with a clear message", async () => {
+    const store = new InMemoryStore();
+    const vault = await store.createKnowledgeVault({ organizationId: actor.organizationId, name: "V" });
+    const source = await store.createKnowledgeSource({
+      organizationId: actor.organizationId,
+      vaultId: vault.id,
+      name: "Notes",
+      sourceType: "text",
+      status: "ready",
+    });
+    const ctx = { organizationId: actor.organizationId, userId: null, role: "owner" as const };
+    await expect(resyncKnowledgeSource(store, ctx, source.id, createLocalEmbedder())).rejects.toThrow(
+      /no external data to pull/i,
+    );
+  });
+});
+
+describe("workflow sync-source node", () => {
+  it("fails the run with a readable message for a non-database source", async () => {
+    const store = new InMemoryStore();
+    const vault = await store.createKnowledgeVault({ organizationId: actor.organizationId, name: "V" });
+    const source = await store.createKnowledgeSource({
+      organizationId: actor.organizationId,
+      vaultId: vault.id,
+      name: "Notes",
+      sourceType: "text",
+      status: "ready",
+    });
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Sync",
+      graph: { entryNodeId: "n1", nodes: [{ id: "n1", type: "sync_source", sourceId: source.id, next: null }] },
+    });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "schedule",
+      input: {},
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/no external data to pull/i);
+    const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps[0].nodeType).toBe("sync_source");
   });
 });
 

@@ -80,7 +80,7 @@ export default async function WorkflowBuilderPage({
     .map((w) => ({ id: w.id, name: w.name }));
   const sourceOptions: SourceOption[] = knowledgeSources
     .filter((s) => s.status !== "archived")
-    .map((s) => ({ id: s.id, name: s.name }));
+    .map((s) => ({ id: s.id, name: s.name, sourceType: s.sourceType }));
 
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   const webhookUrl =
