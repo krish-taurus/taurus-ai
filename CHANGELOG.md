@@ -1,5 +1,29 @@
 # Changelog
 
+## Sprint 044 - Production readiness check (fail loudly, not silently) — 2026-07-10
+
+Added:
+
+- **Go-live readiness check** — the app silently downgrades to
+  simulated/local/in-memory modes when config is missing, so a misconfigured
+  production deploy used to "boot fine" while losing data and serving no real AI.
+  This adds a check that surfaces those gaps.
+  - Pure `checkProductionReadiness(env)` (`src/lib/env/readiness.ts`) returns
+    **blockers** (will break or lose data in prod — no `DATABASE_URL` → in-memory,
+    weak/absent `AUTH_SECRET`, no auth provider, dev-auth enabled in prod, no AI
+    model provider) and **warnings** (a feature is silently off — BYOK-only models,
+    localhost app URL, local-disk uploads, missing channel master key, payment
+    keys without their webhook secret). Non-production is all-clear.
+  - **`npm run check:prod`** (`scripts/check-env.ts --force`) prints the report and
+    **exits non-zero on any blocker** — run it as a deploy/predeploy step so a bad
+    config fails the deploy instead of shipping. **`GET /api/health`** returns a
+    terse status (`ok` / `degraded` / `blocked` / `dev`) + issue counts/titles for
+    uptime monitors, and **503 when production has blockers** (no secret values are
+    ever returned).
+  - Fully unit tested (healthy env clean; empty prod env flags the four core
+    blockers; dev-auth blocks; BYOK-only + webhook-secret + upload warnings; force
+    mode). `tsc` clean · `next lint` clean · **576 tests + 6 skipped** · build compiles.
+
 ## Sprint 043 - Microsoft Teams channel (last connection) — 2026-07-09
 
 Added:
