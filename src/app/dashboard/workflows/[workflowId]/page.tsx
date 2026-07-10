@@ -18,6 +18,7 @@ import {
   type EmployeeOption,
   type ChannelOption,
   type WorkflowOption,
+  type SourceOption,
 } from "@/components/workflows/workflow-builder";
 import {
   RunWorkflowForm,
@@ -54,10 +55,11 @@ export default async function WorkflowBuilderPage({
   const workflow = await getWorkflow(store, organization.id, params.workflowId);
   if (!workflow) notFound();
 
-  const [employees, channels, allWorkflows, runs] = await Promise.all([
+  const [employees, channels, allWorkflows, knowledgeSources, runs] = await Promise.all([
     store.listEmployees(organization.id),
     store.listEmployeeChannelsForOrganization(organization.id),
     listWorkflows(store, organization.id),
+    store.listKnowledgeSources(organization.id),
     listWorkflowRuns(store, organization.id, workflow.id, 10),
   ]);
   const active = employees.filter((e) => e.status !== "archived");
@@ -76,6 +78,9 @@ export default async function WorkflowBuilderPage({
   const workflowOptions: WorkflowOption[] = allWorkflows
     .filter((w) => w.id !== workflow.id)
     .map((w) => ({ id: w.id, name: w.name }));
+  const sourceOptions: SourceOption[] = knowledgeSources
+    .filter((s) => s.status !== "archived")
+    .map((s) => ({ id: s.id, name: s.name }));
 
   const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   const webhookUrl =
@@ -107,6 +112,7 @@ export default async function WorkflowBuilderPage({
             employees={employeeOptions}
             channels={channelOptions}
             workflows={workflowOptions}
+            sources={sourceOptions}
           />
         </div>
 

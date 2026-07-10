@@ -30,6 +30,8 @@ import {
 import { EntitlementError } from "@/modules/billing/service";
 import { getMessagingProvider } from "@/modules/channels/messaging/registry";
 import { resolveProviderConfig } from "@/modules/channels/messaging/config";
+import { indexKnowledgeSource } from "@/modules/knowledge/indexing";
+import { resolveEmbedder } from "@/modules/knowledge/embedder-resolver";
 import {
   emptyContext,
   evaluateCondition,
@@ -223,6 +225,59 @@ async function executeNode(
   if (node.type === "approval") {
     // Approval pauses the run and is handled by the drive loop, not here.
     return { status: "skipped", output: "", error: null, nextNodeId: node.next, meaningful: false, employeeId: null, input: null };
+  }
+
+  if (node.type === "refresh_knowledge") {
+    // Re-chunk + re-embed the target's knowledge so the AI Employee retrieves the
+    // latest content — the "retrain on the newest data" step. Runs through the
+    // same indexing pipeline (and embedder) as manual "Prepare knowledge".
+    const ctx = { organizationId: orgId, userId: params.actor.userId, role: "owner" as const };
+    try {
+      const embedder = await resolveEmbedder(store, orgId);
+      let sourceIds: string[] = [];
+      let label = "";
+      if (node.target === "source") {
+        if (!node.sourceId) {
+          return { status: "failed", output: "", error: "This step has no knowledge source selected.", nextNodeId: null, meaningful: false, employeeId: null, input: null };
+        }
+        sourceIds = [node.sourceId];
+        label = "1 source";
+      } else {
+        if (!node.employeeId) {
+          return { status: "failed", output: "", error: "This step has no AI Employee selected.", nextNodeId: null, meaningful: false, employeeId: null, input: null };
+        }
+        const sources = await store.listKnowledgeSourcesForEmployee(orgId, node.employeeId);
+        sourceIds = sources.filter((s) => s.status !== "archived").map((s) => s.id);
+        label = `${sourceIds.length} source${sourceIds.length === 1 ? "" : "s"}`;
+      }
+
+      let ready = 0;
+      let chunks = 0;
+      for (const sourceId of sourceIds) {
+        const result = await indexKnowledgeSource(store, embedder, ctx, sourceId);
+        if (result.ready) ready += 1;
+        chunks += result.chunkCount;
+      }
+      return {
+        status: "succeeded",
+        output: `Refreshed ${ready}/${sourceIds.length} sources (${chunks} chunks) with ${embedder.modelId}`,
+        error: null,
+        nextNodeId: node.next,
+        meaningful: false,
+        employeeId: node.target === "employee" ? node.employeeId ?? null : null,
+        input: `Refresh knowledge · ${label}`,
+      };
+    } catch (err) {
+      return {
+        status: "failed",
+        output: "",
+        error: err instanceof Error ? err.message : "Could not refresh knowledge.",
+        nextNodeId: null,
+        meaningful: false,
+        employeeId: null,
+        input: null,
+      };
+    }
   }
 
   // employee node

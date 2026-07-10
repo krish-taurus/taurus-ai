@@ -44,8 +44,19 @@ export interface WorkflowOption {
   id: string;
   name: string;
 }
+export interface SourceOption {
+  id: string;
+  name: string;
+}
 
-type StepType = "employee" | "condition" | "transform" | "send_message" | "sub_workflow" | "approval";
+type StepType =
+  | "employee"
+  | "condition"
+  | "transform"
+  | "send_message"
+  | "sub_workflow"
+  | "approval"
+  | "refresh_knowledge";
 
 interface EmployeeStep {
   id: string;
@@ -86,13 +97,21 @@ interface ApprovalStep {
   type: "approval";
   instructions: string;
 }
+interface RefreshKnowledgeStep {
+  id: string;
+  type: "refresh_knowledge";
+  target: "employee" | "source";
+  employeeId: string;
+  sourceId: string;
+}
 type BuilderStep =
   | EmployeeStep
   | TransformStep
   | ConditionStep
   | SendMessageStep
   | SubWorkflowStep
-  | ApprovalStep;
+  | ApprovalStep
+  | RefreshKnowledgeStep;
 
 const END = "__end__";
 
@@ -147,6 +166,15 @@ function graphToSteps(graph: WorkflowGraph): BuilderStep[] {
     if (node.type === "approval") {
       return { id: node.id, type: "approval", instructions: node.instructions };
     }
+    if (node.type === "refresh_knowledge") {
+      return {
+        id: node.id,
+        type: "refresh_knowledge",
+        target: node.target,
+        employeeId: node.employeeId ?? "",
+        sourceId: node.sourceId ?? "",
+      };
+    }
     // trigger nodes aren't authored in the builder (manual trigger is implicit)
     return { id: node.id, type: "transform", template: "" };
   });
@@ -177,6 +205,16 @@ function stepsToGraph(steps: BuilderStep[]): WorkflowGraph {
     }
     if (step.type === "approval") {
       return { id: step.id, type: "approval", instructions: step.instructions, next };
+    }
+    if (step.type === "refresh_knowledge") {
+      return {
+        id: step.id,
+        type: "refresh_knowledge",
+        target: step.target,
+        employeeId: step.target === "employee" ? step.employeeId : undefined,
+        sourceId: step.target === "source" ? step.sourceId : undefined,
+        next,
+      };
     }
     const resolve = (t: string) => (t === END ? null : t);
     return {
@@ -210,12 +248,14 @@ export function WorkflowBuilder({
   employees,
   channels,
   workflows,
+  sources,
 }: {
   workflowId: string;
   initialGraph: WorkflowGraph;
   employees: EmployeeOption[];
   channels: ChannelOption[];
   workflows: WorkflowOption[];
+  sources: SourceOption[];
 }) {
   const [steps, setSteps] = useState<BuilderStep[]>(() => graphToSteps(initialGraph));
   const [state, action] = useFormState(saveWorkflowAction, {} as WorkflowActionState);
@@ -243,7 +283,7 @@ export function WorkflowBuilder({
       return copy;
     });
   const add = (type: StepType) =>
-    setSteps((prev) => [...prev, blankStep(type, employees, channels, workflows)]);
+    setSteps((prev) => [...prev, blankStep(type, employees, channels, workflows, sources)]);
 
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -277,6 +317,7 @@ export function WorkflowBuilder({
             employees={employees}
             channels={channels}
             workflows={workflows}
+            sources={sources}
             stepLabels={stepLabels}
             isFirst={i === 0}
             isLast={i === steps.length - 1}
@@ -304,6 +345,9 @@ export function WorkflowBuilder({
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("approval")}>
           + Wait for approval
         </button>
+        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("refresh_knowledge")}>
+          + Refresh knowledge
+        </button>
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("transform")}>
           + Format
         </button>
@@ -326,6 +370,7 @@ function labelFor(step: BuilderStep, employees: EmployeeOption[]): string {
   if (step.type === "send_message") return "Send message";
   if (step.type === "sub_workflow") return "Run workflow";
   if (step.type === "approval") return "Wait for approval";
+  if (step.type === "refresh_knowledge") return "Refresh knowledge";
   return "Format";
 }
 
@@ -334,6 +379,7 @@ function blankStep(
   employees: EmployeeOption[],
   channels: ChannelOption[],
   workflows: WorkflowOption[],
+  sources: SourceOption[],
 ): BuilderStep {
   if (type === "employee") {
     return { id: newId(), type: "employee", employeeId: employees[0]?.id ?? "", messageTemplate: "{{input}}" };
@@ -356,6 +402,15 @@ function blankStep(
   if (type === "approval") {
     return { id: newId(), type: "approval", instructions: "Review and approve to continue." };
   }
+  if (type === "refresh_knowledge") {
+    return {
+      id: newId(),
+      type: "refresh_knowledge",
+      target: "employee",
+      employeeId: employees[0]?.id ?? "",
+      sourceId: sources[0]?.id ?? "",
+    };
+  }
   return {
     id: newId(),
     type: "condition",
@@ -374,6 +429,7 @@ const TYPE_NAMES: Record<StepType, string> = {
   send_message: "Send message",
   sub_workflow: "Run workflow",
   approval: "Wait for approval",
+  refresh_knowledge: "Refresh knowledge",
   transform: "Format",
 };
 
@@ -383,6 +439,7 @@ function StepCard({
   employees,
   channels,
   workflows,
+  sources,
   stepLabels,
   isFirst,
   isLast,
@@ -395,6 +452,7 @@ function StepCard({
   employees: EmployeeOption[];
   channels: ChannelOption[];
   workflows: WorkflowOption[];
+  sources: SourceOption[];
   stepLabels: { id: string; label: string }[];
   isFirst: boolean;
   isLast: boolean;
@@ -567,6 +625,60 @@ function StepCard({
             rows={2}
           />
         </Field>
+      ) : null}
+
+      {step.type === "refresh_knowledge" ? (
+        <div className="flex flex-col gap-3">
+          <Field label="Refresh" htmlFor={`rk-${step.id}`}>
+            <Select
+              id={`rk-${step.id}`}
+              value={step.target}
+              onChange={(e) => onChange({ target: e.target.value as "employee" | "source" })}
+            >
+              <option value="employee">All of an AI Employee&apos;s knowledge</option>
+              <option value="source">A single knowledge source</option>
+            </Select>
+          </Field>
+          {step.target === "employee" ? (
+            <Field label="Which AI Employee" htmlFor={`rke-${step.id}`}>
+              {employees.length === 0 ? (
+                <p className="text-sm text-taurus-faint">No AI Employees yet.</p>
+              ) : (
+                <Select
+                  id={`rke-${step.id}`}
+                  value={step.employeeId}
+                  onChange={(e) => onChange({ employeeId: e.target.value })}
+                >
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          ) : (
+            <Field label="Which knowledge source" htmlFor={`rks-${step.id}`}>
+              {sources.length === 0 ? (
+                <p className="text-sm text-taurus-faint">
+                  No knowledge sources yet — add one in the Knowledge Vault first.
+                </p>
+              ) : (
+                <Select
+                  id={`rks-${step.id}`}
+                  value={step.sourceId}
+                  onChange={(e) => onChange({ sourceId: e.target.value })}
+                >
+                  {sources.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          )}
+          <p className="text-xs text-taurus-faint">
+            Re-reads and re-embeds the content so the AI Employee retrieves the latest. Pair with a
+            Schedule trigger to keep it current.
+          </p>
+        </div>
       ) : null}
 
       {step.type === "condition" ? (

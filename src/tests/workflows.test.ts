@@ -532,6 +532,85 @@ describe("workflow channel trigger", () => {
   });
 });
 
+describe("workflow refresh-knowledge node", () => {
+  it("re-indexes an employee's assigned sources so retrieval reflects the latest content", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Support");
+    // Assign a knowledge source to the employee (via its vault).
+    const vault = await store.createKnowledgeVault({ organizationId: actor.organizationId, name: "Docs" });
+    const source = await store.createKnowledgeSource({
+      organizationId: actor.organizationId,
+      vaultId: vault.id,
+      name: "Refund policy",
+      sourceType: "text",
+      status: "ready",
+    });
+    await store.createKnowledgeDocument({
+      organizationId: actor.organizationId,
+      knowledgeSourceId: source.id,
+      title: "Policy",
+      textContent: "Customers can request a refund within 30 days of purchase.",
+      extractionStatus: "not_required",
+    });
+    await store.assignVaultToEmployee({
+      organizationId: actor.organizationId,
+      employeeId: emp.id,
+      vaultId: vault.id,
+    });
+
+    // Before: no retrieval segments indexed yet.
+    expect(
+      await store.listKnowledgeRetrievalSegmentsForSource(actor.organizationId, source.id),
+    ).toHaveLength(0);
+
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Nightly retrain",
+      graph: {
+        entryNodeId: "n1",
+        nodes: [{ id: "n1", type: "refresh_knowledge", target: "employee", employeeId: emp.id, next: null }],
+      },
+    });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "schedule",
+      input: {},
+    });
+
+    expect(run.status).toBe("succeeded");
+    const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps[0].nodeType).toBe("refresh_knowledge");
+    expect(steps[0].output).toMatch(/Refreshed 1\/1 sources/);
+    // After: the source is chunked + embedded, so the employee can retrieve it.
+    const segments = await store.listKnowledgeRetrievalSegmentsForSource(actor.organizationId, source.id);
+    expect(segments.length).toBeGreaterThan(0);
+    expect(segments[0].embedding).not.toBeNull();
+  });
+
+  it("fails cleanly when no target is selected", async () => {
+    const store = new InMemoryStore();
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Bad refresh",
+      graph: {
+        entryNodeId: "n1",
+        nodes: [{ id: "n1", type: "refresh_knowledge", target: "source", next: null }],
+      },
+    });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: {},
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/no knowledge source selected/i);
+  });
+});
+
 describe("workflow schedule tick", () => {
   it("runs a due active scheduled workflow and advances its next run time", async () => {
     const store = new InMemoryStore();

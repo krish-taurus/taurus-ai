@@ -1,5 +1,30 @@
 # Changelog
 
+## Sprint 052 - Workflow "Refresh knowledge" node (scheduled retrain) — 2026-07-10
+
+Added:
+
+- **Refresh knowledge workflow node** — re-reads and re-embeds an AI Employee's
+  knowledge so retrieval reflects the latest content. Target either **all sources
+  assigned to one AI Employee** or **a single knowledge source**. Runs through the
+  same indexing pipeline + embedder as manual "Prepare knowledge" (real provider
+  embeddings when a key is set, else the local model), as a system action.
+  - **Pair it with a Schedule trigger** to keep an agent current automatically —
+    e.g. *every night: refresh Support's knowledge* — the "retrain on the latest
+    data" loop the workflows engine was built toward.
+  - Builder gains a *Refresh knowledge* step (employee-or-source target picker);
+    the run trace labels it. `KnowledgeContext.userId` now allows `null` so
+    automated runs record the re-index as a system action.
+  - Tested: refreshing an employee's assigned source creates embedded retrieval
+    segments (proving the content becomes retrievable), and a target-less node
+    fails cleanly. `tsc` clean · `next lint` clean · production build clean ·
+    **624 tests + 6 skipped**.
+  - Note: this re-indexes content already in the Vault (files/text/URLs, and any
+    connector content previously synced). **Automated live re-fetch from a
+    connector** (pull brand-new rows from a database, new files from Drive/
+    SharePoint/S3 inside a workflow) is the next slice — it needs headless,
+    per-connector credential resolution + fetch.
+
 ## Sprint 051 - Public marketplace directory — 2026-07-10
 
 Added:
