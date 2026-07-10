@@ -15,7 +15,8 @@
     "test:watch": "vitest",
     "db:migrate": "node scripts/migrate.mjs",
     "db:migrate:seed": "node scripts/migrate.mjs --seed",
-    "db:seed:marketplace": "npx tsx scripts/seed-marketplace.ts"
+    "db:seed:marketplace": "npx tsx scripts/seed-marketplace.ts",
+    "check:prod": "npx tsx scripts/check-env.ts --force"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",
