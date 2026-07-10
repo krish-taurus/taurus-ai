@@ -1,23 +1,21 @@
 "use client";
 
 /**
- * Light landing shell (Sprint 020 — Landing Page).
+ * Landing v3 shell (Sprint 055).
  *
- * The marketing home page is a white-background, dark-ink experience: the premium
- * monochrome design language inverted for a bright, editorial feel. This shell
- * forces a light surface regardless of the app's dark tokens, honors the user's
- * reduced-motion preference via MotionConfig, and paints two soft, GPU-cheap
- * atmospheric washes so large white sections never feel flat.
+ * White canvas, near-black ink. Honors the visitor's reduced-motion preference
+ * globally via MotionConfig (framer) — the CSS animations are silenced by the
+ * matching media rule in globals.css. Two GPU-cheap atmospheric washes keep the
+ * large white sections from feeling flat.
  */
 
 import { MotionConfig } from "framer-motion";
 import type { ReactNode } from "react";
 
-export function LandingShellLight({ children }: { children: ReactNode }) {
+export function LandingShell({ children }: { children: ReactNode }) {
   return (
     <MotionConfig reducedMotion="user">
       <div className="relative min-h-screen overflow-x-clip bg-white text-neutral-900 antialiased">
-        {/* Fixed atmospheric layers — subtle neutral washes, no color. */}
         <div
           aria-hidden
           className="pointer-events-none fixed inset-0 z-0 bg-[radial-gradient(1100px_520px_at_50%_-8%,rgba(0,0,0,0.05),transparent_70%)]"

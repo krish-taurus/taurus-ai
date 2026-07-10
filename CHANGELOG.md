@@ -1,5 +1,48 @@
 # Changelog
 
+## Sprint 055 - Cinematic landing page v3 — 2026-07-10
+
+Added:
+
+- **Landing v3** — a ground-up, cinematic monochrome marketing home: white
+  canvas, oversized black/grey editorial type, and scroll-driven storytelling.
+  One continuous product story from "Your company can now hire intelligence."
+  to the closing scene where a single AI Employee card multiplies into a
+  workforce.
+  - **Signature scenes:** an orbital hero (AI Employees + tools circling the
+    Taurus core with live-action narrator cards and cursor parallax), a pinned
+    five-step How-It-Works film strip, a cursor-tilting Control Centre with a
+    hoverable employee directory, six STAR use-case stories as a stacked card
+    deck, a workflow pipeline with task tokens travelling between employees and
+    a human approval gate, a Model Hub routing board that re-routes live, a dark
+    security architecture panel, an eight-department role selector, a counting
+    performance scorecard, and a scroll-driven cinematic closer.
+  - **Complete platform coverage:** an 18-card feature wall spanning Hiring
+    Studio, Employee DNA, Knowledge Vault + connectors, chat/Brain, workflows +
+    visual canvas, triggers, approvals, all ten channels, voice, Marketplace +
+    earnings, Model Hub, Performance Reviews, usage, audit, roles, widget embeds
+    and QR reach. Pricing reads the code-authoritative plans catalog; an
+    enterprise row routes to contact.
+  - **Contact:** demo-request form (composes a pre-filled email — honest, no
+    fake inbox) plus direct phone (+91 63634 02404) and email
+    (krishbhargav@thetaurus.ai), both also in the footer.
+  - **SEO:** page metadata + Open Graph/Twitter cards, canonical, Organization
+    + SoftwareApplication + FAQPage structured data (mirroring the on-page
+    10-question FAQ accordion), robots.txt, sitemap.xml, one H1, server-rendered
+    copy. All scenarios labelled illustrative — no invented customers or stats.
+  - **Motion kit** (`landing/v3/motion.tsx`): masked word-by-word headline
+    reveals, magnetic CTAs, count-up numbers, infinite marquee, cursor-tilt
+    cards — plus `usePinnedProgress`, a live-rect scroll progress hook that
+    keeps pinned scenes correct even if layout settles after hydration.
+    Reduced-motion users get a calm page (MotionConfig + global CSS rule);
+    mobile gets a redesigned stacked story with a floating CTA.
+  - Replaces the Sprint 020 light landing (components removed, test suite
+    rewritten — 17 landing tests). `tsc` clean · `next lint` clean · production
+    build clean (homepage static, 163 kB first load) · **633 tests + 6
+    skipped**. Live smoke: full-page walkthrough + interactions (tabs, FAQ,
+    directory hover, pinned scenes at cold scroll offsets) with zero console
+    errors, on desktop and mobile viewports.
+
 ## Sprint 054 - Drag-and-drop workflow canvas (n8n-style) — 2026-07-10
 
 Added:
