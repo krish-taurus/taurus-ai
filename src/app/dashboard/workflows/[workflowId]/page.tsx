@@ -82,6 +82,8 @@ export default async function WorkflowBuilderPage({
     workflow.trigger.type === "webhook"
       ? `${appUrl}/api/workflows/hooks/${workflow.trigger.token}`
       : null;
+  const scheduleMinutes = workflow.trigger.type === "schedule" ? workflow.trigger.everyMinutes : null;
+  const triggerChannelId = workflow.trigger.type === "channel" ? workflow.trigger.channelId : null;
 
   return (
     <div className="max-w-3xl">
@@ -116,6 +118,9 @@ export default async function WorkflowBuilderPage({
               workflowId={workflow.id}
               triggerType={workflow.trigger.type}
               webhookUrl={webhookUrl}
+              everyMinutes={scheduleMinutes}
+              channelId={triggerChannelId}
+              channels={channelOptions}
             />
           </Card>
 

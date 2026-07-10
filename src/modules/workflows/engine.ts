@@ -30,7 +30,13 @@ import {
 import { EntitlementError } from "@/modules/billing/service";
 import { getMessagingProvider } from "@/modules/channels/messaging/registry";
 import { resolveProviderConfig } from "@/modules/channels/messaging/config";
-import { emptyContext, evaluateCondition, interpolate, type RunContext } from "@/modules/workflows/templating";
+import {
+  emptyContext,
+  evaluateCondition,
+  interpolate,
+  triggerFieldsFrom,
+  type RunContext,
+} from "@/modules/workflows/templating";
 
 /** Hard cap so a mis-wired graph (e.g. a cycle) can never run forever. */
 export const MAX_STEPS_PER_RUN = 50;
@@ -214,6 +220,11 @@ async function executeNode(
     };
   }
 
+  if (node.type === "approval") {
+    // Approval pauses the run and is handled by the drive loop, not here.
+    return { status: "skipped", output: "", error: null, nextNodeId: node.next, meaningful: false, employeeId: null, input: null };
+  }
+
   // employee node
   const message = interpolate(node.messageTemplate, context) || context.triggerInput;
   const employee: AiEmployee | null = await store.getEmployee(orgId, node.employeeId);
@@ -291,7 +302,7 @@ export async function runWorkflow(
 
   const triggerInput =
     typeof params.input?.message === "string" ? params.input.message : "";
-  const context = emptyContext(triggerInput);
+  const context = emptyContext(triggerInput, triggerFieldsFrom(params.input));
 
   const run = await store.createWorkflowRun({
     organizationId: orgId,
@@ -312,19 +323,53 @@ export async function runWorkflow(
     metadata: { workflowId: params.workflow.id, triggeredBy: params.triggeredBy },
   });
 
-  const nodesById = new Map(graph.nodes.map((n) => [n.id, n]));
-  let currentId: string | null = graph.entryNodeId;
-  let executed = 0;
-  let finalOutput: string | null = null;
-  let failure: string | null = null;
-
-  if (!currentId || !nodesById.has(currentId)) {
-    failure = "This workflow has no steps to run yet. Add a step and try again.";
+  if (!graph.entryNodeId || !graph.nodes.some((n) => n.id === graph.entryNodeId)) {
+    return finalizeRun(deps, params, run, {
+      status: "failed",
+      error: "This workflow has no steps to run yet. Add a step and try again.",
+      output: null,
+      executed: 0,
+    });
   }
+
+  return driveRun(deps, params, run, graph.entryNodeId, context, 0, null);
+}
+
+/** Node types whose output is a meaningful run result (not pure routing/effect). */
+const MEANINGFUL_TYPES = new Set(["employee", "transform", "sub_workflow"]);
+
+/**
+ * Execute a run from `startNodeId`, persisting a step per node, until the graph
+ * ends, a step fails, an approval pauses it, or the step cap trips. Shared by a
+ * fresh run and a resumed one, so pause/resume reuses the exact same loop.
+ */
+async function driveRun(
+  deps: WorkflowEngineDeps,
+  params: RunWorkflowParams,
+  run: WorkflowRun,
+  startNodeId: string | null,
+  context: RunContext,
+  startExecuted: number,
+  startFinalOutput: string | null,
+): Promise<WorkflowRun> {
+  const { store } = deps;
+  const orgId = params.actor.organizationId;
+  const nodesById = new Map(params.workflow.graph.nodes.map((n) => [n.id, n]));
+
+  let currentId: string | null = startNodeId;
+  let executed = startExecuted;
+  let finalOutput = startFinalOutput;
+  let failure: string | null = null;
+  let waitingAt: string | null = null;
 
   while (currentId && executed < MAX_STEPS_PER_RUN && !failure) {
     const node = nodesById.get(currentId);
     if (!node) break; // a dangling next pointer simply ends the run
+
+    if (node.type === "approval") {
+      waitingAt = node.id; // pause here until a human approves/rejects
+      break;
+    }
 
     const outcome = await executeNode(deps, params, node, context);
     await store.createWorkflowRunStep({
@@ -352,28 +397,120 @@ export async function runWorkflow(
     currentId = outcome.nextNodeId;
   }
 
+  if (waitingAt) {
+    const waiting =
+      (await store.updateWorkflowRun(run.id, {
+        status: "waiting",
+        cursorNodeId: waitingAt,
+        stepCount: executed,
+      })) ?? run;
+    await store.createAuditEvent({
+      organizationId: orgId,
+      actorType: "system",
+      actorId: params.actor.userId,
+      action: "workflow.run_waiting",
+      targetType: "workflow_run",
+      targetId: run.id,
+      metadata: { workflowId: params.workflow.id, approvalNodeId: waitingAt },
+    });
+    return waiting;
+  }
+
   if (!failure && currentId && executed >= MAX_STEPS_PER_RUN) {
     failure = `This workflow stopped after ${MAX_STEPS_PER_RUN} steps — check for a loop.`;
   }
 
+  return finalizeRun(deps, params, run, {
+    status: failure ? "failed" : "succeeded",
+    error: failure,
+    output: finalOutput,
+    executed,
+  });
+}
+
+/** Write the terminal run state + audit and return the finished run. */
+async function finalizeRun(
+  deps: WorkflowEngineDeps,
+  params: RunWorkflowParams,
+  run: WorkflowRun,
+  result: { status: "succeeded" | "failed"; error: string | null; output: string | null; executed: number },
+): Promise<WorkflowRun> {
+  const { store } = deps;
   const finished =
     (await store.updateWorkflowRun(run.id, {
-      status: failure ? "failed" : "succeeded",
-      output: finalOutput,
-      error: failure,
-      stepCount: executed,
+      status: result.status,
+      output: result.output,
+      error: result.error,
+      cursorNodeId: null,
+      stepCount: result.executed,
       finishedAt: new Date().toISOString(),
     })) ?? run;
-
   await store.createAuditEvent({
-    organizationId: orgId,
+    organizationId: params.actor.organizationId,
     actorType: "system",
     actorId: params.actor.userId,
     action: "workflow.run_finished",
     targetType: "workflow_run",
     targetId: run.id,
-    metadata: { workflowId: params.workflow.id, status: finished.status, steps: executed },
+    metadata: { workflowId: params.workflow.id, status: finished.status, steps: result.executed },
   });
-
   return finished;
+}
+
+/** Rebuild the run context from the persisted step ledger (for resume). */
+function rebuildContext(run: WorkflowRun, steps: { nodeId: string; output: string | null }[]): RunContext {
+  const triggerInput = typeof run.input?.message === "string" ? run.input.message : "";
+  const context = emptyContext(triggerInput, triggerFieldsFrom(run.input));
+  for (const step of steps) context.steps[step.nodeId] = { output: step.output ?? "" };
+  return context;
+}
+
+/**
+ * Resume a run that was paused at an approval step. The caller has already
+ * recorded the approval step, so the context is rebuilt from the ledger and the
+ * run continues from the approval node's `next`. Returns the run's new state
+ * (finished, failed, or waiting again at a later approval).
+ */
+export async function resumeRun(
+  deps: WorkflowEngineDeps,
+  run: WorkflowRun,
+): Promise<WorkflowRun> {
+  const { store } = deps;
+  const workflow = await store.getWorkflow(run.organizationId, run.workflowId);
+  if (!workflow) {
+    return (
+      (await store.updateWorkflowRun(run.id, {
+        status: "failed",
+        error: "This workflow no longer exists.",
+        cursorNodeId: null,
+        finishedAt: new Date().toISOString(),
+      })) ?? run
+    );
+  }
+
+  const steps = await store.listWorkflowRunSteps(run.organizationId, run.id);
+  const context = rebuildContext(run, steps);
+  const finalOutput =
+    [...steps].reverse().find((s) => MEANINGFUL_TYPES.has(s.nodeType) && s.status === "succeeded")?.output ??
+    run.output ??
+    null;
+
+  const approvalNode = run.cursorNodeId
+    ? workflow.graph.nodes.find((n) => n.id === run.cursorNodeId)
+    : undefined;
+  const startNodeId =
+    approvalNode && approvalNode.type === "approval" ? approvalNode.next : null;
+
+  const organization = await store.getOrganizationById(run.organizationId);
+  const params: RunWorkflowParams = {
+    workflow,
+    organizationName: organization?.name ?? "our company",
+    actor: { organizationId: run.organizationId, userId: run.createdByUserId },
+    triggeredBy: run.triggeredBy,
+    input: run.input,
+  };
+
+  await store.updateWorkflowRun(run.id, { status: "running", cursorNodeId: null });
+  const running = { ...run, status: "running" as const, cursorNodeId: null };
+  return driveRun(deps, params, running, startNodeId, context, steps.length, finalOutput);
 }

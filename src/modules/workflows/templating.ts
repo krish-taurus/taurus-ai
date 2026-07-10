@@ -9,6 +9,7 @@
  * Supported references (safe, no code execution):
  *   {{input}}              → the run's starting text (trigger input)
  *   {{trigger.input}}      → same as {{input}}
+ *   {{trigger.<field>}}    → any other trigger field (e.g. the inbound sender)
  *   {{steps.<nodeId>.output}} → a previous step's output
  *   {{<nodeId>}}           → shorthand for that step's output
  */
@@ -18,18 +19,37 @@ import type { WorkflowConditionExpression } from "@/lib/db/types";
 export interface RunContext {
   /** The run's starting text (from the trigger payload). */
   triggerInput: string;
+  /** Other trigger payload fields (e.g. an inbound sender id), as strings. */
+  triggerFields: Record<string, string>;
   /** Each executed node's output, keyed by node id. */
   steps: Record<string, { output: string }>;
 }
 
-export function emptyContext(triggerInput = ""): RunContext {
-  return { triggerInput, steps: {} };
+export function emptyContext(
+  triggerInput = "",
+  triggerFields: Record<string, string> = {},
+): RunContext {
+  return { triggerInput, triggerFields, steps: {} };
+}
+
+/** Flatten a trigger payload into string fields usable in {{trigger.<field>}}. */
+export function triggerFieldsFrom(input: Record<string, unknown> | undefined): Record<string, string> {
+  const fields: Record<string, string> = {};
+  if (!input) return fields;
+  for (const [key, value] of Object.entries(input)) {
+    if (typeof value === "string") fields[key] = value;
+    else if (typeof value === "number" || typeof value === "boolean") fields[key] = String(value);
+  }
+  return fields;
 }
 
 /** Resolve a single `{{ ... }}` reference path to a string (missing → ""). */
 function resolveReference(context: RunContext, rawPath: string): string {
   const path = rawPath.trim();
   if (path === "input" || path === "trigger.input") return context.triggerInput;
+  if (path.startsWith("trigger.")) {
+    return context.triggerFields[path.slice("trigger.".length)] ?? "";
+  }
   if (path.startsWith("steps.")) {
     // steps.<nodeId>.output — take the node id between the dots.
     const rest = path.slice("steps.".length);

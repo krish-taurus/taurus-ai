@@ -75,6 +75,13 @@ const nodeSchema = z.discriminatedUnion("type", [
     inputTemplate: z.string().max(8000),
     next: z.string().nullable(),
   }),
+  z.object({
+    id: nodeIdSchema,
+    label: labelSchema,
+    type: z.literal("approval"),
+    instructions: z.string().max(2000),
+    next: z.string().nullable(),
+  }),
 ]);
 
 export const workflowGraphSchema = z.object({
@@ -82,9 +89,17 @@ export const workflowGraphSchema = z.object({
   nodes: z.array(nodeSchema).max(MAX_NODES),
 });
 
+export const SCHEDULE_MIN_MINUTES = 5;
+
 export const workflowTriggerSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("manual") }),
   z.object({ type: z.literal("webhook"), token: z.string().min(16).max(64) }),
+  z.object({
+    type: z.literal("schedule"),
+    everyMinutes: z.number().int().min(SCHEDULE_MIN_MINUTES).max(60 * 24 * 30),
+    nextRunAt: z.string(),
+  }),
+  z.object({ type: z.literal("channel"), channelId: z.string().min(1) }),
 ]);
 
 export const workflowNameSchema = z.string().trim().min(1).max(WORKFLOW_NAME_MAX);

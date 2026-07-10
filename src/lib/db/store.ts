@@ -379,6 +379,10 @@ export interface DataStore {
   deleteWorkflow(organizationId: string, workflowId: string): Promise<boolean>;
   /** Look up a workflow by its webhook trigger token (not org-scoped — the token is the secret). */
   getWorkflowByWebhookToken(token: string): Promise<Workflow | null>;
+  /** Active schedule-triggered workflows whose next run is due (cross-org; for the tick). */
+  listDueScheduledWorkflows(nowIso: string): Promise<Workflow[]>;
+  /** The active workflow bound to a channel's inbound messages, if any. */
+  getActiveChannelWorkflow(organizationId: string, channelId: string): Promise<Workflow | null>;
 
   createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun>;
   getWorkflowRun(organizationId: string, runId: string): Promise<WorkflowRun | null>;

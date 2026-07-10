@@ -633,7 +633,19 @@ export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
  */
 export type WorkflowTrigger =
   | { type: "manual" }
-  | { type: "webhook"; token: string };
+  | { type: "webhook"; token: string }
+  | {
+      type: "schedule";
+      /** How often to run, in minutes (>= 1). */
+      everyMinutes: number;
+      /** When the next run is due (ISO). Advanced by the scheduler each tick. */
+      nextRunAt: string;
+    }
+  | {
+      type: "channel";
+      /** The connected channel whose inbound messages start this workflow. */
+      channelId: string;
+    };
 
 export type WorkflowNodeType =
   | "trigger"
@@ -641,7 +653,8 @@ export type WorkflowNodeType =
   | "condition"
   | "transform"
   | "send_message"
-  | "sub_workflow";
+  | "sub_workflow"
+  | "approval";
 
 /** Comparison operators for a condition (branch) node. */
 export type WorkflowConditionOperator =
@@ -708,6 +721,12 @@ export type WorkflowNode =
       /** Templated starting message passed to the sub-workflow. */
       inputTemplate: string;
       next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "approval";
+      /** What the reviewer is being asked to approve. */
+      instructions: string;
+      next: string | null;
     });
 
 export interface WorkflowGraph {
@@ -747,7 +766,8 @@ export interface UpdateWorkflowInput {
   graph?: WorkflowGraph;
 }
 
-export type WorkflowRunStatus = "running" | "succeeded" | "failed" | "canceled";
+/** `waiting` = paused at a human-approval step until someone approves/rejects. */
+export type WorkflowRunStatus = "running" | "waiting" | "succeeded" | "failed" | "canceled";
 export type WorkflowRunTriggerSource = "manual" | "channel" | "schedule" | "webhook" | "workflow";
 
 export interface WorkflowRun {
@@ -762,6 +782,8 @@ export interface WorkflowRun {
   output: string | null;
   error: string | null;
   stepCount: number;
+  /** When `waiting`, the approval node the run is paused at (resume point). */
+  cursorNodeId: string | null;
   createdByUserId: string | null;
   startedAt: string;
   finishedAt: string | null;
@@ -781,6 +803,7 @@ export interface UpdateWorkflowRunInput {
   output?: string | null;
   error?: string | null;
   stepCount?: number;
+  cursorNodeId?: string | null;
   finishedAt?: string | null;
 }
 

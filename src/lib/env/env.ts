@@ -52,6 +52,10 @@ const serverSchema = z
     AWS_ACCESS_KEY_ID: z.string().optional().or(z.literal("")),
     AWS_SECRET_ACCESS_KEY: z.string().optional().or(z.literal("")),
     AWS_SESSION_TOKEN: z.string().optional().or(z.literal("")),
+    // Workflows scheduler (Sprint 050). Shared secret an external cron sends as
+    // `Authorization: Bearer <secret>` to POST /api/workflows/tick, which runs
+    // due scheduled workflows. Required in production for the scheduler to run.
+    TAURUS_WORKFLOWS_TICK_SECRET: z.string().optional().or(z.literal("")),
     AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
     // Model Hub (Prompt 006B). All provider keys are optional and server-only;
     // when present, the matching provider can be offered as "Taurus managed".
@@ -229,6 +233,7 @@ export function getServerEnv(): ServerEnv {
       AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
       AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
       AWS_SESSION_TOKEN: process.env.AWS_SESSION_TOKEN,
+      TAURUS_WORKFLOWS_TICK_SECRET: process.env.TAURUS_WORKFLOWS_TICK_SECRET,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,

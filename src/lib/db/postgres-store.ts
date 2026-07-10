@@ -594,6 +594,7 @@ function mapWorkflowRun(row: Row): WorkflowRun {
     output: row.output ?? null,
     error: row.error ?? null,
     stepCount: Number(row.step_count ?? 0),
+    cursorNodeId: row.cursor_node_id ?? null,
     createdByUserId: row.created_by_user_id ?? null,
     startedAt: new Date(row.started_at).toISOString(),
     finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
@@ -2393,6 +2394,36 @@ export class PostgresStore implements DataStore {
     return rows[0] ? mapWorkflow(rows[0]) : null;
   }
 
+  async listDueScheduledWorkflows(nowIso: string): Promise<Workflow[]> {
+    const { rows } = await this.query(
+      `select * from workflows
+       where status = 'active'
+         and trigger->>'type' = 'schedule'
+         and (trigger->>'nextRunAt') <= $1
+       order by (trigger->>'nextRunAt') asc
+       limit 200`,
+      [nowIso],
+    );
+    return rows.map(mapWorkflow);
+  }
+
+  async getActiveChannelWorkflow(
+    organizationId: string,
+    channelId: string,
+  ): Promise<Workflow | null> {
+    const { rows } = await this.query(
+      `select * from workflows
+       where organization_id = $1
+         and status = 'active'
+         and trigger->>'type' = 'channel'
+         and trigger->>'channelId' = $2
+       order by created_at asc
+       limit 1`,
+      [organizationId, channelId],
+    );
+    return rows[0] ? mapWorkflow(rows[0]) : null;
+  }
+
   async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
     const { rows } = await this.query(
       `insert into workflow_runs
@@ -2447,6 +2478,7 @@ export class PostgresStore implements DataStore {
     if ("output" in patch) add("output", patch.output ?? null);
     if ("error" in patch) add("error", patch.error ?? null);
     if (patch.stepCount !== undefined) add("step_count", patch.stepCount);
+    if ("cursorNodeId" in patch) add("cursor_node_id", patch.cursorNodeId ?? null);
     if ("finishedAt" in patch) add("finished_at", patch.finishedAt ?? null);
     if (sets.length === 0) return null;
     values.push(runId);
