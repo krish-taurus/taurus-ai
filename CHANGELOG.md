@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 054 - Drag-and-drop workflow canvas (n8n-style) — 2026-07-10
+
+Added:
+
+- **Visual workflow canvas** — a drag-and-drop graph editor as an alternative to
+  the list builder, so you can choose how you author a workflow. Both edit the
+  **same `WorkflowGraph`** the engine runs, and a **List / Canvas toggle** on the
+  builder page switches between them (`?view=canvas`).
+  - **Nodes are draggable boxes; connections are the flow.** A node's outgoing
+    wire is its `next`; a **Branch** exposes `true` / `false` source handles you
+    connect to different next steps. Click any node to configure it in the side
+    drawer. All nine step types (AI Employee, Branch, Send message, Run workflow,
+    Wait for approval, Sync data source, Refresh knowledge, Format) are on the
+    palette. Built on React Flow (`@xyflow/react`).
+  - **Node positions persist.** `WorkflowGraph` gained an optional `layout` map
+    (node id → `{x, y}`) that the engine ignores; the canvas reads it to restore
+    your arrangement and writes it back on save. The list builder is untouched.
+  - **Shared model, no duplication.** Extracted a pure `graph-model.ts` (types +
+    graph⇄steps helpers) and a `StepFields` component that renders each step
+    type's config; the list builder and the canvas both use them, so the two
+    editors never drift.
+  - Tested: `tsc` clean · `next lint` clean · production build clean · **627
+    tests + 6 skipped**. Live browser smoke: build a graph, switch to Canvas,
+    add / drag / connect nodes, edit in the drawer, save, reload (positions +
+    wiring persist), and **run the saved graph successfully**.
+
 ## Sprint 053 - Workflow "Sync data source" node (scheduled extract → retrain) — 2026-07-10
 
 Added:

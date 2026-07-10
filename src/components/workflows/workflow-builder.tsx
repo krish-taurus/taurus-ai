@@ -1,252 +1,42 @@
 "use client";
 
 /**
- * Workflow builder (Sprint 048).
+ * Workflow builder — list view (Sprint 048; shared model Sprint 054).
  *
  * A form-based, list-style editor: steps run top to bottom, each feeding the
- * next. An AI Employee step sends a message and captures the reply; a Branch
- * step routes to a chosen step based on a comparison; a Format step reshapes
- * text with no model call. Steps reference earlier output with {{input}} and
- * {{steps.<id>.output}}. The whole graph is submitted as JSON on save.
+ * next. The whole graph is submitted as JSON on save. The drag-and-drop canvas
+ * (workflow-canvas.tsx) is an alternative editor over the same graph.
  */
 
 import { useMemo, useState } from "react";
 import { useFormState, useFormStatus } from "react-dom";
 import { saveWorkflowAction, type WorkflowActionState } from "@/modules/workflows/actions";
-import type {
-  WorkflowConditionOperator,
-  WorkflowGraph,
-  WorkflowNode,
-} from "@/lib/db/types";
+import type { WorkflowGraph } from "@/lib/db/types";
+import { buttonClasses, Badge, Card, FieldError } from "@/components/ui";
+import { StepFields } from "@/components/workflows/step-fields";
 import {
-  buttonClasses,
-  Badge,
-  Card,
-  Field,
-  FieldError,
-  Input,
-  Label,
-  Select,
-  Textarea,
-} from "@/components/ui";
+  blankStep,
+  graphToSteps,
+  labelFor,
+  stepsToGraph,
+  STEP_PALETTE,
+  TYPE_NAMES,
+  type BuilderStep,
+  type StepType,
+} from "@/components/workflows/graph-model";
 
-export interface EmployeeOption {
-  id: string;
-  name: string;
-  roleTitle: string | null;
-  ready: boolean;
-}
-export interface ChannelOption {
-  id: string;
-  label: string;
-}
-export interface WorkflowOption {
-  id: string;
-  name: string;
-}
-export interface SourceOption {
-  id: string;
-  name: string;
-  /** Connector-backed types (e.g. "database") can be re-fetched by a Sync step. */
-  sourceType: string;
-}
-
-type StepType =
-  | "employee"
-  | "condition"
-  | "transform"
-  | "send_message"
-  | "sub_workflow"
-  | "approval"
-  | "refresh_knowledge"
-  | "sync_source";
-
-interface EmployeeStep {
-  id: string;
-  type: "employee";
-  employeeId: string;
-  messageTemplate: string;
-}
-interface TransformStep {
-  id: string;
-  type: "transform";
-  template: string;
-}
-interface ConditionStep {
-  id: string;
-  type: "condition";
-  left: string;
-  operator: WorkflowConditionOperator;
-  right: string;
-  caseSensitive: boolean;
-  trueTarget: string; // step id or "__end__"
-  falseTarget: string; // step id or "__end__"
-}
-interface SendMessageStep {
-  id: string;
-  type: "send_message";
-  channelId: string;
-  recipientTemplate: string;
-  messageTemplate: string;
-}
-interface SubWorkflowStep {
-  id: string;
-  type: "sub_workflow";
-  workflowId: string;
-  inputTemplate: string;
-}
-interface ApprovalStep {
-  id: string;
-  type: "approval";
-  instructions: string;
-}
-interface RefreshKnowledgeStep {
-  id: string;
-  type: "refresh_knowledge";
-  target: "employee" | "source";
-  employeeId: string;
-  sourceId: string;
-}
-interface SyncSourceStep {
-  id: string;
-  type: "sync_source";
-  sourceId: string;
-}
-type BuilderStep =
-  | EmployeeStep
-  | TransformStep
-  | ConditionStep
-  | SendMessageStep
-  | SubWorkflowStep
-  | ApprovalStep
-  | RefreshKnowledgeStep
-  | SyncSourceStep;
-
-const END = "__end__";
-
-const OPERATORS: { value: WorkflowConditionOperator; label: string }[] = [
-  { value: "contains", label: "contains" },
-  { value: "not_contains", label: "does not contain" },
-  { value: "equals", label: "equals" },
-  { value: "not_equals", label: "does not equal" },
-  { value: "is_empty", label: "is empty" },
-  { value: "is_not_empty", label: "is not empty" },
-];
-
-function newId(): string {
-  return typeof crypto !== "undefined" && crypto.randomUUID
-    ? `s-${crypto.randomUUID().slice(0, 8)}`
-    : `s-${Math.floor(Math.random() * 1e9).toString(36)}`;
-}
-
-/** Load a stored graph into builder steps (array order = visual order). */
-function graphToSteps(graph: WorkflowGraph): BuilderStep[] {
-  return graph.nodes.map((node): BuilderStep => {
-    if (node.type === "employee") {
-      return { id: node.id, type: "employee", employeeId: node.employeeId, messageTemplate: node.messageTemplate };
-    }
-    if (node.type === "condition") {
-      return {
-        id: node.id,
-        type: "condition",
-        left: node.expression.left,
-        operator: node.expression.operator,
-        right: node.expression.right ?? "",
-        caseSensitive: node.expression.caseSensitive ?? false,
-        trueTarget: node.nextIfTrue ?? END,
-        falseTarget: node.nextIfFalse ?? END,
-      };
-    }
-    if (node.type === "transform") {
-      return { id: node.id, type: "transform", template: node.template };
-    }
-    if (node.type === "send_message") {
-      return {
-        id: node.id,
-        type: "send_message",
-        channelId: node.channelId,
-        recipientTemplate: node.recipientTemplate,
-        messageTemplate: node.messageTemplate,
-      };
-    }
-    if (node.type === "sub_workflow") {
-      return { id: node.id, type: "sub_workflow", workflowId: node.workflowId, inputTemplate: node.inputTemplate };
-    }
-    if (node.type === "approval") {
-      return { id: node.id, type: "approval", instructions: node.instructions };
-    }
-    if (node.type === "refresh_knowledge") {
-      return {
-        id: node.id,
-        type: "refresh_knowledge",
-        target: node.target,
-        employeeId: node.employeeId ?? "",
-        sourceId: node.sourceId ?? "",
-      };
-    }
-    if (node.type === "sync_source") {
-      return { id: node.id, type: "sync_source", sourceId: node.sourceId };
-    }
-    // trigger nodes aren't authored in the builder (manual trigger is implicit)
-    return { id: node.id, type: "transform", template: "" };
-  });
-}
-
-/** Build the persisted graph from builder steps (linear next by default). */
-function stepsToGraph(steps: BuilderStep[]): WorkflowGraph {
-  const nodes: WorkflowNode[] = steps.map((step, i) => {
-    const next = steps[i + 1]?.id ?? null;
-    if (step.type === "employee") {
-      return { id: step.id, type: "employee", employeeId: step.employeeId, messageTemplate: step.messageTemplate, next };
-    }
-    if (step.type === "transform") {
-      return { id: step.id, type: "transform", template: step.template, next };
-    }
-    if (step.type === "send_message") {
-      return {
-        id: step.id,
-        type: "send_message",
-        channelId: step.channelId,
-        recipientTemplate: step.recipientTemplate,
-        messageTemplate: step.messageTemplate,
-        next,
-      };
-    }
-    if (step.type === "sub_workflow") {
-      return { id: step.id, type: "sub_workflow", workflowId: step.workflowId, inputTemplate: step.inputTemplate, next };
-    }
-    if (step.type === "approval") {
-      return { id: step.id, type: "approval", instructions: step.instructions, next };
-    }
-    if (step.type === "refresh_knowledge") {
-      return {
-        id: step.id,
-        type: "refresh_knowledge",
-        target: step.target,
-        employeeId: step.target === "employee" ? step.employeeId : undefined,
-        sourceId: step.target === "source" ? step.sourceId : undefined,
-        next,
-      };
-    }
-    if (step.type === "sync_source") {
-      return { id: step.id, type: "sync_source", sourceId: step.sourceId, next };
-    }
-    const resolve = (t: string) => (t === END ? null : t);
-    return {
-      id: step.id,
-      type: "condition",
-      expression: {
-        left: step.left,
-        operator: step.operator,
-        right: step.right || undefined,
-        caseSensitive: step.caseSensitive,
-      },
-      nextIfTrue: resolve(step.trueTarget),
-      nextIfFalse: resolve(step.falseTarget),
-    };
-  });
-  return { entryNodeId: steps[0]?.id ?? null, nodes };
-}
+export type {
+  EmployeeOption,
+  ChannelOption,
+  WorkflowOption,
+  SourceOption,
+} from "@/components/workflows/graph-model";
+import type {
+  EmployeeOption,
+  ChannelOption,
+  WorkflowOption,
+  SourceOption,
+} from "@/components/workflows/graph-model";
 
 function SaveButton() {
   const { pending } = useFormStatus();
@@ -277,11 +67,7 @@ export function WorkflowBuilder({
 
   const graphJson = useMemo(() => JSON.stringify(stepsToGraph(steps)), [steps]);
   const stepLabels = useMemo(
-    () =>
-      steps.map((s, i) => ({
-        id: s.id,
-        label: `${i + 1}. ${labelFor(s, employees)}`,
-      })),
+    () => steps.map((s, i) => ({ id: s.id, label: `${i + 1}. ${labelFor(s, employees)}` })),
     [steps, employees],
   );
 
@@ -305,18 +91,14 @@ export function WorkflowBuilder({
       <input type="hidden" name="workflowId" value={workflowId} />
       <input type="hidden" name="graph" value={graphJson} />
 
-      {/* Trigger (fixed — manual for now) */}
       <Card className="border-dashed p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <div className="text-xs font-medium uppercase tracking-wide text-taurus-faint">Trigger</div>
-            <div className="text-sm font-medium text-taurus-text">Run manually</div>
+            <div className="text-sm font-medium text-taurus-text">Set on the right →</div>
           </div>
           <Badge tone="outline">Start</Badge>
         </div>
-        <p className="mt-2 text-xs text-taurus-faint">
-          Starts when you click Run. Scheduled and channel triggers are coming next.
-        </p>
       </Card>
 
       {steps.length === 0 ? (
@@ -345,30 +127,11 @@ export function WorkflowBuilder({
 
       <Card className="flex flex-wrap items-center gap-2 p-3">
         <span className="mr-1 text-xs font-medium text-taurus-faint">Add step:</span>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("employee")}>
-          + AI Employee
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("condition")}>
-          + Branch
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("send_message")}>
-          + Send message
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("sub_workflow")}>
-          + Run workflow
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("approval")}>
-          + Wait for approval
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("sync_source")}>
-          + Sync data source
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("refresh_knowledge")}>
-          + Refresh knowledge
-        </button>
-        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("transform")}>
-          + Format
-        </button>
+        {STEP_PALETTE.map((p) => (
+          <button key={p.type} type="button" className={buttonClasses("secondary", "sm")} onClick={() => add(p.type)}>
+            + {p.label}
+          </button>
+        ))}
       </Card>
 
       <div className="flex items-center gap-3">
@@ -379,87 +142,6 @@ export function WorkflowBuilder({
     </form>
   );
 }
-
-function labelFor(step: BuilderStep, employees: EmployeeOption[]): string {
-  if (step.type === "employee") {
-    return employees.find((e) => e.id === step.employeeId)?.name ?? "AI Employee";
-  }
-  if (step.type === "condition") return "Branch";
-  if (step.type === "send_message") return "Send message";
-  if (step.type === "sub_workflow") return "Run workflow";
-  if (step.type === "approval") return "Wait for approval";
-  if (step.type === "refresh_knowledge") return "Refresh knowledge";
-  if (step.type === "sync_source") return "Sync data source";
-  return "Format";
-}
-
-/** Connector-backed source types that a Sync step can re-fetch. */
-function syncableSources(sources: SourceOption[]): SourceOption[] {
-  return sources.filter((s) => s.sourceType === "database");
-}
-
-function blankStep(
-  type: StepType,
-  employees: EmployeeOption[],
-  channels: ChannelOption[],
-  workflows: WorkflowOption[],
-  sources: SourceOption[],
-): BuilderStep {
-  if (type === "employee") {
-    return { id: newId(), type: "employee", employeeId: employees[0]?.id ?? "", messageTemplate: "{{input}}" };
-  }
-  if (type === "transform") {
-    return { id: newId(), type: "transform", template: "{{input}}" };
-  }
-  if (type === "send_message") {
-    return {
-      id: newId(),
-      type: "send_message",
-      channelId: channels[0]?.id ?? "",
-      recipientTemplate: "",
-      messageTemplate: "{{input}}",
-    };
-  }
-  if (type === "sub_workflow") {
-    return { id: newId(), type: "sub_workflow", workflowId: workflows[0]?.id ?? "", inputTemplate: "{{input}}" };
-  }
-  if (type === "approval") {
-    return { id: newId(), type: "approval", instructions: "Review and approve to continue." };
-  }
-  if (type === "refresh_knowledge") {
-    return {
-      id: newId(),
-      type: "refresh_knowledge",
-      target: "employee",
-      employeeId: employees[0]?.id ?? "",
-      sourceId: sources[0]?.id ?? "",
-    };
-  }
-  if (type === "sync_source") {
-    return { id: newId(), type: "sync_source", sourceId: syncableSources(sources)[0]?.id ?? "" };
-  }
-  return {
-    id: newId(),
-    type: "condition",
-    left: "{{input}}",
-    operator: "contains",
-    right: "",
-    caseSensitive: false,
-    trueTarget: END,
-    falseTarget: END,
-  };
-}
-
-const TYPE_NAMES: Record<StepType, string> = {
-  employee: "AI Employee",
-  condition: "Branch",
-  send_message: "Send message",
-  sub_workflow: "Run workflow",
-  approval: "Wait for approval",
-  refresh_knowledge: "Refresh knowledge",
-  sync_source: "Sync data source",
-  transform: "Format",
-};
 
 function StepCard({
   index,
@@ -488,9 +170,6 @@ function StepCard({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
 }) {
-  const typeName = TYPE_NAMES[step.type];
-  const targets = [{ id: END, label: "Stop here" }, ...stepLabels.filter((s) => s.id !== step.id)];
-
   return (
     <Card className="p-4">
       <div className="mb-3 flex items-center justify-between gap-3">
@@ -498,7 +177,7 @@ function StepCard({
           <span className="grid h-6 w-6 place-items-center rounded-full bg-taurus-muted text-xs font-semibold text-taurus-sub">
             {index + 1}
           </span>
-          <span className="text-sm font-semibold text-taurus-text">{typeName}</span>
+          <span className="text-sm font-semibold text-taurus-text">{TYPE_NAMES[step.type]}</span>
         </div>
         <div className="flex items-center gap-1">
           <IconBtn label="Move up" disabled={isFirst} onClick={() => onMove(-1)}>↑</IconBtn>
@@ -506,299 +185,15 @@ function StepCard({
           <IconBtn label="Remove step" onClick={onRemove}>✕</IconBtn>
         </div>
       </div>
-
-      {step.type === "employee" ? (
-        <div className="flex flex-col gap-3">
-          <Field label="Which AI Employee" htmlFor={`emp-${step.id}`}>
-            {employees.length === 0 ? (
-              <p className="text-sm text-taurus-faint">
-                No AI Employees yet — create one first, then add it here.
-              </p>
-            ) : (
-              <Select
-                id={`emp-${step.id}`}
-                value={step.employeeId}
-                onChange={(e) => onChange({ employeeId: e.target.value })}
-              >
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.name}
-                    {emp.roleTitle ? ` — ${emp.roleTitle}` : ""}
-                    {emp.ready ? "" : " (needs published DNA)"}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field
-            label="Message to send"
-            htmlFor={`msg-${step.id}`}
-            hint="Use {{input}} for the starting message or {{steps.<id>.output}} for an earlier step."
-          >
-            <Textarea
-              id={`msg-${step.id}`}
-              value={step.messageTemplate}
-              onChange={(e) => onChange({ messageTemplate: e.target.value })}
-              rows={3}
-            />
-          </Field>
-        </div>
-      ) : null}
-
-      {step.type === "transform" ? (
-        <Field
-          label="Format template"
-          htmlFor={`tpl-${step.id}`}
-          hint="Combine earlier output, e.g. “Summary: {{steps.triage.output}}”."
-        >
-          <Textarea
-            id={`tpl-${step.id}`}
-            value={step.template}
-            onChange={(e) => onChange({ template: e.target.value })}
-            rows={3}
-          />
-        </Field>
-      ) : null}
-
-      {step.type === "send_message" ? (
-        <div className="flex flex-col gap-3">
-          <Field label="Send through" htmlFor={`ch-${step.id}`}>
-            {channels.length === 0 ? (
-              <p className="text-sm text-taurus-faint">
-                No messaging channels connected yet. Set one up under Connections first.
-              </p>
-            ) : (
-              <Select
-                id={`ch-${step.id}`}
-                value={step.channelId}
-                onChange={(e) => onChange({ channelId: e.target.value })}
-              >
-                {channels.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.label}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field
-            label="Recipient"
-            htmlFor={`rc-${step.id}`}
-            hint="Phone, email or chat id — match the channel. Templates like {{input}} work too."
-          >
-            <Input
-              id={`rc-${step.id}`}
-              value={step.recipientTemplate}
-              onChange={(e) => onChange({ recipientTemplate: e.target.value })}
-              placeholder="e.g. +15551234567"
-            />
-          </Field>
-          <Field label="Message" htmlFor={`sm-${step.id}`}>
-            <Textarea
-              id={`sm-${step.id}`}
-              value={step.messageTemplate}
-              onChange={(e) => onChange({ messageTemplate: e.target.value })}
-              rows={3}
-            />
-          </Field>
-        </div>
-      ) : null}
-
-      {step.type === "sub_workflow" ? (
-        <div className="flex flex-col gap-3">
-          <Field label="Which workflow to run" htmlFor={`wf-${step.id}`}>
-            {workflows.length === 0 ? (
-              <p className="text-sm text-taurus-faint">
-                No other workflows yet — create another workflow to chain into it.
-              </p>
-            ) : (
-              <Select
-                id={`wf-${step.id}`}
-                value={step.workflowId}
-                onChange={(e) => onChange({ workflowId: e.target.value })}
-              >
-                {workflows.map((w) => (
-                  <option key={w.id} value={w.id}>
-                    {w.name}
-                  </option>
-                ))}
-              </Select>
-            )}
-          </Field>
-          <Field
-            label="Send it this message"
-            htmlFor={`si-${step.id}`}
-            hint="Becomes {{input}} inside the other workflow."
-          >
-            <Textarea
-              id={`si-${step.id}`}
-              value={step.inputTemplate}
-              onChange={(e) => onChange({ inputTemplate: e.target.value })}
-              rows={2}
-            />
-          </Field>
-        </div>
-      ) : null}
-
-      {step.type === "approval" ? (
-        <Field
-          label="What to approve"
-          htmlFor={`ap-${step.id}`}
-          hint="The run pauses here until someone approves or rejects it on the run page."
-        >
-          <Textarea
-            id={`ap-${step.id}`}
-            value={step.instructions}
-            onChange={(e) => onChange({ instructions: e.target.value })}
-            rows={2}
-          />
-        </Field>
-      ) : null}
-
-      {step.type === "sync_source" ? (
-        <Field
-          label="Data source to sync"
-          htmlFor={`ss-${step.id}`}
-          hint="Re-fetches the latest content from the source's connector, then re-indexes it."
-        >
-          {syncableSources(sources).length === 0 ? (
-            <p className="text-sm text-taurus-faint">
-              No database sources yet. Connect one in the Knowledge Vault first. (Drive / SharePoint /
-              cloud storage sync from workflows is coming next.)
-            </p>
-          ) : (
-            <Select
-              id={`ss-${step.id}`}
-              value={step.sourceId}
-              onChange={(e) => onChange({ sourceId: e.target.value })}
-            >
-              {syncableSources(sources).map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </Select>
-          )}
-        </Field>
-      ) : null}
-
-      {step.type === "refresh_knowledge" ? (
-        <div className="flex flex-col gap-3">
-          <Field label="Refresh" htmlFor={`rk-${step.id}`}>
-            <Select
-              id={`rk-${step.id}`}
-              value={step.target}
-              onChange={(e) => onChange({ target: e.target.value as "employee" | "source" })}
-            >
-              <option value="employee">All of an AI Employee&apos;s knowledge</option>
-              <option value="source">A single knowledge source</option>
-            </Select>
-          </Field>
-          {step.target === "employee" ? (
-            <Field label="Which AI Employee" htmlFor={`rke-${step.id}`}>
-              {employees.length === 0 ? (
-                <p className="text-sm text-taurus-faint">No AI Employees yet.</p>
-              ) : (
-                <Select
-                  id={`rke-${step.id}`}
-                  value={step.employeeId}
-                  onChange={(e) => onChange({ employeeId: e.target.value })}
-                >
-                  {employees.map((emp) => (
-                    <option key={emp.id} value={emp.id}>{emp.name}</option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          ) : (
-            <Field label="Which knowledge source" htmlFor={`rks-${step.id}`}>
-              {sources.length === 0 ? (
-                <p className="text-sm text-taurus-faint">
-                  No knowledge sources yet — add one in the Knowledge Vault first.
-                </p>
-              ) : (
-                <Select
-                  id={`rks-${step.id}`}
-                  value={step.sourceId}
-                  onChange={(e) => onChange({ sourceId: e.target.value })}
-                >
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
-                </Select>
-              )}
-            </Field>
-          )}
-          <p className="text-xs text-taurus-faint">
-            Re-reads and re-embeds the content so the AI Employee retrieves the latest. Pair with a
-            Schedule trigger to keep it current.
-          </p>
-        </div>
-      ) : null}
-
-      {step.type === "condition" ? (
-        <div className="flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Compare this" htmlFor={`cl-${step.id}`}>
-              <Input
-                id={`cl-${step.id}`}
-                value={step.left}
-                onChange={(e) => onChange({ left: e.target.value })}
-                placeholder="{{input}}"
-              />
-            </Field>
-            <Field label="Condition" htmlFor={`co-${step.id}`}>
-              <Select
-                id={`co-${step.id}`}
-                value={step.operator}
-                onChange={(e) => onChange({ operator: e.target.value as WorkflowConditionOperator })}
-              >
-                {OPERATORS.map((op) => (
-                  <option key={op.value} value={op.value}>
-                    {op.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-          {step.operator !== "is_empty" && step.operator !== "is_not_empty" ? (
-            <Field label="Value" htmlFor={`cr-${step.id}`}>
-              <Input
-                id={`cr-${step.id}`}
-                value={step.right}
-                onChange={(e) => onChange({ right: e.target.value })}
-                placeholder="e.g. refund"
-              />
-            </Field>
-          ) : null}
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="If true, go to" htmlFor={`ct-${step.id}`}>
-              <Select
-                id={`ct-${step.id}`}
-                value={step.trueTarget}
-                onChange={(e) => onChange({ trueTarget: e.target.value })}
-              >
-                {targets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-            <Field label="Otherwise, go to" htmlFor={`cf-${step.id}`}>
-              <Select
-                id={`cf-${step.id}`}
-                value={step.falseTarget}
-                onChange={(e) => onChange({ falseTarget: e.target.value })}
-              >
-                {targets.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.label}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-        </div>
-      ) : null}
+      <StepFields
+        step={step}
+        employees={employees}
+        channels={channels}
+        workflows={workflows}
+        sources={sources}
+        conditionTargets={stepLabels}
+        onChange={onChange}
+      />
     </Card>
   );
 }

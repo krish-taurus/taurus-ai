@@ -20,6 +20,7 @@ import {
   type WorkflowOption,
   type SourceOption,
 } from "@/components/workflows/workflow-builder";
+import { WorkflowCanvas } from "@/components/workflows/workflow-canvas";
 import {
   RunWorkflowForm,
   WorkflowStatusButton,
@@ -45,8 +46,10 @@ function timeAgo(iso: string): string {
 
 export default async function WorkflowBuilderPage({
   params,
+  searchParams,
 }: {
   params: { workflowId: string };
+  searchParams?: { view?: string };
 }) {
   const { organization, membership } = await requireCurrentOrganization();
   if (!hasPermission(membership.role, "workflow.manage")) redirect("/dashboard/workflows");
@@ -90,8 +93,55 @@ export default async function WorkflowBuilderPage({
   const scheduleMinutes = workflow.trigger.type === "schedule" ? workflow.trigger.everyMinutes : null;
   const triggerChannelId = workflow.trigger.type === "channel" ? workflow.trigger.channelId : null;
 
+  const view = searchParams?.view === "canvas" ? "canvas" : "list";
+
+  const sidebar = (
+    <>
+      <Card className="p-5">
+        <h2 className="mb-3 text-sm font-semibold text-taurus-text">Trigger</h2>
+        <TriggerPanel
+          workflowId={workflow.id}
+          triggerType={workflow.trigger.type}
+          webhookUrl={webhookUrl}
+          everyMinutes={scheduleMinutes}
+          channelId={triggerChannelId}
+          channels={channelOptions}
+        />
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="mb-3 text-sm font-semibold text-taurus-text">Run now</h2>
+        <RunWorkflowForm workflowId={workflow.id} />
+        <p className="mt-3 text-xs text-taurus-faint">
+          Save your steps before running so the latest version is used.
+        </p>
+      </Card>
+
+      <Card className="p-5">
+        <h2 className="mb-3 text-sm font-semibold text-taurus-text">Recent runs</h2>
+        {runs.length === 0 ? (
+          <p className="text-sm text-taurus-faint">No runs yet. Run the workflow to see results here.</p>
+        ) : (
+          <ul className="space-y-2">
+            {runs.map((run) => (
+              <li key={run.id}>
+                <Link
+                  href={`/dashboard/workflows/${workflow.id}/runs/${run.id}`}
+                  className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-taurus-muted"
+                >
+                  <span className="text-taurus-sub">{timeAgo(run.startedAt)}</span>
+                  <Badge tone={runTone(run.status)}>{run.status}</Badge>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </>
+  );
+
   return (
-    <div className="max-w-3xl">
+    <div className={view === "canvas" ? "max-w-6xl" : "max-w-3xl"}>
       <BackLink href="/dashboard/workflows" label="Back to Workflows" />
       <div className="mt-3 flex flex-wrap items-start justify-between gap-3">
         <PageHeader eyebrow="Workflow" title={workflow.name} description={workflow.description ?? undefined} />
@@ -102,10 +152,39 @@ export default async function WorkflowBuilderPage({
         </div>
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_300px]">
-        {/* Builder */}
-        <div>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-taurus-faint">Steps</h2>
+      {/* Steps header + List/Canvas toggle */}
+      <div className="mt-6 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-taurus-faint">Steps</h2>
+        <div className="inline-flex rounded-lg border border-taurus-line p-0.5 text-sm">
+          <Link
+            href={`/dashboard/workflows/${workflow.id}?view=list`}
+            className={`rounded-md px-3 py-1 ${view === "list" ? "bg-taurus-muted font-medium text-taurus-text" : "text-taurus-faint hover:text-taurus-text"}`}
+          >
+            List
+          </Link>
+          <Link
+            href={`/dashboard/workflows/${workflow.id}?view=canvas`}
+            className={`rounded-md px-3 py-1 ${view === "canvas" ? "bg-taurus-muted font-medium text-taurus-text" : "text-taurus-faint hover:text-taurus-text"}`}
+          >
+            Canvas
+          </Link>
+        </div>
+      </div>
+
+      {view === "canvas" ? (
+        <div className="mt-3 flex flex-col gap-6">
+          <WorkflowCanvas
+            workflowId={workflow.id}
+            initialGraph={workflow.graph}
+            employees={employeeOptions}
+            channels={channelOptions}
+            workflows={workflowOptions}
+            sources={sourceOptions}
+          />
+          <div className="grid gap-6 md:grid-cols-3">{sidebar}</div>
+        </div>
+      ) : (
+        <div className="mt-3 grid gap-6 lg:grid-cols-[1fr_300px]">
           <WorkflowBuilder
             workflowId={workflow.id}
             initialGraph={workflow.graph}
@@ -114,52 +193,9 @@ export default async function WorkflowBuilderPage({
             workflows={workflowOptions}
             sources={sourceOptions}
           />
+          <div className="flex flex-col gap-6">{sidebar}</div>
         </div>
-
-        {/* Run + history */}
-        <div className="flex flex-col gap-6">
-          <Card className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-taurus-text">Trigger</h2>
-            <TriggerPanel
-              workflowId={workflow.id}
-              triggerType={workflow.trigger.type}
-              webhookUrl={webhookUrl}
-              everyMinutes={scheduleMinutes}
-              channelId={triggerChannelId}
-              channels={channelOptions}
-            />
-          </Card>
-
-          <Card className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-taurus-text">Run now</h2>
-            <RunWorkflowForm workflowId={workflow.id} />
-            <p className="mt-3 text-xs text-taurus-faint">
-              Save your steps before running so the latest version is used.
-            </p>
-          </Card>
-
-          <Card className="p-5">
-            <h2 className="mb-3 text-sm font-semibold text-taurus-text">Recent runs</h2>
-            {runs.length === 0 ? (
-              <p className="text-sm text-taurus-faint">No runs yet. Run the workflow to see results here.</p>
-            ) : (
-              <ul className="space-y-2">
-                {runs.map((run) => (
-                  <li key={run.id}>
-                    <Link
-                      href={`/dashboard/workflows/${workflow.id}/runs/${run.id}`}
-                      className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm hover:bg-taurus-muted"
-                    >
-                      <span className="text-taurus-sub">{timeAgo(run.startedAt)}</span>
-                      <Badge tone={runTone(run.status)}>{run.status}</Badge>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </Card>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

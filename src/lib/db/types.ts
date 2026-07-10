@@ -749,6 +749,8 @@ export interface WorkflowGraph {
   /** The node a run starts at (null when the workflow has no steps yet). */
   entryNodeId: string | null;
   nodes: WorkflowNode[];
+  /** Canvas node positions, keyed by node id. Ignored by the engine. */
+  layout?: Record<string, { x: number; y: number }>;
 }
 
 export interface Workflow {
