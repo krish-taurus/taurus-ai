@@ -22,6 +22,7 @@ import {
   setWorkflowTrigger,
   deleteWorkflow,
   startWorkflowRun,
+  resolveWorkflowRun,
   WorkflowError,
 } from "@/modules/workflows/service";
 
@@ -136,13 +137,17 @@ export async function setWorkflowTriggerAction(
 
   const workflowId = String(formData.get("workflowId") ?? "");
   const kind = String(formData.get("kind") ?? "");
-  if (kind !== "manual" && kind !== "webhook") return { error: "That trigger is not valid." };
+  if (kind !== "manual" && kind !== "webhook" && kind !== "schedule" && kind !== "channel") {
+    return { error: "That trigger is not valid." };
+  }
+  const everyMinutes = Number(formData.get("everyMinutes") ?? 60);
+  const channelId = (formData.get("channelId") as string) || undefined;
   try {
     await setWorkflowTrigger(
       getStore(),
       { organizationId: organization.id, userId: user.id },
       workflowId,
-      kind,
+      { kind, everyMinutes: Number.isFinite(everyMinutes) ? everyMinutes : 60, channelId },
     );
   } catch (err) {
     return { error: messageFor(err) };
@@ -196,4 +201,33 @@ export async function runWorkflowAction(
   }
   revalidatePath(`/dashboard/workflows/${workflowId}`);
   redirect(`/dashboard/workflows/${workflowId}/runs/${runId}`);
+}
+
+export async function resolveWorkflowRunAction(
+  _prev: WorkflowActionState,
+  formData: FormData,
+): Promise<WorkflowActionState> {
+  const { user, organization, membership } = await requireCurrentOrganization();
+  if (!hasPermission(membership.role, "workflow.manage")) return { error: DENIED };
+
+  const workflowId = String(formData.get("workflowId") ?? "");
+  const runId = String(formData.get("runId") ?? "");
+  const decision = String(formData.get("decision") ?? "");
+  if (decision !== "approve" && decision !== "reject") return { error: "That decision is not valid." };
+  const note = (formData.get("note") as string) || undefined;
+
+  const store = getStore();
+  try {
+    await resolveWorkflowRun(
+      { store, gateway: createLlmGateway(store), isProduction: isProductionRuntime },
+      { organizationId: organization.id, userId: user.id },
+      runId,
+      decision,
+      note,
+    );
+  } catch (err) {
+    return { error: messageFor(err) };
+  }
+  revalidatePath(`/dashboard/workflows/${workflowId}/runs/${runId}`);
+  return { ok: true };
 }

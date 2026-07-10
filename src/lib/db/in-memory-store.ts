@@ -1379,6 +1379,32 @@ export class InMemoryStore implements DataStore {
     return null;
   }
 
+  async listDueScheduledWorkflows(nowIso: string): Promise<Workflow[]> {
+    return [...this.workflows.values()].filter(
+      (w) =>
+        w.status === "active" &&
+        w.trigger.type === "schedule" &&
+        w.trigger.nextRunAt <= nowIso,
+    );
+  }
+
+  async getActiveChannelWorkflow(
+    organizationId: string,
+    channelId: string,
+  ): Promise<Workflow | null> {
+    for (const w of this.workflows.values()) {
+      if (
+        w.organizationId === organizationId &&
+        w.status === "active" &&
+        w.trigger.type === "channel" &&
+        w.trigger.channelId === channelId
+      ) {
+        return w;
+      }
+    }
+    return null;
+  }
+
   async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
     const run: WorkflowRun = {
       id: uuid(),
@@ -1390,6 +1416,7 @@ export class InMemoryStore implements DataStore {
       output: null,
       error: null,
       stepCount: 0,
+      cursorNodeId: null,
       createdByUserId: input.createdByUserId ?? null,
       startedAt: now(),
       finishedAt: null,

@@ -13,6 +13,8 @@ import {
   setWorkflowStatus,
   startWorkflowRun,
   runWorkflowByWebhookToken,
+  runDueScheduledWorkflows,
+  resolveWorkflowRun,
   listWorkflowRunSteps,
   WorkflowError,
 } from "@/modules/workflows/service";
@@ -123,6 +125,14 @@ describe("workflow templating", () => {
     expect(interpolate("{{steps.triage.output}}", ctx)).toBe("refund please");
     expect(interpolate("{{triage}}", ctx)).toBe("refund please");
     expect(interpolate("missing: {{nope}}!", ctx)).toBe("missing: !");
+  });
+
+  it("resolves {{trigger.<field>}} from extra trigger payload fields", () => {
+    const ctx = emptyContext("hello", { sender: "+15550001111", senderLabel: "Ann" });
+    expect(interpolate("Reply to {{trigger.sender}} ({{trigger.senderLabel}})", ctx)).toBe(
+      "Reply to +15550001111 (Ann)",
+    );
+    expect(interpolate("{{trigger.input}} = {{input}}", ctx)).toBe("hello = hello");
   });
 
   it("evaluates conditions with case-insensitive default", () => {
@@ -395,7 +405,7 @@ describe("workflow webhook trigger", () => {
         nodes: [{ id: "n1", type: "employee", employeeId: emp.id, messageTemplate: "{{input}}", next: null }],
       },
     });
-    const withTrigger = await setWorkflowTrigger(store, actor, wf.id, "webhook");
+    const withTrigger = await setWorkflowTrigger(store, actor, wf.id, { kind: "webhook" });
     const token = withTrigger.trigger.type === "webhook" ? withTrigger.trigger.token : "";
     expect(token.length).toBeGreaterThanOrEqual(16);
 
@@ -410,6 +420,153 @@ describe("workflow webhook trigger", () => {
 
     const unknown = await runWorkflowByWebhookToken(deps(store), "nope-token-value", { message: "x" });
     expect(unknown).toEqual({ ok: false, reason: "not_found" });
+  });
+});
+
+// --- Phase 2b: approval pause/resume, schedule ------------------------------
+
+function approvalGraph(): WorkflowGraph {
+  return {
+    entryNodeId: "n1",
+    nodes: [
+      { id: "n1", type: "transform", template: "Ticket: {{input}}", next: "gate" },
+      { id: "gate", type: "approval", instructions: "Approve this refund?", next: "n3" },
+      { id: "n3", type: "transform", template: "Escalated → {{steps.n1.output}}", next: null },
+    ],
+  };
+}
+
+describe("workflow approvals (pause/resume)", () => {
+  it("pauses at an approval step, then resumes to completion when approved", async () => {
+    const store = new InMemoryStore();
+    const wf = await store.createWorkflow({ organizationId: actor.organizationId, name: "Approval", graph: approvalGraph() });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "order 1234" },
+    });
+    // Paused: only the first step ran, run is waiting at the approval node.
+    expect(run.status).toBe("waiting");
+    expect(run.cursorNodeId).toBe("gate");
+    expect(run.stepCount).toBe(1);
+    let steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps.map((s) => s.nodeId)).toEqual(["n1"]);
+
+    // Approve → resumes from the approval node's next, runs to completion.
+    const resumed = await resolveWorkflowRun(deps(store), actor, run.id, "approve", "looks good");
+    expect(resumed.status).toBe("succeeded");
+    expect(resumed.output).toBe("Escalated → Ticket: order 1234");
+    steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps.map((s) => `${s.nodeId}:${s.status}`)).toEqual([
+      "n1:succeeded",
+      "gate:succeeded",
+      "n3:succeeded",
+    ]);
+    expect(steps[1].output).toMatch(/Approved: looks good/);
+  });
+
+  it("fails the run when the approval is rejected and runs no further steps", async () => {
+    const store = new InMemoryStore();
+    const wf = await store.createWorkflow({ organizationId: actor.organizationId, name: "Approval", graph: approvalGraph() });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "x" },
+    });
+    expect(run.status).toBe("waiting");
+    const rejected = await resolveWorkflowRun(deps(store), actor, run.id, "reject", "not allowed");
+    expect(rejected.status).toBe("failed");
+    const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps.map((s) => s.nodeId)).toEqual(["n1", "gate"]); // n3 never ran
+    expect(steps[1].status).toBe("failed");
+
+    // Resolving again is refused (no longer waiting).
+    await expect(resolveWorkflowRun(deps(store), actor, run.id, "approve")).rejects.toThrow(/not waiting/i);
+  });
+});
+
+describe("workflow channel trigger", () => {
+  it("binds to a channel and a send-message step can reply to the inbound sender", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Support");
+    const channel = await seedChannel(store, emp.id);
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Auto-reply",
+      status: "active",
+      trigger: { type: "channel", channelId: channel.id },
+      graph: {
+        entryNodeId: "n1",
+        nodes: [
+          {
+            id: "n1",
+            type: "send_message",
+            channelId: channel.id,
+            recipientTemplate: "{{trigger.sender}}",
+            messageTemplate: "Thanks, we got: {{input}}",
+            next: null,
+          },
+        ],
+      },
+    });
+
+    // The messaging runtime finds the bound workflow by channel.
+    const found = await store.getActiveChannelWorkflow(actor.organizationId, channel.id);
+    expect(found?.id).toBe(wf.id);
+
+    // Running it with inbound sender context replies to that sender.
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "channel",
+      input: { message: "hi there", sender: "+15550009999", channelId: channel.id },
+    });
+    expect(run.status).toBe("succeeded");
+    const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps[0].output).toMatch(/Simulated send to \+15550009999/);
+  });
+});
+
+describe("workflow schedule tick", () => {
+  it("runs a due active scheduled workflow and advances its next run time", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Digest");
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Nightly",
+      status: "active",
+      trigger: { type: "schedule", everyMinutes: 60, nextRunAt: "2020-01-01T00:00:00.000Z" },
+      graph: { entryNodeId: "n1", nodes: [{ id: "n1", type: "employee", employeeId: emp.id, messageTemplate: "summarize", next: null }] },
+    });
+    const now = Date.parse("2026-07-10T09:00:00.000Z");
+    const result = await runDueScheduledWorkflows(deps(store), now);
+    expect(result.started).toBe(1);
+    const runs = await store.listWorkflowRunsForWorkflow(actor.organizationId, wf.id);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].triggeredBy).toBe("schedule");
+    // nextRunAt advanced ~60 min into the future.
+    const after = await store.getWorkflow(actor.organizationId, wf.id);
+    const next = after?.trigger.type === "schedule" ? Date.parse(after.trigger.nextRunAt) : 0;
+    expect(next).toBe(now + 60 * 60_000);
+  });
+
+  it("does not run a paused scheduled workflow", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Digest");
+    await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Paused",
+      status: "paused",
+      trigger: { type: "schedule", everyMinutes: 60, nextRunAt: "2020-01-01T00:00:00.000Z" },
+      graph: { entryNodeId: "n1", nodes: [{ id: "n1", type: "employee", employeeId: emp.id, messageTemplate: "x", next: null }] },
+    });
+    const result = await runDueScheduledWorkflows(deps(store), Date.parse("2026-07-10T09:00:00.000Z"));
+    expect(result.started).toBe(0);
   });
 });
 

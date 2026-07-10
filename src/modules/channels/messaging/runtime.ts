@@ -13,6 +13,7 @@ import type { AiEmployee, EmployeeChannel } from "@/lib/db/types";
 import type { DataStore } from "@/lib/db/store";
 import type { ChatGateway } from "@/modules/employee-chat/service";
 import { ChatBlockedError, sendChatMessage } from "@/modules/employee-chat/service";
+import { runWorkflow } from "@/modules/workflows/engine";
 import { hashContact } from "@/modules/channels/keys";
 import type {
   MessagingInboundMessage,
@@ -139,9 +140,41 @@ export async function handleInboundMessagingMessage(
     contentType: inbound.contentType,
   });
 
-  // --- Conversation (isolated per contact) ---------------------------------
   const organization = await store.getOrganizationById(orgId);
   const organizationName = organization?.name ?? "our company";
+
+  // --- Workflow-triggered channel? -----------------------------------------
+  // If an active workflow is bound to this channel, it OWNS the response: the
+  // message starts a run (with the sender available as {{trigger.sender}}) and
+  // the workflow's own Send message steps reply. The default auto-reply is
+  // skipped so the customer doesn't get two answers.
+  const boundWorkflow = await store.getActiveChannelWorkflow(orgId, channel.id);
+  if (boundWorkflow) {
+    try {
+      await runWorkflow(deps, {
+        workflow: boundWorkflow,
+        organizationName,
+        actor: { organizationId: orgId, userId: null },
+        triggeredBy: "channel",
+        input: {
+          message: inbound.messageText,
+          sender: inbound.senderExternalId,
+          senderLabel: inbound.senderLabel ?? "",
+          channelId: channel.id,
+        },
+      });
+    } catch {
+      // A workflow failure must not 500 the provider's webhook.
+    }
+    await store.updateChannelWebhookEventStatus(webhookEvent.id, {
+      status: "processed",
+      processedAt: nowIso(),
+    });
+    await audit(store, channel, "messaging_webhook.processed", { viaWorkflow: boundWorkflow.id });
+    return { status: "processed" };
+  }
+
+  // --- Conversation (isolated per contact) ---------------------------------
   const session = await store.getOrCreatePublicChatSession({
     organizationId: orgId,
     employeeId: employee.id,

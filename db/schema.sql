@@ -3211,6 +3211,7 @@ CREATE TABLE IF NOT EXISTS public.workflow_runs (
     output text,
     error text,
     step_count integer DEFAULT 0 NOT NULL,
+    cursor_node_id text,
     created_by_user_id uuid REFERENCES public.users(id),
     started_at timestamp with time zone DEFAULT now() NOT NULL,
     finished_at timestamp with time zone,

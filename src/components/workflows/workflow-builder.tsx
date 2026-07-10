@@ -45,7 +45,7 @@ export interface WorkflowOption {
   name: string;
 }
 
-type StepType = "employee" | "condition" | "transform" | "send_message" | "sub_workflow";
+type StepType = "employee" | "condition" | "transform" | "send_message" | "sub_workflow" | "approval";
 
 interface EmployeeStep {
   id: string;
@@ -81,12 +81,18 @@ interface SubWorkflowStep {
   workflowId: string;
   inputTemplate: string;
 }
+interface ApprovalStep {
+  id: string;
+  type: "approval";
+  instructions: string;
+}
 type BuilderStep =
   | EmployeeStep
   | TransformStep
   | ConditionStep
   | SendMessageStep
-  | SubWorkflowStep;
+  | SubWorkflowStep
+  | ApprovalStep;
 
 const END = "__end__";
 
@@ -138,6 +144,9 @@ function graphToSteps(graph: WorkflowGraph): BuilderStep[] {
     if (node.type === "sub_workflow") {
       return { id: node.id, type: "sub_workflow", workflowId: node.workflowId, inputTemplate: node.inputTemplate };
     }
+    if (node.type === "approval") {
+      return { id: node.id, type: "approval", instructions: node.instructions };
+    }
     // trigger nodes aren't authored in the builder (manual trigger is implicit)
     return { id: node.id, type: "transform", template: "" };
   });
@@ -165,6 +174,9 @@ function stepsToGraph(steps: BuilderStep[]): WorkflowGraph {
     }
     if (step.type === "sub_workflow") {
       return { id: step.id, type: "sub_workflow", workflowId: step.workflowId, inputTemplate: step.inputTemplate, next };
+    }
+    if (step.type === "approval") {
+      return { id: step.id, type: "approval", instructions: step.instructions, next };
     }
     const resolve = (t: string) => (t === END ? null : t);
     return {
@@ -289,6 +301,9 @@ export function WorkflowBuilder({
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("sub_workflow")}>
           + Run workflow
         </button>
+        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("approval")}>
+          + Wait for approval
+        </button>
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("transform")}>
           + Format
         </button>
@@ -310,6 +325,7 @@ function labelFor(step: BuilderStep, employees: EmployeeOption[]): string {
   if (step.type === "condition") return "Branch";
   if (step.type === "send_message") return "Send message";
   if (step.type === "sub_workflow") return "Run workflow";
+  if (step.type === "approval") return "Wait for approval";
   return "Format";
 }
 
@@ -337,6 +353,9 @@ function blankStep(
   if (type === "sub_workflow") {
     return { id: newId(), type: "sub_workflow", workflowId: workflows[0]?.id ?? "", inputTemplate: "{{input}}" };
   }
+  if (type === "approval") {
+    return { id: newId(), type: "approval", instructions: "Review and approve to continue." };
+  }
   return {
     id: newId(),
     type: "condition",
@@ -354,6 +373,7 @@ const TYPE_NAMES: Record<StepType, string> = {
   condition: "Branch",
   send_message: "Send message",
   sub_workflow: "Run workflow",
+  approval: "Wait for approval",
   transform: "Format",
 };
 
@@ -532,6 +552,21 @@ function StepCard({
             />
           </Field>
         </div>
+      ) : null}
+
+      {step.type === "approval" ? (
+        <Field
+          label="What to approve"
+          htmlFor={`ap-${step.id}`}
+          hint="The run pauses here until someone approves or rejects it on the run page."
+        >
+          <Textarea
+            id={`ap-${step.id}`}
+            value={step.instructions}
+            onChange={(e) => onChange({ instructions: e.target.value })}
+            rows={2}
+          />
+        </Field>
       ) : null}
 
       {step.type === "condition" ? (

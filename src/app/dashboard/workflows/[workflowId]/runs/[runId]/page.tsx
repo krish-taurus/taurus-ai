@@ -12,6 +12,7 @@ import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
 import { getWorkflow, getWorkflowRun, listWorkflowRunSteps } from "@/modules/workflows/service";
 import type { WorkflowRunStep } from "@/lib/db/types";
+import { ApprovalControls } from "@/components/workflows/approval-controls";
 import { Badge, BackLink, Card, PageHeader } from "@/components/ui";
 
 function stepTone(status: WorkflowRunStep["status"]): "soft" | "outline" {
@@ -28,6 +29,8 @@ function stepKind(step: WorkflowRunStep): string {
       return "Send message";
     case "sub_workflow":
       return "Run workflow";
+    case "approval":
+      return "Approval";
     case "transform":
       return "Format";
     default:
@@ -54,6 +57,14 @@ export default async function WorkflowRunPage({
   const employees = await store.listEmployees(organization.id);
   const nameFor = (id: string | null) => (id ? employees.find((e) => e.id === id)?.name ?? "AI Employee" : null);
 
+  const canManage = hasPermission(membership.role, "workflow.manage");
+  const awaitingNode =
+    run.status === "waiting" && run.cursorNodeId
+      ? workflow.graph.nodes.find((n) => n.id === run.cursorNodeId)
+      : undefined;
+  const approvalInstructions =
+    awaitingNode && awaitingNode.type === "approval" ? awaitingNode.instructions : "";
+
   return (
     <div className="max-w-3xl">
       <BackLink href={`/dashboard/workflows/${workflow.id}`} label={`Back to ${workflow.name}`} />
@@ -65,6 +76,24 @@ export default async function WorkflowRunPage({
         />
         <Badge tone={run.status === "succeeded" ? "soft" : "outline"}>{run.status}</Badge>
       </div>
+
+      {/* Awaiting approval */}
+      {run.status === "waiting" ? (
+        <Card className="mb-6 mt-4 border-taurus-line bg-taurus-muted p-5">
+          <h2 className="mb-2 text-sm font-semibold text-taurus-text">Waiting for approval</h2>
+          {canManage ? (
+            <ApprovalControls
+              workflowId={workflow.id}
+              runId={run.id}
+              instructions={approvalInstructions}
+            />
+          ) : (
+            <p className="text-sm text-taurus-sub">
+              {approvalInstructions || "This run is paused until someone approves it."}
+            </p>
+          )}
+        </Card>
+      ) : null}
 
       {/* Summary */}
       <Card className="mb-6 mt-4 p-5">

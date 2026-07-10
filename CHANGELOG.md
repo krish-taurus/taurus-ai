@@ -1,5 +1,36 @@
 # Changelog
 
+## Sprint 050 - Workflows Phase 2b: approvals, schedules, inbound-channel triggers — 2026-07-10
+
+Added:
+
+- **Human-approval steps (pause + resume)** — a *Wait for approval* node pauses a
+  run (`waiting`) until someone approves or rejects it on the run page. The engine
+  is now **resumable**: a paused run's cursor is persisted, and its context is
+  rebuilt from the step ledger, so approving continues exactly where it stopped
+  (approve → run finishes; reject → run fails). Migration `0029` adds the resume
+  cursor (`cursor_node_id`); no worker needed.
+- **Schedule trigger** — run a workflow on a cadence (every 15 min / hour / 6h /
+  day). Taurus has no always-on worker, so a new **`POST /api/workflows/tick`**
+  (gated by `TAURUS_WORKFLOWS_TICK_SECRET`, hit by an external cron / Vercel Cron)
+  runs every due active schedule and advances its next-run time.
+- **Inbound-channel trigger** — binding a workflow to a connected channel makes an
+  incoming message start a run instead of the employee's auto-reply; the workflow
+  owns the response (a *Send message* step replies to the sender). Templating gains
+  **`{{trigger.<field>}}`** (e.g. `{{trigger.sender}}`) so replies can address
+  whoever messaged. The live inbound path is unchanged for any channel without a
+  bound workflow.
+- **UI**: the builder gains a *Wait for approval* step; the trigger panel becomes a
+  Manual / Webhook / Schedule / Channel switcher; the run page shows a *Waiting for
+  approval* card with approve/reject.
+- Tested: approval pause → approve → resume-to-completion, reject → fail, the
+  schedule tick (due runs + next-run advance, paused workflows skipped), the
+  channel binding + `{{trigger.<field>}}` templating, and reject-then-re-resolve
+  guard. `tsc` clean · `next lint` clean · production build clean · **617 tests +
+  6 skipped** · and a **live browser smoke test** (build a workflow with an
+  approval step → run → *waiting* → approve → *succeeded* with all steps + final
+  output; tick endpoint responded 200).
+
 ## Sprint 049 - Workflows Phase 2: webhook trigger, send-message + sub-workflow nodes — 2026-07-10
 
 Added:
