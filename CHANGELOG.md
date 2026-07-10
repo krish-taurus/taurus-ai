@@ -1,5 +1,39 @@
 # Changelog
 
+## Sprint 046 - Object-storage (S3) adapter for uploads — 2026-07-10
+
+Added:
+
+- **Persistent upload storage** — Knowledge Vault uploads wrote only to local
+  disk, which is ephemeral on serverless/containers (files vanish on redeploy).
+  Uploads now persist to **Amazon S3** (or any S3-compatible endpoint: Cloudflare
+  R2, MinIO, GCS S3-interop) when object storage is configured, and fall back to
+  local disk when it isn't — no behavior change for local dev.
+  - `S3KnowledgeStorage` (`src/modules/knowledge/storage-s3.ts`) implements the
+    same `save`/`read` seam as local storage, with the **same key scheme**
+    (`<orgId>/<opaque-key>`, optional prefix), so switching backends only moves
+    bytes. **Dependency-free**: requests are signed with **AWS Signature V4**
+    using `node:crypto` (no aws-sdk). Objects are private (never public-read) and
+    served through the existing authenticated, org-scoped download route.
+  - `getKnowledgeStorage()` selects S3 when `TAURUS_S3_BUCKET` + AWS credentials
+    are present, else local. Wired into the upload action and the document
+    download route. Supports virtual-hosted + path-style URLs, custom endpoints,
+    key prefixes, and temporary (session-token) credentials.
+  - Config via `TAURUS_S3_BUCKET`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`,
+    `AWS_SECRET_ACCESS_KEY` (+ optional `AWS_SESSION_TOKEN`, `TAURUS_S3_ENDPOINT`,
+    `TAURUS_S3_FORCE_PATH_STYLE`, `TAURUS_S3_PREFIX`) — documented in
+    `.env.example` and the env schema.
+  - Readiness updated: the `uploads_local_disk` warning now clears once object
+    storage (or a persistent `TAURUS_UPLOAD_DIR`) is configured, and a new
+    `uploads_s3_incomplete` warning fires when a bucket is set without AWS
+    credentials (uploads silently fall back to local disk).
+  - Tested: SigV4 signing-key derivation vs. an independent reference chain,
+    deterministic + payload-sensitive signatures, virtual-hosted/path-style/custom
+    endpoint URLs, session-token signing, PUT/GET request shape (mocked fetch,
+    exact bytes, traversal rejection, error surfacing), the storage selector, and
+    the two readiness warnings. `tsc` clean · `next lint` clean ·
+    **595 tests + 6 skipped**.
+
 ## Sprint 045 - Real embeddings model for knowledge retrieval — 2026-07-10
 
 Added:

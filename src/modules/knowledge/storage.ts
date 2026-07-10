@@ -13,6 +13,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import type { KnowledgeStorage } from "@/modules/knowledge/service";
+import { readS3Config, S3KnowledgeStorage } from "@/modules/knowledge/storage-s3";
 
 /** Sanitize a user-supplied filename for safe DISPLAY (never used as a path). */
 export function sanitizeFilename(name: string): string {
@@ -92,3 +93,18 @@ export class LocalKnowledgeStorage implements KnowledgeStorage {
 
 /** Shared local storage adapter instance for server actions/routes. */
 export const localKnowledgeStorage = new LocalKnowledgeStorage();
+
+/** Storage that can both persist and read back bytes (save + read). */
+export interface ReadableKnowledgeStorage extends KnowledgeStorage {
+  read(organizationId: string, storageKey: string): Promise<Uint8Array>;
+}
+
+/**
+ * The active upload storage backend: S3 (persistent, survives redeploys) when
+ * object storage is configured, else local disk. Callers should use this rather
+ * than referencing `localKnowledgeStorage` directly so both backends are honored.
+ */
+export function getKnowledgeStorage(): ReadableKnowledgeStorage {
+  const s3 = readS3Config();
+  return s3 ? new S3KnowledgeStorage(s3) : localKnowledgeStorage;
+}

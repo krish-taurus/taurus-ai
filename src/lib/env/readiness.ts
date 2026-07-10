@@ -148,14 +148,25 @@ export function checkProductionReadiness(
     });
   }
 
-  // --- Uploads: local disk only (warn unless a volume path is set) ---------
-  if (!has("TAURUS_UPLOAD_DIR")) {
+  // --- Uploads: object storage (S3) vs local disk -------------------------
+  const s3Bucket = has("TAURUS_S3_BUCKET");
+  const s3Creds = has("AWS_ACCESS_KEY_ID") && has("AWS_SECRET_ACCESS_KEY");
+  const s3Configured = s3Bucket && s3Creds;
+  if (s3Bucket && !s3Creds) {
+    warnings.push({
+      code: "uploads_s3_incomplete",
+      severity: "warning",
+      title: "TAURUS_S3_BUCKET is set without AWS credentials",
+      detail:
+        "Object storage needs AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY (and AWS_REGION). Until they're set, uploads silently fall back to local disk.",
+    });
+  } else if (!s3Configured && !has("TAURUS_UPLOAD_DIR")) {
     warnings.push({
       code: "uploads_local_disk",
       severity: "warning",
       title: "Uploaded files fall back to ./storage/uploads",
       detail:
-        "Knowledge-vault uploads write to local disk. Set TAURUS_UPLOAD_DIR to a persistent volume — on serverless the default path is ephemeral and files are lost. (No object-storage adapter exists yet.)",
+        "Knowledge-vault uploads write to local disk, which is ephemeral on serverless (files lost on redeploy). Configure object storage (TAURUS_S3_BUCKET + AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY) — or set TAURUS_UPLOAD_DIR to a persistent volume.",
     });
   }
 

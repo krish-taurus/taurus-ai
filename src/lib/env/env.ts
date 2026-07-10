@@ -40,6 +40,18 @@ const serverSchema = z
     // Local directory for Knowledge Vault uploads (server-only). Defaults to
     // "storage/uploads" (gitignored). Files are never served publicly.
     TAURUS_UPLOAD_DIR: z.string().optional().or(z.literal("")),
+    // Object storage for uploads (Sprint 046, server-only). When TAURUS_S3_BUCKET
+    // + AWS credentials are set, uploads persist to S3 (or an S3-compatible
+    // endpoint) instead of ephemeral local disk. All optional — absence falls
+    // back to local storage and must never break local dev or tests.
+    TAURUS_S3_BUCKET: z.string().optional().or(z.literal("")),
+    TAURUS_S3_ENDPOINT: z.string().optional().or(z.literal("")),
+    TAURUS_S3_PREFIX: z.string().optional().or(z.literal("")),
+    TAURUS_S3_FORCE_PATH_STYLE: z.string().optional().or(z.literal("")),
+    AWS_REGION: z.string().optional().or(z.literal("")),
+    AWS_ACCESS_KEY_ID: z.string().optional().or(z.literal("")),
+    AWS_SECRET_ACCESS_KEY: z.string().optional().or(z.literal("")),
+    AWS_SESSION_TOKEN: z.string().optional().or(z.literal("")),
     AI_PROVIDER_API_KEY: z.string().optional().or(z.literal("")),
     // Model Hub (Prompt 006B). All provider keys are optional and server-only;
     // when present, the matching provider can be offered as "Taurus managed".
@@ -209,6 +221,14 @@ export function getServerEnv(): ServerEnv {
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
       SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
       TAURUS_UPLOAD_DIR: process.env.TAURUS_UPLOAD_DIR,
+      TAURUS_S3_BUCKET: process.env.TAURUS_S3_BUCKET,
+      TAURUS_S3_ENDPOINT: process.env.TAURUS_S3_ENDPOINT,
+      TAURUS_S3_PREFIX: process.env.TAURUS_S3_PREFIX,
+      TAURUS_S3_FORCE_PATH_STYLE: process.env.TAURUS_S3_FORCE_PATH_STYLE,
+      AWS_REGION: process.env.AWS_REGION,
+      AWS_ACCESS_KEY_ID: process.env.AWS_ACCESS_KEY_ID,
+      AWS_SECRET_ACCESS_KEY: process.env.AWS_SECRET_ACCESS_KEY,
+      AWS_SESSION_TOKEN: process.env.AWS_SESSION_TOKEN,
       AI_PROVIDER_API_KEY: process.env.AI_PROVIDER_API_KEY,
       OPENAI_API_KEY: process.env.OPENAI_API_KEY,
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY,
