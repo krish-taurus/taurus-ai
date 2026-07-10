@@ -47,6 +47,8 @@ export interface WorkflowOption {
 export interface SourceOption {
   id: string;
   name: string;
+  /** Connector-backed types (e.g. "database") can be re-fetched by a Sync step. */
+  sourceType: string;
 }
 
 type StepType =
@@ -56,7 +58,8 @@ type StepType =
   | "send_message"
   | "sub_workflow"
   | "approval"
-  | "refresh_knowledge";
+  | "refresh_knowledge"
+  | "sync_source";
 
 interface EmployeeStep {
   id: string;
@@ -104,6 +107,11 @@ interface RefreshKnowledgeStep {
   employeeId: string;
   sourceId: string;
 }
+interface SyncSourceStep {
+  id: string;
+  type: "sync_source";
+  sourceId: string;
+}
 type BuilderStep =
   | EmployeeStep
   | TransformStep
@@ -111,7 +119,8 @@ type BuilderStep =
   | SendMessageStep
   | SubWorkflowStep
   | ApprovalStep
-  | RefreshKnowledgeStep;
+  | RefreshKnowledgeStep
+  | SyncSourceStep;
 
 const END = "__end__";
 
@@ -175,6 +184,9 @@ function graphToSteps(graph: WorkflowGraph): BuilderStep[] {
         sourceId: node.sourceId ?? "",
       };
     }
+    if (node.type === "sync_source") {
+      return { id: node.id, type: "sync_source", sourceId: node.sourceId };
+    }
     // trigger nodes aren't authored in the builder (manual trigger is implicit)
     return { id: node.id, type: "transform", template: "" };
   });
@@ -215,6 +227,9 @@ function stepsToGraph(steps: BuilderStep[]): WorkflowGraph {
         sourceId: step.target === "source" ? step.sourceId : undefined,
         next,
       };
+    }
+    if (step.type === "sync_source") {
+      return { id: step.id, type: "sync_source", sourceId: step.sourceId, next };
     }
     const resolve = (t: string) => (t === END ? null : t);
     return {
@@ -345,6 +360,9 @@ export function WorkflowBuilder({
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("approval")}>
           + Wait for approval
         </button>
+        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("sync_source")}>
+          + Sync data source
+        </button>
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("refresh_knowledge")}>
           + Refresh knowledge
         </button>
@@ -371,7 +389,13 @@ function labelFor(step: BuilderStep, employees: EmployeeOption[]): string {
   if (step.type === "sub_workflow") return "Run workflow";
   if (step.type === "approval") return "Wait for approval";
   if (step.type === "refresh_knowledge") return "Refresh knowledge";
+  if (step.type === "sync_source") return "Sync data source";
   return "Format";
+}
+
+/** Connector-backed source types that a Sync step can re-fetch. */
+function syncableSources(sources: SourceOption[]): SourceOption[] {
+  return sources.filter((s) => s.sourceType === "database");
 }
 
 function blankStep(
@@ -411,6 +435,9 @@ function blankStep(
       sourceId: sources[0]?.id ?? "",
     };
   }
+  if (type === "sync_source") {
+    return { id: newId(), type: "sync_source", sourceId: syncableSources(sources)[0]?.id ?? "" };
+  }
   return {
     id: newId(),
     type: "condition",
@@ -430,6 +457,7 @@ const TYPE_NAMES: Record<StepType, string> = {
   sub_workflow: "Run workflow",
   approval: "Wait for approval",
   refresh_knowledge: "Refresh knowledge",
+  sync_source: "Sync data source",
   transform: "Format",
 };
 
@@ -624,6 +652,31 @@ function StepCard({
             onChange={(e) => onChange({ instructions: e.target.value })}
             rows={2}
           />
+        </Field>
+      ) : null}
+
+      {step.type === "sync_source" ? (
+        <Field
+          label="Data source to sync"
+          htmlFor={`ss-${step.id}`}
+          hint="Re-fetches the latest content from the source's connector, then re-indexes it."
+        >
+          {syncableSources(sources).length === 0 ? (
+            <p className="text-sm text-taurus-faint">
+              No database sources yet. Connect one in the Knowledge Vault first. (Drive / SharePoint /
+              cloud storage sync from workflows is coming next.)
+            </p>
+          ) : (
+            <Select
+              id={`ss-${step.id}`}
+              value={step.sourceId}
+              onChange={(e) => onChange({ sourceId: e.target.value })}
+            >
+              {syncableSources(sources).map((s) => (
+                <option key={s.id} value={s.id}>{s.name}</option>
+              ))}
+            </Select>
+          )}
         </Field>
       ) : null}
 

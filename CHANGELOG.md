@@ -1,5 +1,31 @@
 # Changelog
 
+## Sprint 053 - Workflow "Sync data source" node (scheduled extract → retrain) — 2026-07-10
+
+Added:
+
+- **Sync data source workflow node** — re-fetches a connector-backed knowledge
+  source's latest content and re-indexes it, headlessly (no dashboard session).
+  Paired with a Schedule trigger this closes the loop the whole workflows engine
+  was built toward: **on a schedule, pull the latest data from a source, then the
+  AI Employee retrains on it.**
+  - **Database sources are supported now** (`src/modules/knowledge/resync.ts`):
+    decrypt the stored connection, run the saved query, replace the document, and
+    re-embed via the same indexing pipeline. The content fetcher is injectable, so
+    the fetch → sync → re-index path is unit-tested without a live DB.
+  - Google Drive / SharePoint / cloud-storage re-fetch (OAuth refresh + provider
+    APIs) is the next slice — the node raises a **clear message** for those rather
+    than failing silently; `file` / `text` / `url` sources point you to *Refresh
+    knowledge* instead. The builder's source picker only offers syncable
+    (database) sources.
+  - `KnowledgeActor.userId` now allows `null` so automated re-syncs record as a
+    system action. Builder gains a *Sync data source* step; the run trace labels
+    it.
+  - Tested: a database re-sync re-fetches + re-embeds (new content becomes
+    retrievable), and unsupported source types fail with a readable message.
+    `tsc` clean · `next lint` clean · production build clean · **627 tests +
+    6 skipped**.
+
 ## Sprint 052 - Workflow "Refresh knowledge" node (scheduled retrain) — 2026-07-10
 
 Added:

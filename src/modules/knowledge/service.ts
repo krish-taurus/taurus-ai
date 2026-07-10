@@ -42,7 +42,8 @@ export interface KnowledgeStorage {
 
 export interface KnowledgeActor {
   organizationId: string;
-  userId: string;
+  /** Null for automated (workflow/scheduled) runs — recorded as a system action. */
+  userId: string | null;
 }
 
 export interface UploadedFile {
