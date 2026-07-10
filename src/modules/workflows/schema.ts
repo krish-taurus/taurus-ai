@@ -82,6 +82,15 @@ const nodeSchema = z.discriminatedUnion("type", [
     instructions: z.string().max(2000),
     next: z.string().nullable(),
   }),
+  z.object({
+    id: nodeIdSchema,
+    label: labelSchema,
+    type: z.literal("refresh_knowledge"),
+    target: z.enum(["employee", "source"]),
+    employeeId: z.string().optional(),
+    sourceId: z.string().optional(),
+    next: z.string().nullable(),
+  }),
 ]);
 
 export const workflowGraphSchema = z.object({

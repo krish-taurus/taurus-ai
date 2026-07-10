@@ -27,7 +27,8 @@ import {
 
 export interface KnowledgeContext {
   organizationId: string;
-  userId: string;
+  /** Null for automated (workflow/scheduled) runs — recorded as a system action. */
+  userId: string | null;
   role: Role;
 }
 

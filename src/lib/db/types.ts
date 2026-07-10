@@ -654,7 +654,8 @@ export type WorkflowNodeType =
   | "transform"
   | "send_message"
   | "sub_workflow"
-  | "approval";
+  | "approval"
+  | "refresh_knowledge";
 
 /** Comparison operators for a condition (branch) node. */
 export type WorkflowConditionOperator =
@@ -726,6 +727,14 @@ export type WorkflowNode =
       type: "approval";
       /** What the reviewer is being asked to approve. */
       instructions: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "refresh_knowledge";
+      /** Re-index one source, or every source assigned to one AI Employee. */
+      target: "employee" | "source";
+      employeeId?: string;
+      sourceId?: string;
       next: string | null;
     });
 
