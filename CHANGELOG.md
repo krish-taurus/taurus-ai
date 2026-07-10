@@ -1,5 +1,33 @@
 # Changelog
 
+## Sprint 047 - Honest seller balances (decouple payout "paid" from transfer creation) — 2026-07-10
+
+Changed:
+
+- **Payouts no longer claim "paid" the instant a transfer is created.** A live
+  withdrawal marked the payout `paid` synchronously from the provider's
+  create-transfer response — before the transfer had actually settled — so a
+  seller's "withdrawn" total overstated what had really left the platform, and a
+  later reversal had to walk it back. Payouts now have an **`in_transit`** state:
+  - `requestPayout` sets a live transfer to **`in_transit`** on creation (funds
+    are moving, provider unconfirmed) and only the provider's **webhook
+    confirmation** advances it to **`paid`** (or `failed`). **Simulated** payouts
+    still settle to `paid` in-process (no webhook to wait for) — local dev and
+    tests are unchanged.
+  - `getSellerBalances` now reports `inTransit` separately and subtracts
+    **paid + in_transit + pending** from available, so in-flight funds still can't
+    be double-withdrawn but `paidOut` reflects only provider-confirmed
+    settlements. The earnings page shows "… withdrawn · … in transit" and labels
+    the `in_transit` badge "in transit".
+  - The webhook path is unchanged in intent (`transfer.created`/`processed` →
+    confirm `paid`; `reversed`/`failed` → `failed`) and remains idempotent; it now
+    advances `pending`/`in_transit` → `paid`. No DB migration (the status column is
+    free-text); the `MarketplacePayoutStatus` type gained `in_transit`.
+  - Tested: a live transfer stays `in_transit` and holds the balance, a webhook
+    confirmation settles it to `paid` (with `paidAt`), and a failed transfer
+    releases the balance. `tsc` clean · `next lint` clean ·
+    **596 tests + 6 skipped**.
+
 ## Sprint 046 - Object-storage (S3) adapter for uploads — 2026-07-10
 
 Added:

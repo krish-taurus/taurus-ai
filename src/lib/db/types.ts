@@ -546,7 +546,15 @@ export interface UpdateMarketplacePaymentInput {
 
 /** Seller payouts (Sprint 035). */
 export type MarketplacePayoutAccountStatus = "onboarding" | "active" | "restricted";
-export type MarketplacePayoutStatus = "pending" | "paid" | "failed";
+/**
+ * Payout lifecycle. A live transfer is `in_transit` the moment we create it
+ * (funds are moving but the provider hasn't confirmed), and only becomes `paid`
+ * when the provider's webhook confirms the transfer settled to the seller's
+ * connected account. Simulated payouts settle to `paid` in-process. Both
+ * `in_transit` and `paid` (and `pending`) hold the balance so it can't be
+ * double-withdrawn; only `failed` releases it.
+ */
+export type MarketplacePayoutStatus = "pending" | "in_transit" | "paid" | "failed";
 
 /** An org's connected payout account (the destination for its earnings). */
 export interface MarketplacePayoutAccount {

@@ -102,6 +102,7 @@ describe("marketplace payouts — balance", () => {
       currency: "usd",
       earned: 8500,
       paidOut: 0,
+      inTransit: 0,
       pending: 0,
       available: 8500,
     });
@@ -164,7 +165,7 @@ describe("marketplace payouts — withdraw", () => {
     ).rejects.toBeInstanceOf(MarketplaceError);
   });
 
-  it("a live transfer records the provider transfer id and pending reduces the balance", async () => {
+  it("a live transfer stays in_transit until the provider confirms, holding the balance", async () => {
     const { store, sellerUser, sellerOrg } = await sellerWithBalance();
     await startPayoutOnboarding(store, actor(sellerOrg.id, sellerUser.id), {
       ...onboardingOpts,
@@ -174,8 +175,58 @@ describe("marketplace payouts — withdraw", () => {
     const payout = await requestPayout(store, actor(sellerOrg.id, sellerUser.id), { currency: "usd" }, {
       createTransfer: async () => ({ mode: "transferred", externalTransferId: "tr_123" }),
     });
+    // Decoupled from the synchronous API call: not "paid" yet, just in transit.
     expect(payout.externalTransferId).toBe("tr_123");
-    expect(payout.status).toBe("paid");
+    expect(payout.status).toBe("in_transit");
+    expect(payout.paidAt).toBeNull();
+
+    // In-transit funds hold the balance (can't be double-withdrawn) but are not
+    // yet counted as withdrawn.
+    const before = (await getSellerBalances(store, sellerOrg.id))[0];
+    expect(before.available).toBe(0);
+    expect(before.inTransit).toBe(8500);
+    expect(before.paidOut).toBe(0);
+
+    // The provider's webhook confirmation settles it to paid.
+    const res = await fulfillPayoutWebhook(store, "simulated", {
+      type: "payout.paid",
+      externalAccountId: "acct_live",
+      accountStatus: null,
+      reference: null,
+      externalTransferId: "tr_123",
+    });
+    expect(res).toEqual({ handled: true, kind: "payout" });
+    const confirmed = await store.getMarketplacePayout(payout.id);
+    expect(confirmed?.status).toBe("paid");
+    expect(confirmed?.paidAt).not.toBeNull();
+
+    const after = (await getSellerBalances(store, sellerOrg.id))[0];
+    expect(after.inTransit).toBe(0);
+    expect(after.paidOut).toBe(8500);
+  });
+
+  it("a live transfer that the provider reports failed releases the balance", async () => {
+    const { store, sellerUser, sellerOrg } = await sellerWithBalance();
+    await startPayoutOnboarding(store, actor(sellerOrg.id, sellerUser.id), {
+      ...onboardingOpts,
+      createConnectedAccount: async () => ({ externalAccountId: "acct_live", status: "active" }),
+      createOnboardingLink: async () => ({ mode: "simulated" }),
+    });
+    const payout = await requestPayout(store, actor(sellerOrg.id, sellerUser.id), { currency: "usd" }, {
+      createTransfer: async () => ({ mode: "transferred", externalTransferId: "tr_fail" }),
+    });
+    expect(payout.status).toBe("in_transit");
+
+    await fulfillPayoutWebhook(store, "simulated", {
+      type: "payout.failed",
+      externalAccountId: "acct_live",
+      accountStatus: null,
+      reference: null,
+      externalTransferId: "tr_fail",
+    });
+    expect((await store.getMarketplacePayout(payout.id))?.status).toBe("failed");
+    // Balance is available again after a failed transfer.
+    expect((await getSellerBalances(store, sellerOrg.id))[0].available).toBe(8500);
   });
 });
 
