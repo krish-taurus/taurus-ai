@@ -3179,6 +3179,71 @@ ALTER TABLE ONLY public.voice_stream_events
 
 
 --
+-- Workflows (Sprint 048). Applied by db/migrations/0028_workflows.sql. Appended
+-- here to keep this snapshot complete; the migration remains the source of truth.
+--
+
+CREATE TABLE IF NOT EXISTS public.workflows (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    description text,
+    status text DEFAULT 'draft'::text NOT NULL,
+    trigger jsonb DEFAULT '{"type":"manual"}'::jsonb NOT NULL,
+    graph jsonb DEFAULT '{"entryNodeId":null,"nodes":[]}'::jsonb NOT NULL,
+    created_by_user_id uuid REFERENCES public.users(id),
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflows_org ON public.workflows (organization_id);
+CREATE INDEX IF NOT EXISTS idx_workflows_org_status ON public.workflows (organization_id, status);
+CREATE INDEX IF NOT EXISTS idx_workflows_created_by_user_id ON public.workflows (created_by_user_id);
+
+CREATE TABLE IF NOT EXISTS public.workflow_runs (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    workflow_id uuid NOT NULL REFERENCES public.workflows(id) ON DELETE CASCADE,
+    status text DEFAULT 'running'::text NOT NULL,
+    triggered_by text DEFAULT 'manual'::text NOT NULL,
+    input jsonb DEFAULT '{}'::jsonb NOT NULL,
+    output text,
+    error text,
+    step_count integer DEFAULT 0 NOT NULL,
+    created_by_user_id uuid REFERENCES public.users(id),
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    finished_at timestamp with time zone,
+    PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_workflow ON public.workflow_runs (workflow_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_org ON public.workflow_runs (organization_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_runs_created_by_user_id ON public.workflow_runs (created_by_user_id);
+
+CREATE TABLE IF NOT EXISTS public.workflow_run_steps (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    run_id uuid NOT NULL REFERENCES public.workflow_runs(id) ON DELETE CASCADE,
+    node_id text NOT NULL,
+    node_type text NOT NULL,
+    employee_id uuid REFERENCES public.ai_employees(id) ON DELETE SET NULL,
+    sequence integer NOT NULL,
+    status text NOT NULL,
+    input text,
+    output text,
+    error text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_run ON public.workflow_run_steps (run_id, sequence);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_org ON public.workflow_run_steps (organization_id);
+CREATE INDEX IF NOT EXISTS idx_workflow_run_steps_employee_id ON public.workflow_run_steps (employee_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_run_steps_run_seq ON public.workflow_run_steps (run_id, sequence);
+
+
+--
 -- PostgreSQL database dump complete
 --
 

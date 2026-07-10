@@ -121,6 +121,14 @@ import type {
   MarketplacePayout,
   CreateMarketplacePayoutInput,
   UpdateMarketplacePayoutInput,
+  Workflow,
+  CreateWorkflowInput,
+  UpdateWorkflowInput,
+  WorkflowRun,
+  CreateWorkflowRunInput,
+  UpdateWorkflowRunInput,
+  WorkflowRunStep,
+  CreateWorkflowRunStepInput,
   LlmUsageEvent,
   ModelAccessMode,
   ModelHubOverview,
@@ -358,6 +366,29 @@ export interface DataStore {
     patch: UpdateMarketplacePayoutInput,
   ): Promise<MarketplacePayout | null>;
   listMarketplacePayoutsForOrg(organizationId: string): Promise<MarketplacePayout[]>;
+
+  // Workflows (Sprint 048).
+  createWorkflow(input: CreateWorkflowInput): Promise<Workflow>;
+  getWorkflow(organizationId: string, workflowId: string): Promise<Workflow | null>;
+  listWorkflows(organizationId: string): Promise<Workflow[]>;
+  updateWorkflow(
+    organizationId: string,
+    workflowId: string,
+    patch: UpdateWorkflowInput,
+  ): Promise<Workflow | null>;
+  deleteWorkflow(organizationId: string, workflowId: string): Promise<boolean>;
+
+  createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun>;
+  getWorkflowRun(organizationId: string, runId: string): Promise<WorkflowRun | null>;
+  listWorkflowRunsForWorkflow(
+    organizationId: string,
+    workflowId: string,
+    limit?: number,
+  ): Promise<WorkflowRun[]>;
+  updateWorkflowRun(runId: string, patch: UpdateWorkflowRunInput): Promise<WorkflowRun | null>;
+
+  createWorkflowRunStep(input: CreateWorkflowRunStepInput): Promise<WorkflowRunStep>;
+  listWorkflowRunSteps(organizationId: string, runId: string): Promise<WorkflowRunStep[]>;
 
   // Model Hub + LLM Gateway (Prompt 006B).
   // Catalog (code-authoritative; not organization-scoped).

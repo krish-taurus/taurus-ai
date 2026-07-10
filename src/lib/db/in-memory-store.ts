@@ -102,6 +102,14 @@ import type {
   MarketplacePayout,
   CreateMarketplacePayoutInput,
   UpdateMarketplacePayoutInput,
+  Workflow,
+  CreateWorkflowInput,
+  UpdateWorkflowInput,
+  WorkflowRun,
+  CreateWorkflowRunInput,
+  UpdateWorkflowRunInput,
+  WorkflowRunStep,
+  CreateWorkflowRunStepInput,
   SemanticRetrievalSegment,
   KnowledgeVaultOverview,
   LlmUsageEvent,
@@ -179,6 +187,10 @@ export class InMemoryStore implements DataStore {
   private marketplacePayments = new Map<string, MarketplacePayment>();
   private marketplacePayoutAccounts = new Map<string, MarketplacePayoutAccount>();
   private marketplacePayouts = new Map<string, MarketplacePayout>();
+  // Workflows (Sprint 048).
+  private workflows = new Map<string, Workflow>();
+  private workflowRuns = new Map<string, WorkflowRun>();
+  private workflowRunSteps = new Map<string, WorkflowRunStep>();
   // Model Hub (Prompt 006B). Credentials keep the encrypted key internally; the
   // metadata getter strips it so it never leaves the store toward the client.
   private orgModelSettings = new Map<string, OrganizationModelSettings>();
@@ -1296,6 +1308,140 @@ export class InMemoryStore implements DataStore {
     return [...this.marketplacePayouts.values()]
       .filter((p) => p.organizationId === organizationId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  // --- Workflows (Sprint 048) ----------------------------------------------
+
+  async createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
+    const timestamp = now();
+    const workflow: Workflow = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      name: input.name,
+      description: input.description ?? null,
+      status: input.status ?? "draft",
+      trigger: input.trigger ?? { type: "manual" },
+      graph: input.graph ?? { entryNodeId: null, nodes: [] },
+      createdByUserId: input.createdByUserId ?? null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    this.workflows.set(workflow.id, workflow);
+    return workflow;
+  }
+
+  async getWorkflow(organizationId: string, workflowId: string): Promise<Workflow | null> {
+    const workflow = this.workflows.get(workflowId);
+    if (!workflow || workflow.organizationId !== organizationId) return null;
+    return workflow;
+  }
+
+  async listWorkflows(organizationId: string): Promise<Workflow[]> {
+    return [...this.workflows.values()]
+      .filter((w) => w.organizationId === organizationId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async updateWorkflow(
+    organizationId: string,
+    workflowId: string,
+    patch: UpdateWorkflowInput,
+  ): Promise<Workflow | null> {
+    const existing = this.workflows.get(workflowId);
+    if (!existing || existing.organizationId !== organizationId) return null;
+    const updated: Workflow = { ...existing, ...patch, updatedAt: now() };
+    this.workflows.set(workflowId, updated);
+    return updated;
+  }
+
+  async deleteWorkflow(organizationId: string, workflowId: string): Promise<boolean> {
+    const existing = this.workflows.get(workflowId);
+    if (!existing || existing.organizationId !== organizationId) return false;
+    this.workflows.delete(workflowId);
+    for (const [id, run] of this.workflowRuns) {
+      if (run.workflowId === workflowId) this.workflowRuns.delete(id);
+    }
+    for (const [id, step] of this.workflowRunSteps) {
+      if (step.organizationId === organizationId && !this.workflowRuns.has(step.runId)) {
+        this.workflowRunSteps.delete(id);
+      }
+    }
+    return true;
+  }
+
+  async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
+    const run: WorkflowRun = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      workflowId: input.workflowId,
+      status: input.status ?? "running",
+      triggeredBy: input.triggeredBy,
+      input: input.input ?? {},
+      output: null,
+      error: null,
+      stepCount: 0,
+      createdByUserId: input.createdByUserId ?? null,
+      startedAt: now(),
+      finishedAt: null,
+    };
+    this.workflowRuns.set(run.id, run);
+    return run;
+  }
+
+  async getWorkflowRun(organizationId: string, runId: string): Promise<WorkflowRun | null> {
+    const run = this.workflowRuns.get(runId);
+    if (!run || run.organizationId !== organizationId) return null;
+    return run;
+  }
+
+  async listWorkflowRunsForWorkflow(
+    organizationId: string,
+    workflowId: string,
+    limit = 50,
+  ): Promise<WorkflowRun[]> {
+    return [...this.workflowRuns.values()]
+      .filter((r) => r.organizationId === organizationId && r.workflowId === workflowId)
+      .sort((a, b) => b.startedAt.localeCompare(a.startedAt))
+      .slice(0, Math.max(1, limit));
+  }
+
+  async updateWorkflowRun(
+    runId: string,
+    patch: UpdateWorkflowRunInput,
+  ): Promise<WorkflowRun | null> {
+    const existing = this.workflowRuns.get(runId);
+    if (!existing) return null;
+    const updated: WorkflowRun = { ...existing, ...patch };
+    this.workflowRuns.set(runId, updated);
+    return updated;
+  }
+
+  async createWorkflowRunStep(input: CreateWorkflowRunStepInput): Promise<WorkflowRunStep> {
+    const step: WorkflowRunStep = {
+      id: uuid(),
+      organizationId: input.organizationId,
+      runId: input.runId,
+      nodeId: input.nodeId,
+      nodeType: input.nodeType,
+      employeeId: input.employeeId ?? null,
+      sequence: input.sequence,
+      status: input.status,
+      input: input.input ?? null,
+      output: input.output ?? null,
+      error: input.error ?? null,
+      createdAt: now(),
+    };
+    this.workflowRunSteps.set(step.id, step);
+    return step;
+  }
+
+  async listWorkflowRunSteps(
+    organizationId: string,
+    runId: string,
+  ): Promise<WorkflowRunStep[]> {
+    return [...this.workflowRunSteps.values()]
+      .filter((s) => s.organizationId === organizationId && s.runId === runId)
+      .sort((a, b) => a.sequence - b.sequence);
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

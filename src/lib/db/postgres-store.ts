@@ -127,6 +127,17 @@ import type {
   MarketplacePayout,
   CreateMarketplacePayoutInput,
   UpdateMarketplacePayoutInput,
+  Workflow,
+  CreateWorkflowInput,
+  UpdateWorkflowInput,
+  WorkflowRun,
+  CreateWorkflowRunInput,
+  UpdateWorkflowRunInput,
+  WorkflowRunStep,
+  CreateWorkflowRunStepInput,
+  WorkflowTrigger,
+  WorkflowGraph,
+  WorkflowNodeType,
   KnowledgeVisibility,
   LlmTaskType,
   LlmUsageEvent,
@@ -554,6 +565,55 @@ function mapMarketplacePayout(row: Row): MarketplacePayout {
     paidAt: row.paid_at ? new Date(row.paid_at).toISOString() : null,
     createdAt: new Date(row.created_at).toISOString(),
     updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapWorkflow(row: Row): Workflow {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    name: row.name,
+    description: row.description ?? null,
+    status: row.status as Workflow["status"],
+    trigger: (row.trigger as WorkflowTrigger) ?? { type: "manual" },
+    graph: (row.graph as WorkflowGraph) ?? { entryNodeId: null, nodes: [] },
+    createdByUserId: row.created_by_user_id ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
+    updatedAt: new Date(row.updated_at).toISOString(),
+  };
+}
+
+function mapWorkflowRun(row: Row): WorkflowRun {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    workflowId: row.workflow_id,
+    status: row.status as WorkflowRun["status"],
+    triggeredBy: row.triggered_by as WorkflowRun["triggeredBy"],
+    input: (row.input as Record<string, unknown>) ?? {},
+    output: row.output ?? null,
+    error: row.error ?? null,
+    stepCount: Number(row.step_count ?? 0),
+    createdByUserId: row.created_by_user_id ?? null,
+    startedAt: new Date(row.started_at).toISOString(),
+    finishedAt: row.finished_at ? new Date(row.finished_at).toISOString() : null,
+  };
+}
+
+function mapWorkflowRunStep(row: Row): WorkflowRunStep {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    runId: row.run_id,
+    nodeId: row.node_id,
+    nodeType: row.node_type as WorkflowNodeType,
+    employeeId: row.employee_id ?? null,
+    sequence: Number(row.sequence),
+    status: row.status as WorkflowRunStep["status"],
+    input: row.input ?? null,
+    output: row.output ?? null,
+    error: row.error ?? null,
+    createdAt: new Date(row.created_at).toISOString(),
   };
 }
 
@@ -2250,6 +2310,176 @@ export class PostgresStore implements DataStore {
       [organizationId],
     );
     return rows.map(mapMarketplacePayout);
+  }
+
+  // --- Workflows (Sprint 048) ----------------------------------------------
+
+  async createWorkflow(input: CreateWorkflowInput): Promise<Workflow> {
+    const { rows } = await this.query(
+      `insert into workflows
+         (organization_id, name, description, status, trigger, graph, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6,$7) returning *`,
+      [
+        input.organizationId,
+        input.name,
+        input.description ?? null,
+        input.status ?? "draft",
+        JSON.stringify(input.trigger ?? { type: "manual" }),
+        JSON.stringify(input.graph ?? { entryNodeId: null, nodes: [] }),
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapWorkflow(rows[0]);
+  }
+
+  async getWorkflow(organizationId: string, workflowId: string): Promise<Workflow | null> {
+    const { rows } = await this.query(
+      "select * from workflows where organization_id = $1 and id = $2",
+      [organizationId, workflowId],
+    );
+    return rows[0] ? mapWorkflow(rows[0]) : null;
+  }
+
+  async listWorkflows(organizationId: string): Promise<Workflow[]> {
+    const { rows } = await this.query(
+      "select * from workflows where organization_id = $1 order by created_at desc",
+      [organizationId],
+    );
+    return rows.map(mapWorkflow);
+  }
+
+  async updateWorkflow(
+    organizationId: string,
+    workflowId: string,
+    patch: UpdateWorkflowInput,
+  ): Promise<Workflow | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if (patch.name !== undefined) add("name", patch.name);
+    if ("description" in patch) add("description", patch.description ?? null);
+    if (patch.status !== undefined) add("status", patch.status);
+    if (patch.trigger !== undefined) add("trigger", JSON.stringify(patch.trigger));
+    if (patch.graph !== undefined) add("graph", JSON.stringify(patch.graph));
+    if (sets.length === 0) return this.getWorkflow(organizationId, workflowId);
+    sets.push("updated_at = now()");
+    values.push(organizationId, workflowId);
+    const { rows } = await this.query(
+      `update workflows set ${sets.join(", ")}
+       where organization_id = $${i++} and id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapWorkflow(rows[0]) : null;
+  }
+
+  async deleteWorkflow(organizationId: string, workflowId: string): Promise<boolean> {
+    const { rowCount } = await this.query(
+      "delete from workflows where organization_id = $1 and id = $2",
+      [organizationId, workflowId],
+    );
+    return (rowCount ?? 0) > 0;
+  }
+
+  async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
+    const { rows } = await this.query(
+      `insert into workflow_runs
+         (organization_id, workflow_id, status, triggered_by, input, created_by_user_id)
+       values ($1,$2,$3,$4,$5,$6) returning *`,
+      [
+        input.organizationId,
+        input.workflowId,
+        input.status ?? "running",
+        input.triggeredBy,
+        JSON.stringify(input.input ?? {}),
+        input.createdByUserId ?? null,
+      ],
+    );
+    return mapWorkflowRun(rows[0]);
+  }
+
+  async getWorkflowRun(organizationId: string, runId: string): Promise<WorkflowRun | null> {
+    const { rows } = await this.query(
+      "select * from workflow_runs where organization_id = $1 and id = $2",
+      [organizationId, runId],
+    );
+    return rows[0] ? mapWorkflowRun(rows[0]) : null;
+  }
+
+  async listWorkflowRunsForWorkflow(
+    organizationId: string,
+    workflowId: string,
+    limit = 50,
+  ): Promise<WorkflowRun[]> {
+    const { rows } = await this.query(
+      `select * from workflow_runs
+       where organization_id = $1 and workflow_id = $2
+       order by started_at desc limit $3`,
+      [organizationId, workflowId, Math.max(1, limit)],
+    );
+    return rows.map(mapWorkflowRun);
+  }
+
+  async updateWorkflowRun(
+    runId: string,
+    patch: UpdateWorkflowRunInput,
+  ): Promise<WorkflowRun | null> {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    let i = 1;
+    const add = (col: string, val: unknown) => {
+      sets.push(`${col} = $${i++}`);
+      values.push(val);
+    };
+    if (patch.status !== undefined) add("status", patch.status);
+    if ("output" in patch) add("output", patch.output ?? null);
+    if ("error" in patch) add("error", patch.error ?? null);
+    if (patch.stepCount !== undefined) add("step_count", patch.stepCount);
+    if ("finishedAt" in patch) add("finished_at", patch.finishedAt ?? null);
+    if (sets.length === 0) return null;
+    values.push(runId);
+    const { rows } = await this.query(
+      `update workflow_runs set ${sets.join(", ")} where id = $${i} returning *`,
+      values,
+    );
+    return rows[0] ? mapWorkflowRun(rows[0]) : null;
+  }
+
+  async createWorkflowRunStep(input: CreateWorkflowRunStepInput): Promise<WorkflowRunStep> {
+    const { rows } = await this.query(
+      `insert into workflow_run_steps
+         (organization_id, run_id, node_id, node_type, employee_id, sequence, status, input, output, error)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`,
+      [
+        input.organizationId,
+        input.runId,
+        input.nodeId,
+        input.nodeType,
+        input.employeeId ?? null,
+        input.sequence,
+        input.status,
+        input.input ?? null,
+        input.output ?? null,
+        input.error ?? null,
+      ],
+    );
+    return mapWorkflowRunStep(rows[0]);
+  }
+
+  async listWorkflowRunSteps(
+    organizationId: string,
+    runId: string,
+  ): Promise<WorkflowRunStep[]> {
+    const { rows } = await this.query(
+      `select * from workflow_run_steps
+       where organization_id = $1 and run_id = $2
+       order by sequence asc`,
+      [organizationId, runId],
+    );
+    return rows.map(mapWorkflowRunStep);
   }
 
   // --- Model Hub + LLM Gateway (Prompt 006B) --------------------------------

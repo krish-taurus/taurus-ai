@@ -1,5 +1,40 @@
 # Changelog
 
+## Sprint 048 - Workflows: chain AI Employees together (Phase 1) — 2026-07-10
+
+Added:
+
+- **Workflows** — a new automation surface where AI Employees hand work off to
+  one another. A workflow is a graph of steps: a trigger starts a run and each
+  step's output feeds the next (Triage → Refunds → notify). Modeled on how n8n
+  wires nodes together, but every node is one of your own AI Employees.
+  - **Execution engine** (`src/modules/workflows/engine.ts`) runs a workflow as a
+    durable, checkpointed state machine: start at the entry node, execute one
+    node at a time, persist a step row for each, follow the node's `next` pointer
+    until the graph ends. Phase 1 runs inline within the request; the run/step
+    ledger is already shaped for a later "resume a running run via a tick".
+    Employee steps run headlessly through the **same `sendChatMessage` path as
+    chat** (a system actor), so every governance gate, model-routing rule and
+    **billing quota** still applies — a workflow can't spend or answer in a way
+    normal chat couldn't. A hard **50-step cap** stops a mis-wired loop.
+  - **Node types**: *AI Employee* (send a message, capture the reply), *Branch*
+    (route on a comparison), and *Format* (reshape text with no model call).
+    Steps reference earlier output with `{{input}}` and `{{steps.<id>.output}}`
+    templating (safe, no code execution). Manual "Run now" trigger; channel and
+    schedule triggers are the next phase.
+  - **Builder + run history** under `/dashboard/workflows`: a list-style builder
+    (add/reorder/remove steps, pick an employee, wire branches), a Run panel, and
+    a full run trace showing each step's input, output and status in order.
+  - **Data**: migration `0028_workflows.sql` adds `workflows`, `workflow_runs`,
+    `workflow_run_steps` (org-scoped, a durable ledger with a unique
+    `(run_id, sequence)` index for idempotent advancement); full types + both
+    store implementations. New `workflow.view` / `workflow.manage` permissions
+    (manage = owner/admin/builder).
+  - Tested: templating + condition evaluation, employee-to-employee handoff with
+    data passing, conditional branching (only the taken path runs), a blocked
+    employee failing the run cleanly, and the loop cap. `tsc` clean · `next lint`
+    clean · production build clean · **606 tests + 6 skipped**.
+
 ## Sprint 047 - Honest seller balances (decouple payout "paid" from transfer creation) — 2026-07-10
 
 Changed:

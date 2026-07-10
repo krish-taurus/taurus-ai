@@ -64,6 +64,10 @@ export const PERMISSIONS = [
   // saving provider credentials is owner/admin only (deployment + secrets).
   // Simulated testing reuses channel.manage (owner/admin/builder).
   "messaging_channel.manage",
+  // Workflows (Sprint 048). view = see workflows + run history (all roles);
+  // manage = create/edit/run/delete workflows (owner/admin/builder, not viewer).
+  "workflow.view",
+  "workflow.manage",
   "employee.test",
   "employee.view",
   "dashboard.view",
@@ -97,6 +101,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "channel.view",
     "channel.manage",
     "messaging_channel.manage",
+    "workflow.view",
+    "workflow.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -115,6 +121,8 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee_chat.use",
     "channel.view",
     "channel.manage",
+    "workflow.view",
+    "workflow.manage",
     "employee.test",
     "employee.view",
     "dashboard.view",
@@ -130,6 +138,7 @@ const ROLE_PERMISSIONS: Record<Role, ReadonlySet<Permission>> = {
     "employee_chat.view",
     "employee_chat.use",
     "channel.view",
+    "workflow.view",
     "dashboard.view",
   ]),
 };
