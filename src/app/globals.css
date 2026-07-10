@@ -162,6 +162,84 @@
     background-size: 200% 100%;
     animation: landing-shimmer 6s linear infinite;
   }
+
+  /* Landing v3 — endless capability marquee. */
+  @keyframes landing-marquee {
+    from {
+      transform: translateX(0);
+    }
+    to {
+      transform: translateX(-100%);
+    }
+  }
+  .landing-marquee {
+    animation: landing-marquee 36s linear infinite;
+  }
+  .landing-marquee-reverse {
+    animation: landing-marquee 36s linear infinite reverse;
+  }
+
+  /* Landing v3 — slow orbital rotation for the hero workforce rings. */
+  @keyframes landing-orbit {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  .landing-orbit {
+    animation: landing-orbit 60s linear infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+  .landing-orbit-reverse {
+    animation: landing-orbit 80s linear infinite reverse;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+
+  /* Landing v3 — soft breathing ring behind the intelligence core. */
+  @keyframes landing-breathe {
+    0%,
+    100% {
+      opacity: 0.25;
+      transform: scale(0.96);
+    }
+    50% {
+      opacity: 0.6;
+      transform: scale(1.04);
+    }
+  }
+  .landing-breathe {
+    animation: landing-breathe 5s ease-in-out infinite;
+    transform-origin: center;
+    transform-box: fill-box;
+  }
+
+  /* Landing v3 — a task dot travelling along a workflow path. */
+  @keyframes landing-travel {
+    from {
+      offset-distance: 0%;
+    }
+    to {
+      offset-distance: 100%;
+    }
+  }
+  .landing-travel {
+    animation: landing-travel 7s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  }
+
+  /* Landing v3 — blinking live-status dot. */
+  @keyframes landing-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.25;
+    }
+  }
+  .landing-blink {
+    animation: landing-blink 2.2s ease-in-out infinite;
+  }
 }
 
 /* Respect users who prefer reduced motion: disable all transitions/animations. */

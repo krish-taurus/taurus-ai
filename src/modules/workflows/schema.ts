@@ -103,6 +103,7 @@ const nodeSchema = z.discriminatedUnion("type", [
 export const workflowGraphSchema = z.object({
   entryNodeId: z.string().nullable(),
   nodes: z.array(nodeSchema).max(MAX_NODES),
+  layout: z.record(z.object({ x: z.number(), y: z.number() })).optional(),
 });
 
 export const SCHEDULE_MIN_MINUTES = 5;
