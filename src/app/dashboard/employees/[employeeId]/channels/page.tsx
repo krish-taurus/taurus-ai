@@ -241,18 +241,32 @@ export default async function ChannelsPage({ params }: { params: { employeeId: s
           Bring this AI Employee into Slack with one tap — authorize the app and it replies to
           messages and mentions in your workspace.
         </p>
-        <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
-          <div>
-            <h3 className="text-sm font-medium text-taurus-text">Slack</h3>
-            <p className="text-xs text-taurus-faint">Replies to messages &amp; @-mentions in your workspace.</p>
-          </div>
-          <Link
-            href={`/dashboard/employees/${employee.id}/channels/slack`}
-            className={buttonClasses("secondary", "sm")}
-          >
-            {canManage ? "Set up Slack" : "View Slack"}
-          </Link>
-        </Card>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h3 className="text-sm font-medium text-taurus-text">Slack</h3>
+              <p className="text-xs text-taurus-faint">Replies to messages &amp; @-mentions.</p>
+            </div>
+            <Link
+              href={`/dashboard/employees/${employee.id}/channels/slack`}
+              className={buttonClasses("secondary", "sm")}
+            >
+              {canManage ? "Set up Slack" : "View Slack"}
+            </Link>
+          </Card>
+          <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+            <div>
+              <h3 className="text-sm font-medium text-taurus-text">Microsoft Teams</h3>
+              <p className="text-xs text-taurus-faint">Answers in your Teams workspace.</p>
+            </div>
+            <Link
+              href={`/dashboard/employees/${employee.id}/channels/teams`}
+              className={buttonClasses("secondary", "sm")}
+            >
+              {canManage ? "Set up Teams" : "View Teams"}
+            </Link>
+          </Card>
+        </div>
       </section>
 
       {/* Full channel catalog (remaining apps are coming soon) */}

@@ -502,6 +502,8 @@ export interface DataStore {
   getEmployeeChannelByPublicKey(publicKey: string): Promise<EmployeeChannel | null>;
   /** Resolve a Slack channel by its workspace team id (inbound event routing). */
   getEmployeeChannelBySlackTeam(teamId: string): Promise<EmployeeChannel | null>;
+  /** Resolve a Teams channel by its workspace tenant id (inbound event routing). */
+  getEmployeeChannelByTeamsTenant(tenantId: string): Promise<EmployeeChannel | null>;
   updateEmployeeChannel(
     organizationId: string,
     channelId: string,

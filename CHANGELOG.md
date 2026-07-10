@@ -1,5 +1,36 @@
 # Changelog
 
+## Sprint 043 - Microsoft Teams channel (last connection) — 2026-07-09
+
+Added:
+
+- **Microsoft Teams** — the AI Employee now answers in Teams, completing the
+  channel set from the Connections screen. Built on the Bot Framework: the Bot
+  Connector POSTs an Activity to our messaging endpoint with a signed JWT; we
+  **validate the token**, resolve the org from the Activity's **tenant id**, and
+  reply through the Connector.
+  - **Testable core, honestly scoped**: `teams/bot-framework.ts` — Activity
+    parsing (strips `@mention` tags), **RS256 JWT verification against the
+    connector JWKS** (audience + expiry + signature), a client-credentials
+    connector token, and the reply `sendReply` — all **unit tested** (the JWT
+    verifier is tested with a real generated RSA keypair + injected JWKS). A Teams
+    `MessagingProvider` adapter replies via the serviceUrl stashed on the
+    connection; the service (`processTeamsActivity`) owns tenant routing + JWT
+    verification and reuses the shared messaging runtime.
+  - New `microsoft_graph` provider registered, `getEmployeeChannelByTeamsTenant`
+    on both stores (no migration; reuses `employee_channels` + `provider_config`),
+    `POST /api/webhooks/teams`, a Teams setup page (enter the App ID + client
+    secret + tenant → messaging endpoint), and a Workplace card. Teams now shows
+    **available** in the catalog + Connections — **every channel from the
+    Connections screen is now built**. New optional server-only `TEAMS_APP_ID` /
+    `TEAMS_APP_PASSWORD`; without them Teams runs in simulated mode.
+  - **Scope note**: going live needs an Azure app registration + AAD credentials +
+    a sideloaded Teams manifest — that can only be exercised against real Azure, so
+    the live handshake isn't test-covered; the parsing, JWT verification, token,
+    reply and connect logic are. Verified on **live PostgreSQL** (tenant lookup) +
+    unit tests. `tsc` clean · `next lint` clean · **567 tests + 6 skipped** ·
+    build compiles.
+
 ## Sprint 042 - Facebook Messenger + Instagram DM channels — 2026-07-09
 
 Added:
