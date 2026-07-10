@@ -49,7 +49,9 @@ export default async function PublicResumePage({ params }: { params: { publicKey
     <div className="min-h-screen bg-taurus-app">
       <header className="border-b border-taurus-line">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-6 py-4">
-          <span className="text-sm font-semibold tracking-tight text-taurus-text">Taurus AI</span>
+          <Link href="/marketplace" className="text-sm font-semibold tracking-tight text-taurus-text">
+            Taurus AI
+          </Link>
           <Link href="/dashboard/marketplace" className={buttonClasses("secondary", "sm")}>
             Sign in to hire
           </Link>

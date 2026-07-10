@@ -1,5 +1,25 @@
 # Changelog
 
+## Sprint 051 - Public marketplace directory — 2026-07-10
+
+Added:
+
+- **Public marketplace directory** at **`/marketplace`** — an unauthenticated,
+  LinkedIn-style browse of every published AI Employee. Anyone can look; hiring /
+  leasing / subscribing still requires signing in (cards link to each public
+  resume, and the header + resume page route into the authenticated flow).
+  - **Filters + sort** (server-rendered, no JavaScript): full-text search
+    (title / role / headline / summary), role dropdown, price (any / free / paid),
+    minimum rating, and sort by top-rated / most-hired / newest / price. Only the
+    public listing snapshot is shown — never private vault content.
+  - Pure, tested `applyBrowse` / `parseBrowseQuery` / `availableRoles`
+    (`src/modules/marketplace/browse.ts`); the middleware already leaves
+    `/marketplace` public, and the resume page now links back to the directory.
+  - Tested: filter-by-free/paid/role/search/rating and every sort order, plus
+    query normalization with safe defaults. `tsc` clean · `next lint` clean ·
+    production build clean · **622 tests + 6 skipped** · public route verified
+    unauthenticated (200, renders the filter bar + empty state).
+
 ## Sprint 050 - Workflows Phase 2b: approvals, schedules, inbound-channel triggers — 2026-07-10
 
 Added:
