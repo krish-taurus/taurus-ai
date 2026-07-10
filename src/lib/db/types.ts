@@ -626,10 +626,22 @@ export interface UpdateMarketplacePayoutInput {
 
 export type WorkflowStatus = "draft" | "active" | "paused" | "archived";
 
-/** What starts a run. Phase 1 is manual-only; channel/schedule/webhook follow. */
-export type WorkflowTrigger = { type: "manual" };
+/**
+ * What starts a run. `manual` runs from the dashboard; `webhook` runs when an
+ * external system POSTs to the workflow's private URL (the token is the secret).
+ * Schedule + channel triggers follow in a later phase.
+ */
+export type WorkflowTrigger =
+  | { type: "manual" }
+  | { type: "webhook"; token: string };
 
-export type WorkflowNodeType = "trigger" | "employee" | "condition" | "transform";
+export type WorkflowNodeType =
+  | "trigger"
+  | "employee"
+  | "condition"
+  | "transform"
+  | "send_message"
+  | "sub_workflow";
 
 /** Comparison operators for a condition (branch) node. */
 export type WorkflowConditionOperator =
@@ -678,6 +690,24 @@ export type WorkflowNode =
       expression: WorkflowConditionExpression;
       nextIfTrue: string | null;
       nextIfFalse: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "send_message";
+      /** A connected messaging channel to send through. */
+      channelId: string;
+      /** Templated recipient (phone / email / chat id, per the channel). */
+      recipientTemplate: string;
+      /** Templated message body. */
+      messageTemplate: string;
+      next: string | null;
+    })
+  | (WorkflowNodeBase & {
+      type: "sub_workflow";
+      /** Another workflow in the same org to run as a step. */
+      workflowId: string;
+      /** Templated starting message passed to the sub-workflow. */
+      inputTemplate: string;
+      next: string | null;
     });
 
 export interface WorkflowGraph {

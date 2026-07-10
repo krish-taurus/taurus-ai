@@ -36,8 +36,16 @@ export interface EmployeeOption {
   roleTitle: string | null;
   ready: boolean;
 }
+export interface ChannelOption {
+  id: string;
+  label: string;
+}
+export interface WorkflowOption {
+  id: string;
+  name: string;
+}
 
-type StepType = "employee" | "condition" | "transform";
+type StepType = "employee" | "condition" | "transform" | "send_message" | "sub_workflow";
 
 interface EmployeeStep {
   id: string;
@@ -60,7 +68,25 @@ interface ConditionStep {
   trueTarget: string; // step id or "__end__"
   falseTarget: string; // step id or "__end__"
 }
-type BuilderStep = EmployeeStep | TransformStep | ConditionStep;
+interface SendMessageStep {
+  id: string;
+  type: "send_message";
+  channelId: string;
+  recipientTemplate: string;
+  messageTemplate: string;
+}
+interface SubWorkflowStep {
+  id: string;
+  type: "sub_workflow";
+  workflowId: string;
+  inputTemplate: string;
+}
+type BuilderStep =
+  | EmployeeStep
+  | TransformStep
+  | ConditionStep
+  | SendMessageStep
+  | SubWorkflowStep;
 
 const END = "__end__";
 
@@ -100,6 +126,18 @@ function graphToSteps(graph: WorkflowGraph): BuilderStep[] {
     if (node.type === "transform") {
       return { id: node.id, type: "transform", template: node.template };
     }
+    if (node.type === "send_message") {
+      return {
+        id: node.id,
+        type: "send_message",
+        channelId: node.channelId,
+        recipientTemplate: node.recipientTemplate,
+        messageTemplate: node.messageTemplate,
+      };
+    }
+    if (node.type === "sub_workflow") {
+      return { id: node.id, type: "sub_workflow", workflowId: node.workflowId, inputTemplate: node.inputTemplate };
+    }
     // trigger nodes aren't authored in the builder (manual trigger is implicit)
     return { id: node.id, type: "transform", template: "" };
   });
@@ -114,6 +152,19 @@ function stepsToGraph(steps: BuilderStep[]): WorkflowGraph {
     }
     if (step.type === "transform") {
       return { id: step.id, type: "transform", template: step.template, next };
+    }
+    if (step.type === "send_message") {
+      return {
+        id: step.id,
+        type: "send_message",
+        channelId: step.channelId,
+        recipientTemplate: step.recipientTemplate,
+        messageTemplate: step.messageTemplate,
+        next,
+      };
+    }
+    if (step.type === "sub_workflow") {
+      return { id: step.id, type: "sub_workflow", workflowId: step.workflowId, inputTemplate: step.inputTemplate, next };
     }
     const resolve = (t: string) => (t === END ? null : t);
     return {
@@ -145,10 +196,14 @@ export function WorkflowBuilder({
   workflowId,
   initialGraph,
   employees,
+  channels,
+  workflows,
 }: {
   workflowId: string;
   initialGraph: WorkflowGraph;
   employees: EmployeeOption[];
+  channels: ChannelOption[];
+  workflows: WorkflowOption[];
 }) {
   const [steps, setSteps] = useState<BuilderStep[]>(() => graphToSteps(initialGraph));
   const [state, action] = useFormState(saveWorkflowAction, {} as WorkflowActionState);
@@ -176,7 +231,7 @@ export function WorkflowBuilder({
       return copy;
     });
   const add = (type: StepType) =>
-    setSteps((prev) => [...prev, blankStep(type, employees)]);
+    setSteps((prev) => [...prev, blankStep(type, employees, channels, workflows)]);
 
   return (
     <form action={action} className="flex flex-col gap-4">
@@ -208,6 +263,8 @@ export function WorkflowBuilder({
             index={i}
             step={step}
             employees={employees}
+            channels={channels}
+            workflows={workflows}
             stepLabels={stepLabels}
             isFirst={i === 0}
             isLast={i === steps.length - 1}
@@ -225,6 +282,12 @@ export function WorkflowBuilder({
         </button>
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("condition")}>
           + Branch
+        </button>
+        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("send_message")}>
+          + Send message
+        </button>
+        <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("sub_workflow")}>
+          + Run workflow
         </button>
         <button type="button" className={buttonClasses("secondary", "sm")} onClick={() => add("transform")}>
           + Format
@@ -245,15 +308,34 @@ function labelFor(step: BuilderStep, employees: EmployeeOption[]): string {
     return employees.find((e) => e.id === step.employeeId)?.name ?? "AI Employee";
   }
   if (step.type === "condition") return "Branch";
+  if (step.type === "send_message") return "Send message";
+  if (step.type === "sub_workflow") return "Run workflow";
   return "Format";
 }
 
-function blankStep(type: StepType, employees: EmployeeOption[]): BuilderStep {
+function blankStep(
+  type: StepType,
+  employees: EmployeeOption[],
+  channels: ChannelOption[],
+  workflows: WorkflowOption[],
+): BuilderStep {
   if (type === "employee") {
     return { id: newId(), type: "employee", employeeId: employees[0]?.id ?? "", messageTemplate: "{{input}}" };
   }
   if (type === "transform") {
     return { id: newId(), type: "transform", template: "{{input}}" };
+  }
+  if (type === "send_message") {
+    return {
+      id: newId(),
+      type: "send_message",
+      channelId: channels[0]?.id ?? "",
+      recipientTemplate: "",
+      messageTemplate: "{{input}}",
+    };
+  }
+  if (type === "sub_workflow") {
+    return { id: newId(), type: "sub_workflow", workflowId: workflows[0]?.id ?? "", inputTemplate: "{{input}}" };
   }
   return {
     id: newId(),
@@ -267,10 +349,20 @@ function blankStep(type: StepType, employees: EmployeeOption[]): BuilderStep {
   };
 }
 
+const TYPE_NAMES: Record<StepType, string> = {
+  employee: "AI Employee",
+  condition: "Branch",
+  send_message: "Send message",
+  sub_workflow: "Run workflow",
+  transform: "Format",
+};
+
 function StepCard({
   index,
   step,
   employees,
+  channels,
+  workflows,
   stepLabels,
   isFirst,
   isLast,
@@ -281,6 +373,8 @@ function StepCard({
   index: number;
   step: BuilderStep;
   employees: EmployeeOption[];
+  channels: ChannelOption[];
+  workflows: WorkflowOption[];
   stepLabels: { id: string; label: string }[];
   isFirst: boolean;
   isLast: boolean;
@@ -288,7 +382,7 @@ function StepCard({
   onRemove: () => void;
   onMove: (dir: -1 | 1) => void;
 }) {
-  const typeName = step.type === "employee" ? "AI Employee" : step.type === "condition" ? "Branch" : "Format";
+  const typeName = TYPE_NAMES[step.type];
   const targets = [{ id: END, label: "Stop here" }, ...stepLabels.filter((s) => s.id !== step.id)];
 
   return (
@@ -358,6 +452,86 @@ function StepCard({
             rows={3}
           />
         </Field>
+      ) : null}
+
+      {step.type === "send_message" ? (
+        <div className="flex flex-col gap-3">
+          <Field label="Send through" htmlFor={`ch-${step.id}`}>
+            {channels.length === 0 ? (
+              <p className="text-sm text-taurus-faint">
+                No messaging channels connected yet. Set one up under Connections first.
+              </p>
+            ) : (
+              <Select
+                id={`ch-${step.id}`}
+                value={step.channelId}
+                onChange={(e) => onChange({ channelId: e.target.value })}
+              >
+                {channels.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.label}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field
+            label="Recipient"
+            htmlFor={`rc-${step.id}`}
+            hint="Phone, email or chat id — match the channel. Templates like {{input}} work too."
+          >
+            <Input
+              id={`rc-${step.id}`}
+              value={step.recipientTemplate}
+              onChange={(e) => onChange({ recipientTemplate: e.target.value })}
+              placeholder="e.g. +15551234567"
+            />
+          </Field>
+          <Field label="Message" htmlFor={`sm-${step.id}`}>
+            <Textarea
+              id={`sm-${step.id}`}
+              value={step.messageTemplate}
+              onChange={(e) => onChange({ messageTemplate: e.target.value })}
+              rows={3}
+            />
+          </Field>
+        </div>
+      ) : null}
+
+      {step.type === "sub_workflow" ? (
+        <div className="flex flex-col gap-3">
+          <Field label="Which workflow to run" htmlFor={`wf-${step.id}`}>
+            {workflows.length === 0 ? (
+              <p className="text-sm text-taurus-faint">
+                No other workflows yet — create another workflow to chain into it.
+              </p>
+            ) : (
+              <Select
+                id={`wf-${step.id}`}
+                value={step.workflowId}
+                onChange={(e) => onChange({ workflowId: e.target.value })}
+              >
+                {workflows.map((w) => (
+                  <option key={w.id} value={w.id}>
+                    {w.name}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field
+            label="Send it this message"
+            htmlFor={`si-${step.id}`}
+            hint="Becomes {{input}} inside the other workflow."
+          >
+            <Textarea
+              id={`si-${step.id}`}
+              value={step.inputTemplate}
+              onChange={(e) => onChange({ inputTemplate: e.target.value })}
+              rows={2}
+            />
+          </Field>
+        </div>
       ) : null}
 
       {step.type === "condition" ? (

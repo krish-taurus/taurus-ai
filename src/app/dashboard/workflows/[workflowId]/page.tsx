@@ -10,13 +10,21 @@ import { notFound, redirect } from "next/navigation";
 import { getStore } from "@/lib/db/store";
 import { requireCurrentOrganization } from "@/lib/security/guards";
 import { hasPermission } from "@/modules/organizations/roles";
-import { getWorkflow, listWorkflowRuns } from "@/modules/workflows/service";
-import { WorkflowBuilder, type EmployeeOption } from "@/components/workflows/workflow-builder";
+import { getClientEnv } from "@/lib/env/env";
+import { getWorkflow, listWorkflows, listWorkflowRuns } from "@/modules/workflows/service";
+import { isMessagingChannelType } from "@/modules/channels/messaging/catalog";
+import {
+  WorkflowBuilder,
+  type EmployeeOption,
+  type ChannelOption,
+  type WorkflowOption,
+} from "@/components/workflows/workflow-builder";
 import {
   RunWorkflowForm,
   WorkflowStatusButton,
   DeleteWorkflowButton,
 } from "@/components/workflows/workflow-controls";
+import { TriggerPanel } from "@/components/workflows/trigger-panel";
 import { Badge, BackLink, Card, PageHeader } from "@/components/ui";
 
 function runTone(status: string): "soft" | "outline" {
@@ -46,8 +54,10 @@ export default async function WorkflowBuilderPage({
   const workflow = await getWorkflow(store, organization.id, params.workflowId);
   if (!workflow) notFound();
 
-  const [employees, runs] = await Promise.all([
+  const [employees, channels, allWorkflows, runs] = await Promise.all([
     store.listEmployees(organization.id),
+    store.listEmployeeChannelsForOrganization(organization.id),
+    listWorkflows(store, organization.id),
     listWorkflowRuns(store, organization.id, workflow.id, 10),
   ]);
   const active = employees.filter((e) => e.status !== "archived");
@@ -60,6 +70,18 @@ export default async function WorkflowBuilderPage({
     roleTitle: e.roleTitle,
     ready: readyFlags[i],
   }));
+  const channelOptions: ChannelOption[] = channels
+    .filter((c) => c.status !== "archived" && isMessagingChannelType(c.channelType))
+    .map((c) => ({ id: c.id, label: `${c.name} (${c.channelType})` }));
+  const workflowOptions: WorkflowOption[] = allWorkflows
+    .filter((w) => w.id !== workflow.id)
+    .map((w) => ({ id: w.id, name: w.name }));
+
+  const appUrl = getClientEnv().NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  const webhookUrl =
+    workflow.trigger.type === "webhook"
+      ? `${appUrl}/api/workflows/hooks/${workflow.trigger.token}`
+      : null;
 
   return (
     <div className="max-w-3xl">
@@ -81,11 +103,22 @@ export default async function WorkflowBuilderPage({
             workflowId={workflow.id}
             initialGraph={workflow.graph}
             employees={employeeOptions}
+            channels={channelOptions}
+            workflows={workflowOptions}
           />
         </div>
 
         {/* Run + history */}
         <div className="flex flex-col gap-6">
+          <Card className="p-5">
+            <h2 className="mb-3 text-sm font-semibold text-taurus-text">Trigger</h2>
+            <TriggerPanel
+              workflowId={workflow.id}
+              triggerType={workflow.trigger.type}
+              webhookUrl={webhookUrl}
+            />
+          </Card>
+
           <Card className="p-5">
             <h2 className="mb-3 text-sm font-semibold text-taurus-text">Run now</h2>
             <RunWorkflowForm workflowId={workflow.id} />

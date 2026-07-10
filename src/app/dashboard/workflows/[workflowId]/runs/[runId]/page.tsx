@@ -24,6 +24,10 @@ function stepKind(step: WorkflowRunStep): string {
       return "AI Employee";
     case "condition":
       return "Branch";
+    case "send_message":
+      return "Send message";
+    case "sub_workflow":
+      return "Run workflow";
     case "transform":
       return "Format";
     default:

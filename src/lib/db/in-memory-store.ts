@@ -1369,6 +1369,16 @@ export class InMemoryStore implements DataStore {
     return true;
   }
 
+  async getWorkflowByWebhookToken(token: string): Promise<Workflow | null> {
+    if (!token) return null;
+    for (const workflow of this.workflows.values()) {
+      if (workflow.trigger.type === "webhook" && workflow.trigger.token === token) {
+        return workflow;
+      }
+    }
+    return null;
+  }
+
   async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
     const run: WorkflowRun = {
       id: uuid(),

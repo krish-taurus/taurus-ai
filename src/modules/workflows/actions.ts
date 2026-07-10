@@ -19,6 +19,7 @@ import {
   createWorkflow,
   updateWorkflowDetails,
   setWorkflowStatus,
+  setWorkflowTrigger,
   deleteWorkflow,
   startWorkflowRun,
   WorkflowError,
@@ -122,6 +123,30 @@ export async function setWorkflowStatusAction(
     return { error: messageFor(err) };
   }
   revalidatePath("/dashboard/workflows");
+  revalidatePath(`/dashboard/workflows/${workflowId}`);
+  return { ok: true };
+}
+
+export async function setWorkflowTriggerAction(
+  _prev: WorkflowActionState,
+  formData: FormData,
+): Promise<WorkflowActionState> {
+  const { user, organization, membership } = await requireCurrentOrganization();
+  if (!hasPermission(membership.role, "workflow.manage")) return { error: DENIED };
+
+  const workflowId = String(formData.get("workflowId") ?? "");
+  const kind = String(formData.get("kind") ?? "");
+  if (kind !== "manual" && kind !== "webhook") return { error: "That trigger is not valid." };
+  try {
+    await setWorkflowTrigger(
+      getStore(),
+      { organizationId: organization.id, userId: user.id },
+      workflowId,
+      kind,
+    );
+  } catch (err) {
+    return { error: messageFor(err) };
+  }
   revalidatePath(`/dashboard/workflows/${workflowId}`);
   return { ok: true };
 }

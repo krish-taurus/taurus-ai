@@ -58,6 +58,23 @@ const nodeSchema = z.discriminatedUnion("type", [
     nextIfTrue: z.string().nullable(),
     nextIfFalse: z.string().nullable(),
   }),
+  z.object({
+    id: nodeIdSchema,
+    label: labelSchema,
+    type: z.literal("send_message"),
+    channelId: z.string().min(1),
+    recipientTemplate: z.string().max(2000),
+    messageTemplate: z.string().max(8000),
+    next: z.string().nullable(),
+  }),
+  z.object({
+    id: nodeIdSchema,
+    label: labelSchema,
+    type: z.literal("sub_workflow"),
+    workflowId: z.string().min(1),
+    inputTemplate: z.string().max(8000),
+    next: z.string().nullable(),
+  }),
 ]);
 
 export const workflowGraphSchema = z.object({
@@ -65,7 +82,10 @@ export const workflowGraphSchema = z.object({
   nodes: z.array(nodeSchema).max(MAX_NODES),
 });
 
-export const workflowTriggerSchema = z.object({ type: z.literal("manual") });
+export const workflowTriggerSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("manual") }),
+  z.object({ type: z.literal("webhook"), token: z.string().min(16).max(64) }),
+]);
 
 export const workflowNameSchema = z.string().trim().min(1).max(WORKFLOW_NAME_MAX);
 export const workflowDescriptionSchema = z.string().trim().max(1000);

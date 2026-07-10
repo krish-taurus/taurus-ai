@@ -28,10 +28,14 @@ import {
   type ChatGateway,
 } from "@/modules/employee-chat/service";
 import { EntitlementError } from "@/modules/billing/service";
+import { getMessagingProvider } from "@/modules/channels/messaging/registry";
+import { resolveProviderConfig } from "@/modules/channels/messaging/config";
 import { emptyContext, evaluateCondition, interpolate, type RunContext } from "@/modules/workflows/templating";
 
 /** Hard cap so a mis-wired graph (e.g. a cycle) can never run forever. */
 export const MAX_STEPS_PER_RUN = 50;
+/** How deep workflow-runs-workflow chains may nest before we refuse. */
+export const MAX_WORKFLOW_DEPTH = 3;
 
 export interface WorkflowEngineDeps {
   store: DataStore;
@@ -46,6 +50,8 @@ export interface RunWorkflowParams {
   triggeredBy: WorkflowRunTriggerSource;
   /** Trigger payload; `message` is used as the run's starting text. */
   input?: Record<string, unknown>;
+  /** Nesting depth for workflow-runs-workflow chains (0 = top level). */
+  depth?: number;
 }
 
 interface StepOutcome {
@@ -119,6 +125,92 @@ async function executeNode(
       meaningful: false,
       employeeId: null,
       input: `${node.expression.left} ${node.expression.operator} ${node.expression.right ?? ""}`.trim(),
+    };
+  }
+
+  if (node.type === "send_message") {
+    const recipient = interpolate(node.recipientTemplate, context).trim();
+    const text = interpolate(node.messageTemplate, context);
+    const summary = `→ ${recipient || "(no recipient)"}: ${text}`;
+    if (!recipient) {
+      return { status: "failed", output: "", error: "This step has no recipient to send to.", nextNodeId: null, meaningful: false, employeeId: null, input: text || null };
+    }
+    const channel = await store.getEmployeeChannel(orgId, node.channelId);
+    if (!channel) {
+      return { status: "failed", output: "", error: "The channel for this step could not be found.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+    const provider = getMessagingProvider(channel.channelProvider);
+    if (!provider) {
+      return { status: "failed", output: "", error: "This channel type can't send messages.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+    try {
+      const config = await resolveProviderConfig(store, channel, provider);
+      const mode = provider.getProviderStatus(config).mode;
+      let result: { status: string; errorCode: string | null };
+      if (mode === "live") {
+        result = await provider.sendMessage(
+          {
+            providerType: channel.channelProvider,
+            channelType: channel.channelType,
+            recipientExternalId: recipient,
+            messageText: text,
+            conversationId: `workflow-${params.workflow.id}`,
+            channelId: channel.id,
+            metadata: {},
+          },
+          config,
+        );
+      } else {
+        result = { status: "simulated", errorCode: null };
+      }
+      if (result.status === "failed") {
+        return { status: "failed", output: "", error: `The message could not be sent (${result.errorCode ?? "error"}).`, nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+      }
+      return {
+        status: "succeeded",
+        output: `${result.status === "simulated" ? "Simulated send" : "Sent"} to ${recipient}`,
+        error: null,
+        nextNodeId: node.next,
+        meaningful: false,
+        employeeId: null,
+        input: summary,
+      };
+    } catch {
+      return { status: "failed", output: "", error: "The message could not be sent.", nextNodeId: null, meaningful: false, employeeId: null, input: summary };
+    }
+  }
+
+  if (node.type === "sub_workflow") {
+    const subInput = interpolate(node.inputTemplate, context) || context.triggerInput;
+    if ((params.depth ?? 0) + 1 >= MAX_WORKFLOW_DEPTH) {
+      return { status: "failed", output: "", error: `Workflows are nested too deep (limit ${MAX_WORKFLOW_DEPTH}).`, nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    const sub = await store.getWorkflow(orgId, node.workflowId);
+    if (!sub) {
+      return { status: "failed", output: "", error: "The workflow this step runs could not be found.", nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    if (!sub.graph.entryNodeId || sub.graph.nodes.length === 0) {
+      return { status: "failed", output: "", error: `“${sub.name}” has no steps to run.`, nextNodeId: null, meaningful: false, employeeId: null, input: subInput || null };
+    }
+    const childRun = await runWorkflow(deps, {
+      workflow: sub,
+      organizationName: params.organizationName,
+      actor: params.actor,
+      triggeredBy: "workflow",
+      input: { message: subInput },
+      depth: (params.depth ?? 0) + 1,
+    });
+    if (childRun.status !== "succeeded") {
+      return { status: "failed", output: childRun.output ?? "", error: `“${sub.name}” did not finish: ${childRun.error ?? "failed"}`, nextNodeId: null, meaningful: true, employeeId: null, input: subInput || null };
+    }
+    return {
+      status: "succeeded",
+      output: childRun.output ?? "",
+      error: null,
+      nextNodeId: node.next,
+      meaningful: true,
+      employeeId: null,
+      input: subInput || null,
     };
   }
 

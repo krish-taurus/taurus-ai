@@ -8,6 +8,7 @@
  * drives each employee through the normal chat governance + billing path.
  */
 
+import { randomUUID } from "node:crypto";
 import type { DataStore } from "@/lib/db/store";
 import type {
   Workflow,
@@ -16,6 +17,7 @@ import type {
   WorkflowRunStep,
   WorkflowRunTriggerSource,
   WorkflowStatus,
+  WorkflowTrigger,
 } from "@/lib/db/types";
 import {
   validateGraphIntegrity,
@@ -130,6 +132,46 @@ export async function updateWorkflowDetails(
   return updated;
 }
 
+/** A URL-safe webhook token (32 hex chars). */
+function newWebhookToken(): string {
+  return randomUUID().replace(/-/g, "");
+}
+
+/**
+ * Switch a workflow's trigger between manual and webhook. Enabling webhook mints
+ * a fresh secret token (rotating it invalidates the old URL); switching to manual
+ * removes it. Returns the updated workflow so the caller can show the new URL.
+ */
+export async function setWorkflowTrigger(
+  store: DataStore,
+  actor: WorkflowActor,
+  workflowId: string,
+  kind: "manual" | "webhook",
+): Promise<Workflow> {
+  const existing = await store.getWorkflow(actor.organizationId, workflowId);
+  if (!existing) throw new WorkflowError("This workflow could not be found.");
+  const trigger: WorkflowTrigger =
+    kind === "webhook"
+      ? {
+          type: "webhook",
+          // Reuse the token if one already exists so the URL is stable.
+          token: existing.trigger.type === "webhook" ? existing.trigger.token : newWebhookToken(),
+        }
+      : { type: "manual" };
+  const updated = await store.updateWorkflow(actor.organizationId, workflowId, { trigger });
+  if (!updated) throw new WorkflowError("This workflow could not be found.");
+  await store.createAuditEvent({
+    organizationId: actor.organizationId,
+    actorType: "user",
+    actorId: actor.userId,
+    action: "workflow.trigger_changed",
+    targetType: "workflow",
+    targetId: workflowId,
+    metadata: { trigger: kind },
+  });
+  return updated;
+}
+
 export async function setWorkflowStatus(
   store: DataStore,
   actor: WorkflowActor,
@@ -204,6 +246,38 @@ export async function startWorkflowRun(
     triggeredBy: opts.triggeredBy ?? "manual",
     input: opts.input,
   });
+}
+
+export type WebhookRunResult =
+  | { ok: true; run: WorkflowRun }
+  | { ok: false; reason: "not_found" | "inactive" | "empty" };
+
+/**
+ * Run a workflow triggered by its webhook token (unauthenticated — the token is
+ * the secret). Only ACTIVE workflows fire, so a paused/draft webhook is inert.
+ * The run executes as a system actor under the workflow's own organization.
+ */
+export async function runWorkflowByWebhookToken(
+  deps: WorkflowEngineDeps,
+  token: string,
+  input: Record<string, unknown>,
+): Promise<WebhookRunResult> {
+  const { store } = deps;
+  const workflow = await store.getWorkflowByWebhookToken(token);
+  if (!workflow || workflow.trigger.type !== "webhook") return { ok: false, reason: "not_found" };
+  if (workflow.status !== "active") return { ok: false, reason: "inactive" };
+  if (!workflow.graph.entryNodeId || workflow.graph.nodes.length === 0) {
+    return { ok: false, reason: "empty" };
+  }
+  const organization = await store.getOrganizationById(workflow.organizationId);
+  const run = await runWorkflow(deps, {
+    workflow,
+    organizationName: organization?.name ?? "our company",
+    actor: { organizationId: workflow.organizationId, userId: null },
+    triggeredBy: "webhook",
+    input,
+  });
+  return { ok: true, run };
 }
 
 export async function listWorkflowRuns(

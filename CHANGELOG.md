@@ -1,5 +1,37 @@
 # Changelog
 
+## Sprint 049 - Workflows Phase 2: webhook trigger, send-message + sub-workflow nodes — 2026-07-10
+
+Added:
+
+- **Webhook trigger** — a workflow can now be started by an external system
+  (a form, CRM, Zapier, …) POSTing to a private URL. Switching a workflow's
+  trigger to "webhook" mints a secret token; `POST /api/workflows/hooks/<token>`
+  starts a run with the body's `message` as `{{input}}`. Unauthenticated by
+  design (the token is the secret) and **only fires while the workflow is
+  active**, so a paused/draft webhook is inert. Runs through the same governed
+  engine as a manual run.
+- **Send message node** — a step that sends text out through a connected
+  messaging channel (WhatsApp / SMS / email / Slack), so a workflow can notify a
+  person or reply on a channel. Reuses the existing provider + credential
+  resolution; sends live when the channel has credentials, otherwise records a
+  simulated send (safe in dev). Templated recipient + message.
+- **Run another workflow node** — one workflow runs another as a step and passes
+  its output on ("workflows one after another"). Guarded by a **depth cap**
+  (`MAX_WORKFLOW_DEPTH`) so a self-referential or deeply-nested chain fails
+  cleanly instead of recursing forever.
+- **Builder + trigger panel**: the builder gains *Send message* and *Run
+  workflow* step types (with channel / workflow pickers), and the workflow page
+  gains a Trigger panel to switch between manual and webhook and copy the URL.
+- Tested: sub-workflow output hand-off + depth-cap refusal, a simulated send +
+  missing-recipient failure, and the webhook path (active token runs;
+  inactive/unknown tokens rejected). `tsc` clean · `next lint` clean · production
+  build clean · **611 tests + 6 skipped**.
+
+Deferred to a later phase (all need the durable-tick resume machinery / touch the
+live inbound path): schedule trigger, inbound-channel trigger, human-approval
+pauses.
+
 ## Sprint 048 - Workflows: chain AI Employees together (Phase 1) — 2026-07-10
 
 Added:

@@ -2384,6 +2384,15 @@ export class PostgresStore implements DataStore {
     return (rowCount ?? 0) > 0;
   }
 
+  async getWorkflowByWebhookToken(token: string): Promise<Workflow | null> {
+    if (!token) return null;
+    const { rows } = await this.query(
+      "select * from workflows where trigger->>'type' = 'webhook' and trigger->>'token' = $1 limit 1",
+      [token],
+    );
+    return rows[0] ? mapWorkflow(rows[0]) : null;
+  }
+
   async createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun> {
     const { rows } = await this.query(
       `insert into workflow_runs

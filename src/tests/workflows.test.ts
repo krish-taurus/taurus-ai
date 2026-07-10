@@ -5,11 +5,14 @@ import type { ChatGateway } from "@/modules/employee-chat/service";
 import type { GatewayRequest, GatewayResponse } from "@/modules/model-gateway/types";
 import type { AiEmployee, WorkflowGraph } from "@/lib/db/types";
 import { emptyContext, interpolate, evaluateCondition } from "@/modules/workflows/templating";
-import { runWorkflow, MAX_STEPS_PER_RUN } from "@/modules/workflows/engine";
+import { runWorkflow, MAX_STEPS_PER_RUN, MAX_WORKFLOW_DEPTH } from "@/modules/workflows/engine";
 import {
   createWorkflow,
   updateWorkflowDetails,
+  setWorkflowTrigger,
+  setWorkflowStatus,
   startWorkflowRun,
+  runWorkflowByWebhookToken,
   listWorkflowRunSteps,
   WorkflowError,
 } from "@/modules/workflows/service";
@@ -87,6 +90,27 @@ async function seedEmployee(store: InMemoryStore, orgId: string, name: string): 
 const actor = { organizationId: "org-1", userId: "user-1" };
 function deps(store: InMemoryStore) {
   return { store, gateway: echoGateway(), isProduction: () => false };
+}
+
+async function seedChannel(store: InMemoryStore, employeeId: string) {
+  return store.createEmployeeChannel({
+    organizationId: actor.organizationId,
+    employeeId,
+    channelType: "sms",
+    channelProvider: "twilio",
+    publicKey: `pk-${Math.random().toString(36).slice(2, 10)}`,
+    name: "SMS line",
+    appearance: {
+      theme: "light",
+      position: "bottom-right",
+      launcherLabel: "Chat",
+      employeeDisplayName: "Nova",
+      accentStyle: "mono",
+      showSources: false,
+      collectVisitorEmail: false,
+      brandName: null,
+    },
+  });
 }
 
 // --- Templating (pure) ------------------------------------------------------
@@ -229,6 +253,163 @@ describe("workflow engine", () => {
     expect(run.status).toBe("failed");
     expect(run.stepCount).toBe(MAX_STEPS_PER_RUN);
     expect(run.error).toMatch(/stopped after/i);
+  });
+});
+
+// --- Phase 2: sub-workflow, send-message, webhook ---------------------------
+
+describe("workflow engine — sub-workflows", () => {
+  it("runs another workflow as a step and passes its output on", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Child");
+    const child = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Child flow",
+      status: "active",
+      graph: {
+        entryNodeId: "c1",
+        nodes: [{ id: "c1", type: "employee", employeeId: emp.id, messageTemplate: "{{input}}", next: null }],
+      },
+    });
+    const parent = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Parent flow",
+      graph: {
+        entryNodeId: "p1",
+        nodes: [{ id: "p1", type: "sub_workflow", workflowId: child.id, inputTemplate: "{{input}}", next: null }],
+      },
+    });
+
+    const run = await runWorkflow(deps(store), {
+      workflow: parent,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "go" },
+    });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toBe("<go>"); // child employee echoed the passed input
+    // Both the parent run and the child run are recorded.
+    expect(await store.listWorkflowRunsForWorkflow(actor.organizationId, child.id)).toHaveLength(1);
+  });
+
+  it("refuses to nest workflows past the depth cap", async () => {
+    const store = new InMemoryStore();
+    // A workflow that calls itself would recurse forever without the cap.
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Recursive",
+      status: "active",
+      graph: { entryNodeId: "x", nodes: [] },
+    });
+    // Point it at itself now that we have its id.
+    await store.updateWorkflow(actor.organizationId, wf.id, {
+      graph: {
+        entryNodeId: "x",
+        nodes: [{ id: "x", type: "sub_workflow", workflowId: wf.id, inputTemplate: "{{input}}", next: null }],
+      },
+    });
+    const reloaded = await store.getWorkflow(actor.organizationId, wf.id);
+    const run = await runWorkflow(deps(store), {
+      workflow: reloaded!,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "loop" },
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/nested too deep/i);
+    expect(MAX_WORKFLOW_DEPTH).toBeGreaterThan(0);
+  });
+});
+
+describe("workflow engine — send message", () => {
+  it("records a simulated send when the channel has no live credentials", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Notifier");
+    const channel = await seedChannel(store, emp.id);
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Notify",
+      graph: {
+        entryNodeId: "n1",
+        nodes: [
+          {
+            id: "n1",
+            type: "send_message",
+            channelId: channel.id,
+            recipientTemplate: "+15551230000",
+            messageTemplate: "Hello {{input}}",
+            next: null,
+          },
+        ],
+      },
+    });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "there" },
+    });
+    expect(run.status).toBe("succeeded");
+    const steps = await listWorkflowRunSteps(store, actor.organizationId, run.id);
+    expect(steps[0].nodeType).toBe("send_message");
+    expect(steps[0].output).toMatch(/Simulated send to \+15551230000/);
+  });
+
+  it("fails the step when the send has no recipient", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Notifier");
+    const channel = await seedChannel(store, emp.id);
+    const wf = await store.createWorkflow({
+      organizationId: actor.organizationId,
+      name: "Notify",
+      graph: {
+        entryNodeId: "n1",
+        nodes: [
+          { id: "n1", type: "send_message", channelId: channel.id, recipientTemplate: "", messageTemplate: "hi", next: null },
+        ],
+      },
+    });
+    const run = await runWorkflow(deps(store), {
+      workflow: wf,
+      organizationName: "Acme",
+      actor,
+      triggeredBy: "manual",
+      input: { message: "" },
+    });
+    expect(run.status).toBe("failed");
+    expect(run.error).toMatch(/no recipient/i);
+  });
+});
+
+describe("workflow webhook trigger", () => {
+  it("runs an active workflow by its token and rejects inactive/unknown tokens", async () => {
+    const store = new InMemoryStore();
+    const emp = await seedEmployee(store, actor.organizationId, "Helper");
+    const wf = await createWorkflow(store, actor, { name: "Hooked" });
+    await updateWorkflowDetails(store, actor, wf.id, {
+      graph: {
+        entryNodeId: "n1",
+        nodes: [{ id: "n1", type: "employee", employeeId: emp.id, messageTemplate: "{{input}}", next: null }],
+      },
+    });
+    const withTrigger = await setWorkflowTrigger(store, actor, wf.id, "webhook");
+    const token = withTrigger.trigger.type === "webhook" ? withTrigger.trigger.token : "";
+    expect(token.length).toBeGreaterThanOrEqual(16);
+
+    // Not active yet → inactive.
+    const inactive = await runWorkflowByWebhookToken(deps(store), token, { message: "hi" });
+    expect(inactive).toEqual({ ok: false, reason: "inactive" });
+
+    await setWorkflowStatus(store, actor, wf.id, "active");
+    const ok = await runWorkflowByWebhookToken(deps(store), token, { message: "hi" });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.run.output).toBe("<hi>");
+
+    const unknown = await runWorkflowByWebhookToken(deps(store), "nope-token-value", { message: "x" });
+    expect(unknown).toEqual({ ok: false, reason: "not_found" });
   });
 });
 

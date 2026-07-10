@@ -377,6 +377,8 @@ export interface DataStore {
     patch: UpdateWorkflowInput,
   ): Promise<Workflow | null>;
   deleteWorkflow(organizationId: string, workflowId: string): Promise<boolean>;
+  /** Look up a workflow by its webhook trigger token (not org-scoped — the token is the secret). */
+  getWorkflowByWebhookToken(token: string): Promise<Workflow | null>;
 
   createWorkflowRun(input: CreateWorkflowRunInput): Promise<WorkflowRun>;
   getWorkflowRun(organizationId: string, runId: string): Promise<WorkflowRun | null>;
